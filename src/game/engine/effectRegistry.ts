@@ -1,5 +1,11 @@
 import type { EffectDef, EffectType } from './types';
 import { noopResolve } from './resolvers/noop';
+import { resolveGuard } from './resolvers/guard';
+import { resolvePriest } from './resolvers/priest';
+import { resolveBaron } from './resolvers/baron';
+import { resolveHandmaid } from './resolvers/handmaid';
+import { resolvePrince } from './resolvers/prince';
+import { resolveKing } from './resolvers/king';
 
 /**
  * Card behaviour, keyed by effect type.
@@ -24,7 +30,7 @@ export const EFFECT_DEFS: Readonly<Record<EffectType, EffectDef>> = {
         isPassive: false,
         eliminatesOnDiscard: false,
         forcedPlayTriggers: [],
-        resolve: noopResolve
+        resolve: resolveGuard
     },
     PRIEST: {
         effectType: 'PRIEST',
@@ -34,7 +40,7 @@ export const EFFECT_DEFS: Readonly<Record<EffectType, EffectDef>> = {
         isPassive: false,
         eliminatesOnDiscard: false,
         forcedPlayTriggers: [],
-        resolve: noopResolve
+        resolve: resolvePriest
     },
     BARON: {
         effectType: 'BARON',
@@ -44,7 +50,7 @@ export const EFFECT_DEFS: Readonly<Record<EffectType, EffectDef>> = {
         isPassive: false,
         eliminatesOnDiscard: false,
         forcedPlayTriggers: [],
-        resolve: noopResolve
+        resolve: resolveBaron
     },
     HANDMAID: {
         effectType: 'HANDMAID',
@@ -54,7 +60,7 @@ export const EFFECT_DEFS: Readonly<Record<EffectType, EffectDef>> = {
         isPassive: true,
         eliminatesOnDiscard: false,
         forcedPlayTriggers: [],
-        resolve: noopResolve
+        resolve: resolveHandmaid
     },
     PRINCE: {
         effectType: 'PRINCE',
@@ -64,7 +70,7 @@ export const EFFECT_DEFS: Readonly<Record<EffectType, EffectDef>> = {
         isPassive: false,
         eliminatesOnDiscard: false,
         forcedPlayTriggers: [],
-        resolve: noopResolve
+        resolve: resolvePrince
     },
     KING: {
         effectType: 'KING',
@@ -74,7 +80,7 @@ export const EFFECT_DEFS: Readonly<Record<EffectType, EffectDef>> = {
         isPassive: false,
         eliminatesOnDiscard: false,
         forcedPlayTriggers: [],
-        resolve: noopResolve
+        resolve: resolveKing
     },
     COUNTESS: {
         effectType: 'COUNTESS',
