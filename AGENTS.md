@@ -96,11 +96,37 @@ The slug does **not** always match the card's display name. Mapping (README card
 
 Other asset dirs: `card-back/`, `card-front/`, `shaders/` (distortion/sparkle/rainbow maps for effects), `misc/` (playfield background, devotion token badge, UI panel textures — catalogued in `VISUAL_SHOWCASE.md`).
 
+## Phaser 4 skills — use them
+
+`.agents/skills/` holds 28 reference skills covering the Phaser 4.2.1 API, surfaced to Claude Code through the `.claude` symlink and invoked as `/scenes`, `/tweens`, and so on. Each skill's own description lists what triggers it, and agent tools load that list automatically — so the rules below are about **when to invoke**, not what each skill contains.
+
+**Invoke the matching skill _before_ writing Phaser code, not after the code misbehaves.** These skills are the API reference for this project; guessing at the API and correcting later wastes a cycle and tends to produce Phaser 3 idioms.
+
+**The version trap — this is the one that bites.** This project is Phaser **4**. Nearly every Phaser example in the wild, and most recalled API knowledge, is Phaser **3**, and the two differ substantially: pipelines became render nodes, FX and masks became filters, tint and camera-matrix behavior changed, and some game objects were removed outright. If you are about to write Phaser code from memory, or you are adapting a snippet found online, consult `/v3-to-v4-migration` first. `/v4-new-features` covers what v4 added (Filters, RenderNodes, SpriteGPULayer, Gradient, Noise).
+
+Rough routing for this game, since a card game exercises an unusual slice of the engine:
+
+| Working on                                              | Start with                                                                  |
+| ------------------------------------------------------- | --------------------------------------------------------------------------- |
+| Scene chain, transitions, per-round state               | `/scenes`, `/game-setup-and-config`                                         |
+| Cards on screen — dealing, flipping, hovering, layout   | `/sprites-and-images`, `/tweens`, `/groups-and-containers`                  |
+| Clicking cards, targeting opponents, drag               | `/input-keyboard-mouse-touch`                                               |
+| Card text, player names, Devotion Token counts          | `/text-and-bitmaptext`                                                      |
+| Loading the portrait/card art in `Preloader`            | `/loading-assets`                                                           |
+| Effects from `public/assets/shaders/`                   | `/filters-and-postfx`, `/particles`                                         |
+| Game state, turn order, event plumbing between scenes   | `/data-manager`, `/events-system`                                           |
+| Turn timers, deal/reveal delays                         | `/time-and-timers`                                                          |
+| Fitting 1024×768 to real browser windows                | `/scale-and-responsive`, `/cameras`                                         |
+
+`/physics-arcade`, `/physics-matter`, and `/tilemaps` are almost certainly irrelevant here — this game has no physics simulation and no tile grid. Reach for them only if the design changes.
+
 ## Agent configuration files
 
 This repo follows the cross-tool [AGENTS.md](https://agents.md) convention: **this file is the single source of truth.**
 
 - `CLAUDE.md` contains one line — `@AGENTS.md` — which Claude Code expands into this file's contents during preprocessing, before the model sees it. See [Write an effective CLAUDE.md](https://code.claude.com/docs/en/best-practices#write-an-effective-claude-md).
 - `.claude/` is a symlink to `.agents/`, which holds shared skills (`.agents/skills/`).
+
+The symlink is load-bearing and deliberate. Claude Code discovers skills only under a `.claude/skills/` path: `--add-dir` looks for `.claude/skills/` *inside* the added directory, `permissions.additionalDirectories` in `settings.json` grants file access but explicitly does not load skills, and skills-directory plugins are themselves found only under `.claude/skills/`. There is no supported way to point Claude Code at a bare `.agents/skills/`, so removing the symlink silently hides all 28 skills. (Windows checkouts need `core.symlinks=true`.)
 
 When updating project guidance, edit `AGENTS.md` — never fork the content into a tool-specific copy.
