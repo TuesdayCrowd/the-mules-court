@@ -25,13 +25,22 @@ export function seedRng(seed: string): RngState {
     return { s: hash >>> 0 };
 }
 
-/** Draws one value in [0, 1) and returns the advanced state alongside it. */
+/**
+ * Draws one value in [0, 1) and returns the advanced state alongside it.
+ *
+ * The state advance is a plain constant addition, which is a bijection over 32-bit
+ * integers and therefore visits all 2^32 states before repeating. The mixing steps
+ * shape the OUTPUT only; they never feed back into the state. Persisting the mixed
+ * value instead would make the advance non-bijective, letting distinct seeds
+ * converge onto a shared cycle and emit identical streams from that point on.
+ */
 export function nextRng(rng: RngState): { rng: RngState; value: number } {
-    let t = (rng.s + 0x6d2b79f5) >>> 0;
+    const s = (rng.s + 0x6d2b79f5) >>> 0;
+    let t = s;
     t = Math.imul(t ^ (t >>> 15), t | 1);
     t ^= t + Math.imul(t ^ (t >>> 7), t | 61);
     const value = ((t ^ (t >>> 14)) >>> 0) / UINT32_RANGE;
-    return { rng: { s: t >>> 0 }, value };
+    return { rng: { s }, value };
 }
 
 /**

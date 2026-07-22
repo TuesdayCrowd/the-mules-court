@@ -25,17 +25,24 @@ export function resolvePrince(context: ResolveContext): void {
 
     if (discarded !== undefined) {
         const card = CARD_CATALOG[cardTypeOf(discarded)];
-        target.hand.shift();
-        target.discardPile.push({ instanceId: discarded, cardId: card.id, value: card.value });
-        target.discardValueTotal += card.value;
 
         // Forced to discard The Mule: eliminated, and no replacement is drawn.
         // Drawing one would bury a card nobody ever sees and would shift the turn
         // on which the deck runs out.
+        //
+        // The hand is left untouched so that eliminate() performs the reveal
+        // itself. Discarding here first and calling eliminate() afterwards would
+        // work today only by duplicating the primitive's logic — exactly the
+        // "remember the rule at every call site" pattern the single primitive
+        // exists to abolish.
         if (EFFECT_DEFS[card.effectType].eliminatesOnDiscard) {
             eliminate(round, targetId, 'mule-forced');
             return;
         }
+
+        target.hand.shift();
+        target.discardPile.push({ instanceId: discarded, cardId: card.id, value: card.value });
+        target.discardValueTotal += card.value;
     }
 
     const drewFrom = drawReplacement(context, targetId);

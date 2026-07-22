@@ -37,6 +37,33 @@ describe('seedRng and nextRng', () => {
         expect(rng).toEqual(snapshot);
     });
 
+    // mulberry32 carries a plain incrementing counter as its state and uses the
+    // mixing steps only to shape the OUTPUT. Feeding the mixed value back in as
+    // state makes the advance non-bijective, so distinct seeds can converge onto
+    // a shared cycle and produce identical streams from then on.
+    it('advances state by the mulberry32 constant, keeping the advance bijective', () => {
+        const start = seedRng('bijective');
+        expect(nextRng(start).rng.s).toBe((start.s + 0x6d2b79f5) >>> 0);
+    });
+
+    it('never lets two different seeds converge onto the same state', () => {
+        const walk = (seed: string, steps: number) => {
+            const states = new Set<number>();
+            let rng = seedRng(seed);
+            for (let i = 0; i < steps; i++) {
+                states.add(rng.s);
+                rng = nextRng(rng).rng;
+            }
+            return states;
+        };
+        const alpha = walk('alpha', 40_000);
+        let beta = seedRng('beta');
+        for (let i = 0; i < 40_000; i++) {
+            expect(alpha.has(beta.s), `seeds converged after ${i} draws`).toBe(false);
+            beta = nextRng(beta).rng;
+        }
+    });
+
     it('survives a JSON round trip', () => {
         const rng = nextRng(seedRng('serialize')).rng;
         const revived = JSON.parse(JSON.stringify(rng));

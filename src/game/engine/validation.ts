@@ -63,7 +63,10 @@ export function validateAction(round: RoundState, action: PlayCardAction): Valid
     // 7. The Informant's guess.
     const guessApplies = effectDef.requiresGuess && legalTargets.length > 0;
     if (guessApplies) {
-        if (action.guess === undefined) {
+        // A guess must name a real card. An unknown string could only ever miss,
+        // so this buys no advantage — but the engine never accepts a shape it did
+        // not define.
+        if (action.guess === undefined || CARD_CATALOG[action.guess] === undefined) {
             return { ok: false, error: { code: 'GUESS_REQUIRED' } };
         }
         // Banned by identity, never by value, so the rule survives a future value-1 card.

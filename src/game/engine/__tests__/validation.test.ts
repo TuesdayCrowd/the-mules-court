@@ -10,10 +10,15 @@ const action = (overrides: Partial<PlayCardAction> = {}): PlayCardAction => ({
     ...overrides
 });
 
-/** Asserts the result is a rejection carrying the given code. */
-const expectError = (result: ValidationResult, code: string) => {
+/** Asserts the result is a rejection carrying the given code, and optionally the reason. */
+const expectError = (result: ValidationResult, code: string, reason?: string) => {
     expect(result.ok).toBe(false);
-    if (!result.ok) expect(result.error.code).toBe(code);
+    if (!result.ok) {
+        expect(result.error.code).toBe(code);
+        if (reason !== undefined) {
+            expect((result.error as { reason?: string }).reason).toBe(reason);
+        }
+    }
 };
 
 const twoPlayerRound = (): RoundState =>
@@ -94,7 +99,7 @@ describe('validateAction — targeting', () => {
             })
         });
         const result = validateAction(round, action({ target: 'p1', guess: 'mule' }));
-        expectError(result, 'TARGET_NOT_LEGAL');
+        expectError(result, 'TARGET_NOT_LEGAL', 'PROTECTED');
     });
 
     it('rejects an eliminated target', () => {
@@ -105,13 +110,14 @@ describe('validateAction — targeting', () => {
                 p2: { hand: ['magnifico#0'] }
             })
         });
-        expectError(validateAction(round, action({ target: 'p1', guess: 'mule' })), 'TARGET_NOT_LEGAL');
+        expectError(validateAction(round, action({ target: 'p1', guess: 'mule' })), 'TARGET_NOT_LEGAL', 'ELIMINATED');
     });
 
     it('rejects an unknown target', () => {
         expectError(
             validateAction(twoPlayerRound(), action({ target: 'nobody', guess: 'mule' })),
-            'TARGET_NOT_LEGAL'
+            'TARGET_NOT_LEGAL',
+            'UNKNOWN_PLAYER'
         );
     });
 
@@ -124,7 +130,7 @@ describe('validateAction — targeting', () => {
             })
         });
         const result = validateAction(round, action({ cardInstanceId: 'bayta-darell#0', target: 'p1' }));
-        expectError(result, 'TARGET_NOT_LEGAL');
+        expectError(result, 'TARGET_NOT_LEGAL', 'PROTECTED');
     });
 
     it('accepts a PRINCE targeting itself', () => {
@@ -136,6 +142,46 @@ describe('validateAction — targeting', () => {
         });
         const result = validateAction(round, action({ cardInstanceId: 'bayta-darell#0', target: 'p0' }));
         expect(result.ok).toBe(true);
+    });
+});
+
+describe('validateAction — self-targeting a card that forbids it', () => {
+    it('rejects an Informant aimed at its own player, naming the reason', () => {
+        const round = makeRound({
+            players: makePlayers({
+                p0: { hand: ['informant#0', 'magnifico#0'] },
+                p1: { hand: ['mule#0'] }
+            })
+        });
+        expectError(
+            validateAction(round, action({ target: 'p0', guess: 'mule' })),
+            'TARGET_NOT_LEGAL',
+            'SELF_NOT_ALLOWED'
+        );
+    });
+
+    it('rejects a King aimed at its own player', () => {
+        const round = makeRound({
+            players: makePlayers({
+                p0: { hand: ['mayor-indbur#0', 'magnifico#0'] },
+                p1: { hand: ['mule#0'] }
+            })
+        });
+        expectError(
+            validateAction(round, action({ cardInstanceId: 'mayor-indbur#0', target: 'p0' })),
+            'TARGET_NOT_LEGAL',
+            'SELF_NOT_ALLOWED'
+        );
+    });
+});
+
+describe('validateAction — the guess must name a real card', () => {
+    it('rejects a guess that is not a known card identity', () => {
+        const result = validateAction(
+            twoPlayerRound(),
+            action({ target: 'p1', guess: 'not-a-card' as never })
+        );
+        expect(result.ok).toBe(false);
     });
 });
 
