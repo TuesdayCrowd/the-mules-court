@@ -1,0 +1,30 @@
+{
+  "name": "the-mules-court",
+  "description": "A Love Letter-style card game of deduction, risk, and elimination set in Isaac Asimov's Foundation universe, built with Phaser.",
+  "version": "0.1.0",
+  "private": true,
+  "license": "Unlicense",
+  "author": "Cornelius Donley <admin@tuesdaycrowd.com>",
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/TuesdayCrowd/the-mules-court.git"
+  },
+  "bugs": {
+    "url": "https://github.com/TuesdayCrowd/the-mules-court/issues"
+  },
+  "homepage": "https://github.com/TuesdayCrowd/the-mules-court#readme",
+  "scripts": {
+    "dev": "bun log.js dev && bunx --bun vite --config vite/config.dev.mjs",
+    "build": "bun log.js build && bunx --bun vite build --config vite/config.prod.mjs",
+    "dev-nolog": "bunx --bun vite --config vite/config.dev.mjs",
+    "build-nolog": "bunx --bun vite build --config vite/config.prod.mjs"
+  },
+  "devDependencies": {
+    "typescript": "~5.7.2",
+    "vite": "^6.3.1",
+    "terser": "^5.39.0"
+  },
+  "dependencies": {
+    "phaser": "4.2.1"
+  }
+}
