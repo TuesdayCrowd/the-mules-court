@@ -104,8 +104,17 @@ export function dealRound(
  *
  * The first seat leads round one; from round two onward the previous winner
  * leads, and a co-win breaks toward whoever most recently led.
+ *
+ * `matchId` is public and reaches every client, so it must NEVER be derived from
+ * `seed`: the seed reproduces the whole shuffle, and anyone holding it could read
+ * the deck. The caller supplies the id, because an engine barred from ambient
+ * randomness cannot invent a unique one itself.
  */
-export function createMatch(playerIds: readonly PlayerId[], seed: string): MatchState {
+export function createMatch(
+    playerIds: readonly PlayerId[],
+    seed: string,
+    matchId = 'match'
+): MatchState {
     const count = assertSupported(playerIds);
     const starterId = playerIds[0];
 
@@ -120,7 +129,7 @@ export function createMatch(playerIds: readonly PlayerId[], seed: string): Match
 
     return {
         schemaVersion: 1,
-        matchId: seed,
+        matchId,
         playerCount: count,
         tokensToWin: SETUP_TABLE[count].tokensToWin,
         players,
