@@ -84,9 +84,3 @@ The slug does **not** always match the card's display name. Mapping (README card
 | The Mule             | `mule/`          | 8     |
 
 Other asset dirs: `card-back/`, `card-front/`, `shaders/` (distortion/sparkle/rainbow maps for effects), `misc/` (playfield background, devotion token badge, UI panel textures — catalogued in `VISUAL_SHOWCASE.md`).
-
-## Version control
-
-This repo uses **GitButler**, not raw git, for all commits/branches/PRs. The workflow (never `git commit`/`checkout`/`rebase`/`merge`; use the `gitbutler` skill and `but` CLI; never push `gitbutler/workspace` directly) is covered in the global `~/.claude/CLAUDE.md` — follow it.
-
-**Default to branches and pull requests.** Record work on a virtual branch, push it, and open a PR (`but pr new`, or `gh` when GitButler's forge auth isn't configured). Never commit straight to `main`. Do **not** use `but land` — which pushes directly onto `origin/main`, skipping PR review and CI — **unless the user explicitly asks you to land.** When in doubt, open a PR.
