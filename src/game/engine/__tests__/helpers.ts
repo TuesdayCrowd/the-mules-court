@@ -1,4 +1,4 @@
-import type { CardInstanceId, PlayerId, RoundPlayerState, RoundState } from '../types';
+import type { CardInstanceId, PlayerId, RoundDraft, RoundPlayerState, RoundState } from '../types';
 
 /**
  * Fixture builders for engine tests.
@@ -49,6 +49,11 @@ export function makeRound(options: MakeRoundOptions = {}): RoundState {
         phase: 'awaiting-play',
         roundResult: null
     };
+}
+
+/** A mutable draft of a fixture round, as reduce() would hand to a resolver. */
+export function makeDraft(options: MakeRoundOptions = {}): RoundDraft {
+    return structuredClone(makeRound(options)) as RoundDraft;
 }
 
 /** Builds a players record from a list of partial specs keyed by id. */

@@ -71,12 +71,28 @@ export interface EffectDef {
     readonly resolve: EffectResolver;
 }
 
-/** Resolvers mutate a working copy of the round produced by reduce(). */
+/**
+ * Strips readonly recursively.
+ *
+ * Published state is deeply immutable, but reduce() works on a private clone that
+ * resolvers mutate in place. Keeping the draft a distinct type means a resolver
+ * can never be handed committed state by accident.
+ */
+export type Draft<T> = T extends readonly (infer U)[]
+    ? Draft<U>[]
+    : T extends object
+      ? { -readonly [K in keyof T]: Draft<T[K]> }
+      : T;
+
+export type RoundDraft = Draft<RoundState>;
+
+/** Resolvers mutate the working copy of the round produced by reduce(). */
 export type EffectResolver = (context: ResolveContext) => void;
 
 export interface ResolveContext {
-    readonly round: RoundState;
+    readonly round: RoundDraft;
     readonly actorId: PlayerId;
+    /** Absent when no legal target existed and the play fizzled. */
     readonly targetId?: PlayerId;
     readonly guess?: CardTypeId;
     readonly playedCardId: CardTypeId;
