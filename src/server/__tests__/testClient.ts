@@ -93,6 +93,19 @@ export class TestClient {
         this.ws.send(JSON.stringify(msg));
     }
 
+    /**
+     * Sends an already-serialized string frame, bypassing the `ClientMessage`
+     * type entirely (plan Task 15's abuse suite — the ONE allowed addition to
+     * this file). `send` above can only ever construct a shape the type
+     * system accepts; several abuse attacks (an extra `seat` field on
+     * `CLAIM_SEAT`, a spoofed `playerId` on `PLAY_CARD`, `target: "__proto__"`)
+     * are specifically the shapes `ClientMessage` forbids, so exercising them
+     * over a real socket needs a way to hand the wire literally anything.
+     */
+    sendRaw(text: string): void {
+        this.ws.send(text);
+    }
+
     /** Resolves the next (or an already-received, unconsumed) message of `type`. */
     nextOfType<T extends ServerMessage['type']>(type: T, timeoutMs = 2000): Promise<Extract<ServerMessage, { type: T }>> {
         const queued = this.queues.get(type);
