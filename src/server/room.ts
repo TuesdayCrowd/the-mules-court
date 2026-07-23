@@ -1,30 +1,39 @@
 /**
- * The Room class (Design §2, §4, §5, §10): one Room owns a fixed 4-slot seat
- * table, a serialization queue, and every send for its match. Room performs
- * ALL sends itself — unicast via `seat.conn.send`, "broadcast" as the same
- * bytes looped over connected seats (this project's deliberate deviation from
- * `ws.publish()`, see the implementation plan's Stage conventions) — so Room
- * is directly testable with a plain recording connection and no running
- * server.
+ * The Room class (Design §2, §4, §5, §6, §7, §10): one Room owns a fixed
+ * 4-slot seat table, a serialization queue, an optional `MatchState`, and
+ * every send for its match. Room performs ALL sends itself — unicast via
+ * `seat.conn.send`, "broadcast" as the same bytes looped over connected seats
+ * (this project's deliberate deviation from `ws.publish()`, see the
+ * implementation plan's Stage conventions) — so Room is directly testable
+ * with a plain recording connection and no running server.
  *
  * Seat status is derived, never stored: `open` (no tokenHash), `occupied`
  * (conn bound), `disconnected` (tokenHash, no conn). `paused` is likewise
  * derived as `missingSeats().length > 0` and is never a settable flag
- * (Design §5) — it is not yet surfaced to clients in the lobby phase, but is
- * already correct so Task 8 needs no rework.
+ * (Design §5).
  *
- * This file implements only the lobby-phase surface (Design §5 transitions
- * 1, 2, 3, 6): `create`, `claimSeat`, `resumeSeat`, `handleClose`, `enqueue`,
- * and lobby `sweep`. `startMatch`, `playCard`, `endMatch`, `resync`, and
- * active/ended-phase `sweep` transitions arrive in Tasks 8-10.
+ * This file implements the lobby-phase surface (Design §5 transitions 1, 2,
+ * 3, 6: `create`, `claimSeat`, `resumeSeat`, `handleClose`, `enqueue`, lobby
+ * `sweep`) AND the active/ended-phase gameplay surface added in Task 8:
+ * `startMatch`, `playCard`, `endMatch`, `resync`, and the active/ended
+ * branches of `handleClose`/`resumeSeat`. `armRevealTimer`/`clearRevealTimer`
+ * are a deliberate seam: Task 8 only ever sets or nulls `revealDeadline`;
+ * Task 9 adds the real `setTimeout` and `advanceRound`. Active-phase `sweep`
+ * (rows 12, 13) still arrives in Task 10.
  */
 
-import type { PlayerId } from '../game/engine';
+import {
+    createMatch as engineCreateMatch,
+    isMatchOver as engineIsMatchOver,
+    reduce as engineReduce,
+    view as engineView
+} from '../game/engine';
+import type { MatchState, PlayCardAction, PlayerId, ReduceResult, RedactedView } from '../game/engine';
 import type { TransportConfig } from './config';
 import type { EndReason, MatchPhase, MatchRecord, StoredSeat } from './persistence';
 import { MatchStore } from './persistence';
-import type { ErrorCode, ServerMessage, SeatStatus } from './protocol';
-import { hashToken, mintMatchId, mintToken, tokenMatches } from './seatTokens';
+import type { ClientMessage, ErrorCode, ServerMessage, SeatStatus } from './protocol';
+import { hashToken, mintMatchId, mintSeed, mintToken, tokenMatches } from './seatTokens';
 
 /** The fixed seat pool: index 0 is always the host, minted before any join (Design §2, §13). */
 const HOST_SEAT_INDEX = 0;
@@ -51,9 +60,18 @@ interface Seat {
     disconnectedAt: number | null;
 }
 
-/** Engine fn overrides arrive in Tasks 8-9; this task only needs the clock. */
+/**
+ * Explicit dependency injection (plan Task 8), not mocking: every default is
+ * the real engine function or the real clock, and only a test that must
+ * force an otherwise-unreachable state overrides a field. `startNextRound`
+ * joins this interface in Task 9.
+ */
 export interface RoomDeps {
     now?: () => number;
+    createMatch?: (playerIds: readonly PlayerId[], seed: string, matchId: string) => MatchState;
+    reduce?: (match: MatchState, action: PlayCardAction) => ReduceResult;
+    view?: (match: MatchState, viewerId: PlayerId) => RedactedView;
+    isMatchOver?: (match: MatchState) => boolean;
 }
 
 function makeEmptySeats(): Seat[] {
@@ -81,6 +99,17 @@ export class Room {
     private winnerSeat: PlayerId | null;
     private endedAt: number | null;
 
+    /** Null in the lobby; set once by `startMatch`, replaced on every subsequent commit. */
+    private match: MatchState | null;
+    /** Epoch ms, non-null only while a round-over reveal is armed (Design §6). */
+    private revealDeadline: number | null;
+    /**
+     * Timer seam: Task 8 only ever assigns `null` here — no `setTimeout` yet.
+     * Task 9 schedules a real timer into this field and clears it on commit,
+     * reconnect, and match end.
+     */
+    private revealTimer: ReturnType<typeof setTimeout> | null;
+
     private queue: Promise<void> = Promise.resolve();
 
     private constructor(
@@ -98,6 +127,9 @@ export class Room {
         this.endReason = null;
         this.winnerSeat = null;
         this.endedAt = null;
+        this.match = null;
+        this.revealDeadline = null;
+        this.revealTimer = null;
         this.createdAt = createdAt;
         this.config = config;
         this.store = store;
@@ -110,7 +142,13 @@ export class Room {
      * lobby record before returning.
      */
     static create(config: TransportConfig, store: MatchStore, deps: RoomDeps = {}): { room: Room; hostSeatToken: string } {
-        const resolvedDeps: Required<RoomDeps> = { now: deps.now ?? Date.now };
+        const resolvedDeps: Required<RoomDeps> = {
+            now: deps.now ?? Date.now,
+            createMatch: deps.createMatch ?? engineCreateMatch,
+            reduce: deps.reduce ?? engineReduce,
+            view: deps.view ?? engineView,
+            isMatchOver: deps.isMatchOver ?? engineIsMatchOver
+        };
         const createdAt = resolvedDeps.now();
 
         const seats = makeEmptySeats();
@@ -204,11 +242,43 @@ export class Room {
             this.sendFatal(oldConn, 'SEAT_TAKEN');
         }
 
+        const wasPaused = this.paused;
+
         seat.conn = conn;
         seat.disconnectedAt = null;
 
         if (this.phase === 'lobby') {
             this.broadcastLobbyUpdate();
+            return { seat: seat.index, playerId: seat.playerId };
+        }
+
+        // Design §7's reconnection order: bind above, then — only when THIS
+        // resume is what cleared the last missing seat — re-arm BEFORE
+        // building any push, so this seat's own repaint already carries the
+        // fresh revealDeadline; then this seat's repaint; then everyone
+        // else's, so the "waiting for…" banners clear together.
+        const nowUnpaused = wasPaused && !this.paused;
+
+        if (
+            this.phase === 'active' &&
+            nowUnpaused &&
+            this.match !== null &&
+            this.match.round.phase === 'round-over' &&
+            !this.deps.isMatchOver(this.match)
+        ) {
+            this.armRevealTimer();
+        }
+
+        if (this.match !== null) {
+            this.send(conn, this.buildStateUpdate(seat));
+        }
+
+        if (nowUnpaused) {
+            for (const other of this.seats) {
+                if (other !== seat && other.conn !== null) {
+                    this.send(other.conn, this.buildStateUpdate(other));
+                }
+            }
         }
 
         return { seat: seat.index, playerId: seat.playerId };
@@ -229,6 +299,180 @@ export class Room {
 
         if (this.phase === 'lobby') {
             this.broadcastLobbyUpdate();
+            return;
+        }
+
+        // Design §5 row 7 / §6: a disconnect always cancels any armed reveal
+        // timer — the countdown restarts on reconnect, it never resumes.
+        if (this.phase === 'active') {
+            this.clearRevealTimer();
+            this.pushStateToConnectedSeats();
+        }
+    }
+
+    /**
+     * Design §5 transition 5. `playerIds` is the claimed seats in index
+     * order — already true of `this.seats`, whose order is fixed by
+     * `makeEmptySeats()`. Host gating is dispatch's job (Task 11), but is
+     * cheaply re-checked here too, matching this file's established
+     * defense-in-depth pattern (`resumeSeat`'s eviction check, `sweep`'s
+     * host-seat exemption).
+     */
+    startMatch(conn: SeatConnection): void {
+        if (this.phase !== 'lobby') {
+            this.sendError(conn, 'CANNOT_START');
+            return;
+        }
+
+        const hostSeat = this.seats[HOST_SEAT_INDEX];
+        if (hostSeat.conn !== conn) {
+            this.sendError(conn, 'NOT_HOST');
+            return;
+        }
+
+        if (!this.canStart()) {
+            this.sendError(conn, 'CANNOT_START');
+            return;
+        }
+
+        const playerIds = this.seats.filter(s => s.tokenHash !== null).map(s => s.playerId);
+        const seed = mintSeed();
+        this.match = this.deps.createMatch(playerIds, seed, this.matchId);
+        this.phase = 'active';
+
+        this.persist();
+
+        this.broadcast({ type: 'MATCH_STARTED', matchId: this.matchId });
+        this.pushStateToConnectedSeats();
+    }
+
+    /**
+     * Design §5 row 9, §8 step 11. The acting identity comes from `conn`
+     * alone (Design §3) — the action carries no `playerId` a client could
+     * spoof.
+     */
+    playCard(conn: SeatConnection, msg: Extract<ClientMessage, { type: 'PLAY_CARD' }>): void {
+        const seat = this.seats.find(s => s.conn === conn);
+        if (!seat) {
+            this.sendError(conn, 'NOT_YOUR_SEAT');
+            return;
+        }
+
+        if (this.phase === 'lobby') {
+            this.sendError(conn, 'ROUND_NOT_IN_PROGRESS');
+            return;
+        }
+        if (this.phase === 'ended') {
+            this.sendError(conn, 'MATCH_OVER');
+            return;
+        }
+        // Checked BEFORE the engine runs and BEFORE actionLog is touched (Design §7).
+        if (this.paused) {
+            this.sendError(conn, 'PAUSED');
+            return;
+        }
+
+        const match = this.match;
+        if (match === null) {
+            // Unreachable in practice: phase 'active' is only ever set alongside `match`.
+            this.sendError(conn, 'ROUND_NOT_IN_PROGRESS');
+            return;
+        }
+
+        const action: PlayCardAction = {
+            type: 'PLAY_CARD',
+            playerId: seat.playerId,
+            cardInstanceId: msg.cardInstanceId,
+            // Omitted entirely when absent, never a literal `undefined` value —
+            // that would break structuredClone equality against a replay.
+            ...(msg.target !== undefined ? { target: msg.target } : {}),
+            ...(msg.guess !== undefined ? { guess: msg.guess } : {})
+        };
+
+        const result = this.deps.reduce(match, action);
+        if (!result.ok) {
+            this.sendError(conn, result.error.code, msg.clientMsgId);
+            return;
+        }
+
+        this.commitMatchState(result.state);
+    }
+
+    /**
+     * Design §5 rows 11/12. Allowed for the host at any time; for any
+     * connected seat once the active match has had a seat missing past
+     * `activeGraceMs` (row 12 — a non-host laptop dying is at least as
+     * common as the host's); for any connected seat in a lobby whose host
+     * has been missing past `lobbyDisconnectGraceMs` (row 4 — the host's
+     * `disconnectedAt` is seeded at `create()`, so a host who never connects
+     * at all still counts).
+     */
+    endMatch(conn: SeatConnection): void {
+        const requester = this.seats.find(s => s.conn === conn);
+        if (!requester) {
+            this.sendError(conn, 'NOT_YOUR_SEAT');
+            return;
+        }
+
+        if (this.phase === 'ended') {
+            this.sendError(conn, 'MATCH_OVER');
+            return;
+        }
+
+        const hostSeat = this.seats[HOST_SEAT_INDEX];
+        const now = this.deps.now();
+
+        const anySeatMissingPastActiveGrace =
+            this.phase === 'active' &&
+            this.seats.some(
+                s =>
+                    s.tokenHash !== null &&
+                    s.conn === null &&
+                    s.disconnectedAt !== null &&
+                    now - s.disconnectedAt > this.config.activeGraceMs
+            );
+
+        const hostMissingPastLobbyGrace =
+            this.phase === 'lobby' &&
+            hostSeat.conn === null &&
+            hostSeat.disconnectedAt !== null &&
+            now - hostSeat.disconnectedAt > this.config.lobbyDisconnectGraceMs;
+
+        if (requester !== hostSeat && !anySeatMissingPastActiveGrace && !hostMissingPastLobbyGrace) {
+            this.sendError(conn, 'NOT_HOST');
+            return;
+        }
+
+        this.phase = 'ended';
+        this.endReason = 'abandoned';
+        this.winnerSeat = null;
+        this.endedAt = now;
+        this.clearRevealTimer();
+
+        this.persist();
+
+        if (this.match !== null) {
+            this.pushStateToConnectedSeats();
+        }
+
+        this.broadcastMatchEnded('abandoned');
+    }
+
+    /** Rebuilds and resends this seat's current snapshot; changes nothing (Design §7). */
+    resync(conn: SeatConnection): void {
+        const seat = this.seats.find(s => s.conn === conn);
+        if (!seat) {
+            this.sendError(conn, 'NOT_YOUR_SEAT');
+            return;
+        }
+
+        if (this.phase === 'lobby') {
+            this.send(conn, this.buildLobbyUpdate());
+            return;
+        }
+
+        if (this.match !== null) {
+            this.send(conn, this.buildStateUpdate(seat));
         }
     }
 
@@ -291,7 +535,7 @@ export class Room {
             this.endReason = 'abandoned';
             this.endedAt = now;
             this.persist();
-            this.broadcast({ type: 'MATCH_ENDED', matchId: this.matchId, reason: 'abandoned' });
+            this.broadcastMatchEnded('abandoned');
             return 'keep';
         }
 
@@ -316,6 +560,109 @@ export class Room {
         return claimed.length >= 2 && claimed.length <= 4 && claimed.every(s => s.conn !== null);
     }
 
+    /**
+     * Timer seam (Task 9 finishes this): only ever sets `revealDeadline` — no
+     * `setTimeout` yet, so a round-over commit in this task arms a deadline
+     * nothing currently schedules against. Clearing any pre-existing
+     * `revealTimer` first is a no-op today (nothing ever assigns one yet)
+     * but makes re-arming idempotent once Task 9 does.
+     */
+    private armRevealTimer(): void {
+        if (this.revealTimer !== null) {
+            clearTimeout(this.revealTimer);
+            this.revealTimer = null;
+        }
+        this.revealDeadline = this.deps.now() + this.config.revealWindowMs;
+    }
+
+    private clearRevealTimer(): void {
+        if (this.revealTimer !== null) {
+            clearTimeout(this.revealTimer);
+            this.revealTimer = null;
+        }
+        this.revealDeadline = null;
+    }
+
+    private pushStateToConnectedSeats(): void {
+        for (const seat of this.seats) {
+            if (seat.conn !== null) {
+                this.send(seat.conn, this.buildStateUpdate(seat));
+            }
+        }
+    }
+
+    private broadcastMatchEnded(reason: EndReason): void {
+        const msg: ServerMessage =
+            this.winnerSeat !== null
+                ? { type: 'MATCH_ENDED', matchId: this.matchId, reason, winnerSeat: this.winnerSeat }
+                : { type: 'MATCH_ENDED', matchId: this.matchId, reason };
+        this.broadcast(msg);
+    }
+
+    /**
+     * The commit sequence for a successful PLAY_CARD — the plan's Task 8
+     * pseudocode, followed exactly (Design §6, §8 step 11, §13 rows 1 & 11):
+     * match-over precedence is checked FIRST, never as a sibling conditional
+     * to round-over, so an ordinary match win can never arm a timer that
+     * later fires into a decided match. Arming (or match-over) happens
+     * BEFORE persist so the round_over push already carries `revealDeadline`;
+     * persist happens BEFORE any send (Design §9); MATCH_ENDED broadcasts
+     * last, after every seat's final STATE_UPDATE.
+     */
+    private commitMatchState(state: MatchState): void {
+        this.match = state;
+
+        if (this.deps.isMatchOver(state)) {
+            this.phase = 'ended';
+            this.endReason = 'won';
+            this.winnerSeat = state.matchWinnerId;
+            this.endedAt = this.deps.now();
+            this.clearRevealTimer();
+        } else if (state.round.phase === 'round-over') {
+            this.armRevealTimer();
+        }
+
+        this.persist();
+        this.pushStateToConnectedSeats();
+
+        if (this.phase === 'ended') {
+            this.broadcastMatchEnded('won');
+        }
+    }
+
+    /**
+     * The only source of game data (Design §3): `view` from the engine,
+     * `nicknames` beside it — never inside it, since the engine has no
+     * concept of a display name.
+     */
+    private buildStateUpdate(seat: Seat): ServerMessage {
+        const match = this.match;
+        if (match === null) {
+            throw new Error('buildStateUpdate requires an active or ended match');
+        }
+
+        const nicknames: Record<PlayerId, string> = {};
+        for (const s of this.seats) {
+            if (s.tokenHash !== null) nicknames[s.playerId] = s.nickname ?? '';
+        }
+
+        const wirePhase: 'active' | 'round_over' | 'ended' =
+            this.phase === 'ended' ? 'ended' : match.round.phase === 'round-over' ? 'round_over' : 'active';
+
+        return {
+            type: 'STATE_UPDATE',
+            view: this.deps.view(match, seat.playerId),
+            nicknames,
+            phase: wirePhase,
+            paused: this.paused,
+            missingSeats: this.missingSeats(),
+            serverTime: this.deps.now(),
+            ...(this.phase === 'ended' ? { endReason: this.endReason as EndReason } : {}),
+            ...(this.phase === 'ended' && this.winnerSeat !== null ? { winnerSeat: this.winnerSeat } : {}),
+            ...(this.revealDeadline !== null ? { revealDeadline: this.revealDeadline } : {})
+        };
+    }
+
     private buildLobbyUpdate(): ServerMessage {
         return {
             type: 'LOBBY_UPDATE',
@@ -335,8 +682,9 @@ export class Room {
         conn.send(JSON.stringify(msg));
     }
 
-    private sendError(conn: SeatConnection, code: ErrorCode): void {
-        this.send(conn, { type: 'ERROR', code });
+    /** `refId` echoes `clientMsgId`, present only when the client sent one (Design §3). */
+    private sendError(conn: SeatConnection, code: ErrorCode, refId?: string): void {
+        this.send(conn, refId !== undefined ? { type: 'ERROR', code, refId } : { type: 'ERROR', code });
     }
 
     /** A FATAL frame is always followed by a close — encoded here so the invariant cannot be half-applied. */
@@ -376,17 +724,17 @@ export class Room {
             }));
     }
 
-    /** seed: null and actionLog: [] for every lobby record (controller decision 3) — Task 8 adds the engine. */
+    /** `seed`/`actionLog` come from `match` once one exists; both stay `null`/`[]` in the lobby. */
     private persist(): void {
         const record: MatchRecord = {
             matchId: this.matchId,
-            seed: null,
+            seed: this.match?.seed ?? null,
             hostSeat: HOST_PLAYER_ID,
             phase: this.phase,
             endReason: this.endReason,
             winnerSeat: this.winnerSeat,
             seats: this.toStoredSeats(),
-            actionLog: [],
+            actionLog: this.match?.actionLog ?? [],
             quarantined: false,
             createdAt: this.createdAt,
             updatedAt: this.deps.now()
