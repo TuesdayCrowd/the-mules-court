@@ -75,7 +75,7 @@ type ClientMessage =
   | { type: 'PLAY_CARD';     matchId: MatchId;
       cardInstanceId: CardInstanceId;
       target?: PlayerId;
-      guess?: CardTypeId;
+      guess?: GuessValue;          // a card value 2-8, never a character name
       clientMsgId?: string }                                    // echo only; never authorises or orders
   | { type: 'END_MATCH';     matchId: MatchId }                 // host, or any seat after the grace period
   | { type: 'REQUEST_RESYNC'; matchId: MatchId }
