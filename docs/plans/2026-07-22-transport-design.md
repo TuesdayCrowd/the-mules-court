@@ -69,7 +69,7 @@ The only place a seat token is delivered outside an open WebSocket.
 
 ```ts
 type ClientMessage =
-  | { type: 'CLAIM_SEAT';    matchId: MatchId }                 // no seat index — server assigns
+  | { type: 'CLAIM_SEAT';    matchId: MatchId; nickname: string }   // no seat index — server assigns
   | { type: 'RESUME_SEAT';   matchId: MatchId; seatToken: SeatToken }
   | { type: 'START_MATCH';   matchId: MatchId }                 // host only; 2-4 seats claimed
   | { type: 'PLAY_CARD';     matchId: MatchId;
@@ -89,12 +89,13 @@ type ClientMessage =
 ```ts
 type ServerMessage =
   | { type: 'LOBBY_UPDATE';  matchId; hostSeat; canStart;
-      seats: { seat: number; playerId: PlayerId | null;
+      seats: { seat: number; playerId: PlayerId | null; nickname: string | null;
                status: 'open' | 'occupied' | 'disconnected' }[] }   // broadcast
   | { type: 'SEAT_CLAIMED';  matchId; seat; playerId; seatToken }   // once, this socket only
   | { type: 'MATCH_STARTED'; matchId }                              // broadcast
   | { type: 'STATE_UPDATE';                                          // UNICAST
       view: RedactedView;                    // view(match, ws.data.seat)
+      nicknames: Record<PlayerId, string>;   // transport-owned, NEVER inside view
       phase: 'active' | 'round_over' | 'ended';
       endReason?: 'won' | 'abandoned';
       winnerSeat?: PlayerId;
@@ -109,6 +110,8 @@ type ServerMessage =
 ```
 
 `LOBBY_UPDATE`, `MATCH_STARTED`, and `MATCH_ENDED` are the only broadcasts. Each is viewer-invariant: seat occupancy and lifecycle signals, carrying no card.
+
+Nicknames sit **beside** `view`, never inside it. `RedactedView` is produced by the engine, and the engine has no concept of a name — seats are `p1..pN`. Folding a display name into engine output would put presentation data inside the authoritative game state and break the replay guarantee, since `{seed, actionLog}` reconstructs a match that never knew anyone's name.
 
 Error codes cover the transport (`MALFORMED`, `ROOM_NOT_FOUND`, `SEAT_TAKEN`, `ROOM_FULL`, `ALREADY_SEATED`, `BAD_TOKEN`, `NOT_YOUR_SEAT`, `NOT_HOST`, `PAUSED`, `MATCH_OVER`, `RATE_LIMITED`, `INTERNAL`) and forward the engine's own `ValidationError` codes verbatim. Engine codes are safe to forward: they name rules, never cards.
 
@@ -207,7 +210,7 @@ Every inbound message runs these in order. Any failure stops the pipeline and to
 
 1. **Frame limits.** `maxPayloadLength` of 4 KB, and `permessage-deflate` disabled outright rather than capped, so an oversized frame and a compression bomb both die below user code.
 2. **Parse.** `JSON.parse` inside `try/catch`; a throw yields `MALFORMED` and drops the message without closing the socket.
-3. **Shape.** Hand-written type guards per variant. Unknown types, missing fields, and unexpected fields all yield `MALFORMED`. `target` and `guess` are additionally checked against closed enums.
+3. **Shape.** Hand-written type guards per variant. Unknown types, missing fields, and unexpected fields all yield `MALFORMED`. `target` and `guess` are additionally checked against closed enums. `nickname` is the protocol's only free text and the only thing one player can put on another's screen: trim it, cap it at 24 characters, reject control characters and anything that is empty after trimming, and render it as text rather than markup.
 4. **Rate limit.** A per-connection token bucket applied to *every* message type, plus a per-IP limit on new connections and room lookups. Limiting only `PLAY_CARD` leaves every other type floodable.
 5. **Identity.** Read `ws.data.seat` and nothing else. An unbound connection gets `NOT_YOUR_SEAT` regardless of payload.
 6. **Canonical pointer.** `room.seats[ws.data.seat].conn` must be this connection, closing the eviction race.
