@@ -31,7 +31,7 @@ const twoPlayerRound = (): RoundState =>
 
 describe('validateAction — turn and ownership', () => {
     it('accepts a legal play', () => {
-        const result = validateAction(twoPlayerRound(), action({ target: 'p1', guess: 'mule' }));
+        const result = validateAction(twoPlayerRound(), action({ target: 'p1', guess: 8 }));
         expect(result.ok).toBe(true);
     });
 
@@ -47,7 +47,7 @@ describe('validateAction — turn and ownership', () => {
 
     it('rejects any play once the round is over', () => {
         const round = { ...twoPlayerRound(), phase: 'round-over' as const };
-        expectError(validateAction(round, action({ target: 'p1', guess: 'mule' })), 'ROUND_NOT_IN_PROGRESS');
+        expectError(validateAction(round, action({ target: 'p1', guess: 8 })), 'ROUND_NOT_IN_PROGRESS');
     });
 });
 
@@ -72,7 +72,7 @@ describe('validateAction — the First Speaker forced-play rule', () => {
 
 describe('validateAction — targeting', () => {
     it('rejects a missing target when legal targets exist', () => {
-        expectError(validateAction(twoPlayerRound(), action({ guess: 'mule' })), 'TARGET_REQUIRED');
+        expectError(validateAction(twoPlayerRound(), action({ guess: 8 })), 'TARGET_REQUIRED');
     });
 
     it('rejects a target for an effect that takes none', () => {
@@ -98,7 +98,7 @@ describe('validateAction — targeting', () => {
                 p2: { hand: ['magnifico#0'] }
             })
         });
-        const result = validateAction(round, action({ target: 'p1', guess: 'mule' }));
+        const result = validateAction(round, action({ target: 'p1', guess: 8 }));
         expectError(result, 'TARGET_NOT_LEGAL', 'PROTECTED');
     });
 
@@ -110,12 +110,12 @@ describe('validateAction — targeting', () => {
                 p2: { hand: ['magnifico#0'] }
             })
         });
-        expectError(validateAction(round, action({ target: 'p1', guess: 'mule' })), 'TARGET_NOT_LEGAL', 'ELIMINATED');
+        expectError(validateAction(round, action({ target: 'p1', guess: 8 })), 'TARGET_NOT_LEGAL', 'ELIMINATED');
     });
 
     it('rejects an unknown target', () => {
         expectError(
-            validateAction(twoPlayerRound(), action({ target: 'nobody', guess: 'mule' })),
+            validateAction(twoPlayerRound(), action({ target: 'nobody', guess: 8 })),
             'TARGET_NOT_LEGAL',
             'UNKNOWN_PLAYER'
         );
@@ -154,7 +154,7 @@ describe('validateAction — self-targeting a card that forbids it', () => {
             })
         });
         expectError(
-            validateAction(round, action({ target: 'p0', guess: 'mule' })),
+            validateAction(round, action({ target: 'p0', guess: 8 })),
             'TARGET_NOT_LEGAL',
             'SELF_NOT_ALLOWED'
         );
@@ -175,11 +175,11 @@ describe('validateAction — self-targeting a card that forbids it', () => {
     });
 });
 
-describe('validateAction — the guess must name a real card', () => {
-    it('rejects a guess that is not a known card identity', () => {
+describe('validateAction — the guess must be a real card value', () => {
+    it('rejects a guess outside the deck value range', () => {
         const result = validateAction(
             twoPlayerRound(),
-            action({ target: 'p1', guess: 'not-a-card' as never })
+            action({ target: 'p1', guess: 9 as never })
         );
         expect(result.ok).toBe(false);
     });
@@ -203,7 +203,7 @@ describe('validateAction — the no-valid-target fizzle', () => {
     });
 
     it('rejects a guess when the play has fizzled', () => {
-        expectError(validateAction(fizzleRound(), action({ guess: 'mule' })), 'GUESS_NOT_ALLOWED');
+        expectError(validateAction(fizzleRound(), action({ guess: 8 })), 'GUESS_NOT_ALLOWED');
     });
 });
 
@@ -212,19 +212,19 @@ describe('validateAction — the Informant guess', () => {
         expectError(validateAction(twoPlayerRound(), action({ target: 'p1' })), 'GUESS_REQUIRED');
     });
 
-    it('rejects naming the Informant itself', () => {
-        const result = validateAction(twoPlayerRound(), action({ target: 'p1', guess: 'informant' }));
+    it('rejects guessing value 1, the Informant itself', () => {
+        const result = validateAction(twoPlayerRound(), action({ target: 'p1', guess: 1 as never }));
         expectError(result, 'GUESS_CANNOT_BE_INFORMANT');
     });
 
-    it('accepts naming any other card', () => {
-        expect(validateAction(twoPlayerRound(), action({ target: 'p1', guess: 'first-speaker' })).ok).toBe(true);
+    it('accepts any other value', () => {
+        expect(validateAction(twoPlayerRound(), action({ target: 'p1', guess: 7 })).ok).toBe(true);
     });
 
     it('rejects a guess on an effect that takes none', () => {
         const result = validateAction(
             twoPlayerRound(),
-            action({ cardInstanceId: 'han-pritcher#0', target: 'p1', guess: 'mule' })
+            action({ cardInstanceId: 'han-pritcher#0', target: 'p1', guess: 8 })
         );
         expectError(result, 'GUESS_NOT_ALLOWED');
     });
@@ -234,7 +234,7 @@ describe('validateAction — purity', () => {
     it('never mutates the round it inspects', () => {
         const round = twoPlayerRound();
         const snapshot = JSON.parse(JSON.stringify(round));
-        validateAction(round, action({ target: 'p1', guess: 'mule' }));
+        validateAction(round, action({ target: 'p1', guess: 8 }));
         validateAction(round, action({ cardInstanceId: 'mayor-indbur#0' }));
         expect(JSON.parse(JSON.stringify(round))).toEqual(snapshot);
     });

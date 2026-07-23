@@ -123,7 +123,7 @@ describe('resolving sudden death', () => {
             playerId: 'p0',
             cardInstanceId: 'informant#0',
             target: 'p1',
-            guess: 'mule'
+            guess: 8
         });
         if (!result.ok) throw new Error('expected a legal play');
         expect(result.state.round.roundResult?.winnerIds).toEqual(['p0']);

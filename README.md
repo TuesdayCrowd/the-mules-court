@@ -54,7 +54,7 @@ The deck contains 16 cards representing characters from the Foundation series:
 
 | Card                     | Value | Count | Ability                                                                                 |
 | ------------------------ | ----- | ----- | --------------------------------------------------------------------------------------- |
-| **Informant**            | 1     | 5     | Name a character (not Informant). If another player has that card, they are eliminated. |
+| **Informant**            | 1     | 5     | Guess a value from 2 to 8. If a targeted player holds a card of that value, they are eliminated. |
 | **Han Pritcher**         | 2     | 1     | Look at another player's hand.                                                          |
 | **Bail Channis**         | 2     | 1     | Look at another player's hand.                                                          |
 | **Ebling Mis**           | 3     | 1     | Compare hands with another player. Lower value is eliminated.                           |
@@ -72,6 +72,7 @@ The deck contains 16 cards representing characters from the Foundation series:
 - **Targeting**: You cannot target eliminated or protected players
 - **The Mule**: Never willingly discard The Mule (value 8)—hold it to win if the deck runs out
 - **The First Speaker**: Automatically discards if paired with specific high-value cards
+- **Guessing is by value, not by name**: several values are shared by two characters, so guessing 5 catches either Darell. The Informant may never guess its own value of 1
 
 ## Development
 

@@ -200,7 +200,7 @@ One function removes a player's remaining card, moves it to their public discard
 
 | Effect | Cards | Resolution |
 | --- | --- | --- |
-| `GUARD` | Informant | Compare the target's single card against the guess. On a hit, call `eliminate()`. On a miss, log only. |
+| `GUARD` | Informant | Compare the **value** of the target's single card against the guessed value. On a hit, call `eliminate()`. On a miss, log only. |
 | `PRIEST` | Han Pritcher, Bail Channis | Append one `PeekRecord` naming the target's card, visible to the actor alone. |
 | `BARON` | Ebling Mis, Magnifico | Append two mutual `PeekRecord`s **before** comparing, then eliminate the lower value. Equal values eliminate nobody. |
 | `HANDMAID` | Shielded Mind | Set the actor's `protected` flag. |
@@ -233,7 +233,7 @@ interface PlayCardAction {
 4. The instance appears in `computeLegalPlays(round, playerId)`. This single check enforces the entire First Speaker forced-play rule.
 5. Compute `computeLegalTargets`. A candidate is legal when — for the actor — the effect permits self-targeting, and — for every opponent — that opponent lives and stands unprotected.
 6. When the effect requires a target: an empty legal-target set demands an omitted target (the fizzle); a non-empty set demands a target drawn from it.
-7. When the effect requires a guess and a target exists, the guess must be present and must not name `informant`.
+7. When the effect requires a guess and a target exists, the guess must be an integer value the deck contains and must not be 1, the Informant's own value.
 
 Rule 5 splits the actor's check from each opponent's check deliberately. A single combined predicate — `canTargetSelf || !isProtected(pid)` — reads well and lets a Prince target a *protected opponent*, an audited bug in one candidate design.
 
