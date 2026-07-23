@@ -50,6 +50,7 @@ export type {
     CardTypeId,
     CardInstanceId,
     CardValue,
+    GuessValue,
     EffectType,
     PlayCardAction,
     GameAction,
