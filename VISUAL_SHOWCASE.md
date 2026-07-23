@@ -91,20 +91,20 @@ The viewer always sits at the bottom. Opponents fill the remaining positions clo
 ```
 ╔═══════════════════════════════════════════╗
 ║              ANA                          ║
-║   [1 card]  👁️👁️👁️  ← tokens (of 7)      ║
+║   [1 card]  👁👁👁  ← tokens (of 7)       ║
 ║   Discards: ▪1 ▪3 ▪5                      ║
 ╠═══════════════════════════════════════════╣
 ║                                           ║
-║   ┌────────┐        ┌──────────────────┐  ║
-║   │  DECK  │        │  Removed face-up │  ║
-║   │   10   │        │   [Mayor Indbur] │  ║
-║   └────────┘        └──────────────────┘  ║
+║   ┌────────┐   ┌───────────────────┐      ║
+║   │  DECK  │   │ Removed face-up   │      ║
+║   │   10   │   │ [6| Mayor Indbur] │      ║
+║   └────────┘   └───────────────────┘      ║
 ║                                           ║
 ║            Waiting for Ana                ║
 ╠═══════════════════════════════════════════╣
-║   CORNELIUS (you)          👁️👁️           ║
+║   CORNELIUS (you)          👁👁           ║
 ║   Discards: ▪2 ▪4                         ║
-║   Hand: [Informant] [Shielded Mind]       ║
+║   Hand: [1| Informant] [4| Shielded Mind] ║
 ╚═══════════════════════════════════════════╝
 ```
 
@@ -115,16 +115,16 @@ The viewer always sits at the bottom. Opponents fill the remaining positions clo
 ```
 ╔═══════════════════════════════════════════╗
 ║      ANA                    BAYTA         ║
-║   [1 card] 👁️👁️         [1 card] 👁️       ║
-║   ▪1 ▪3                  ▪5               ║
+║   [1 card] 👁👁         [1 card] 👁       ║
+║   ▪1 ▪3                 ▪5                ║
 ║                                           ║
 ║          ┌────────┐                       ║
-║          │  DECK  │   Your Turn           ║
+║          │  DECK  │      Your Turn        ║
 ║          │   11   │                       ║
 ║          └────────┘                       ║
 ║                                           ║
-║   CORNELIUS (you)          👁️👁️           ║
-║   Hand: [Informant] [Bayta Darell]        ║
+║   CORNELIUS (you)          👁👁           ║
+║   Hand: [1| Informant] [5| Bayta Darell]  ║
 ╚═══════════════════════════════════════════╝
 ```
 
@@ -133,16 +133,16 @@ The viewer always sits at the bottom. Opponents fill the remaining positions clo
 ```
 ╔═══════════════════════════════════════════╗
 ║                 BAYTA                     ║
-║              [1 card] 👁️                  ║
+║              [1 card] 👁                  ║
 ║                                           ║
 ║  ANA                            TORAN     ║
-║  [1] 👁️👁️      ┌────────┐      [1] 👁️    ║
+║  [1] 👁👁      ┌────────┐      [1] 👁     ║
 ║                │  DECK  │                 ║
 ║                │   11   │                 ║
 ║                └────────┘                 ║
 ║                                           ║
 ║              CORNELIUS (you)              ║
-║         Hand: [Magnifico] [The Mule]      ║
+║     Hand: [3| Magnifico] [8| The Mule]    ║
 ╚═══════════════════════════════════════════╝
 ```
 
@@ -153,6 +153,8 @@ Deck counts shown are the opening figures after the deal and the first player's 
 ## 🎭 Seat states
 
 Every seat shows its nickname, token badges, face-up discard pile, and card count. Only the viewer's own cards show their faces.
+
+**Every card is labelled with its value**, written `value| Name` — `[1| Informant]`, `[8| The Mule]`. Value is what the game is played on: it decides Baron comparisons, the deck-out showdown, and what the Informant guesses. Discard piles show values alone (`▪1 ▪3 ▪5`) since the pile is scanned for totals rather than read card by card.
 
 ### Current turn
 
@@ -219,7 +221,7 @@ Tap a card; an action panel opens beside it. Every choice is a labelled button, 
 Playable            Raised (panel open)    Not playable
 ┌─────────────┐     ┌─────────────┐        ┌─────────────┐
 │ [portrait]  │     │ [portrait]  │ ↑8px   │ [portrait]  │
-│ Informant   │     │ Informant   │        │ Mayor Indbur│
+│1| Informant │     │1| Informant │        │6| Mayor Ind.│
 │      1      │     │      1      │        │      6      │
 └─────────────┘     └─────────────┘        └─────────────┘
  purple border       bright border          40% opacity
@@ -232,9 +234,9 @@ Playable            Raised (panel open)    Not playable
 
 ```
 ┌──────────────────────────────────┐
-│  Informant  ·  value 1           │
-│  Name a card. If that player     │
-│  holds it, they are eliminated.  │
+│  1 · Informant                   │
+│  Guess a value from 2 to 8. If   │
+│  they hold it, they are out.     │
 ├──────────────────────────────────┤
 │  Choose a target                 │
 │  ┌────────┐ ┌────────┐           │
@@ -242,18 +244,22 @@ Playable            Raised (panel open)    Not playable
 │  └────────┘ └────────┘           │
 │  Toran — protected  (disabled)   │
 ├──────────────────────────────────┤
-│  Name a card                     │
-│  [Han Pritcher] [Bail Channis]   │
-│  [Ebling Mis]   [Magnifico]      │
-│  [Shielded Mind][Bayta Darell]   │
-│  [Toran Darell] [Mayor Indbur]   │
-│  [First Speaker][The Mule]       │
+│  Guess a value                   │
+│  ┌───┐┌───┐┌───┐┌───┐            │
+│  │ 2 ││ 3 ││ 4 ││ 5 │            │
+│  └───┘└───┘└───┘└───┘            │
+│  ┌───┐┌───┐┌───┐                 │
+│  │ 6 ││ 7 ││ 8 │                 │
+│  └───┘└───┘└───┘                 │
+│  Tap a value for its cards ↗     │
 ├──────────────────────────────────┤
 │         [ Cancel ]  [ Play ]     │
 └──────────────────────────────────┘
 ```
 
-The Informant offers ten names. It may never name itself, so Informant is absent from the list rather than shown disabled — the rule is that it is not a legal choice, not that it is a choice you happen to lack.
+**The Informant guesses a value, not a name.** Several values cover two different characters — guessing 5 hits Bayta Darell *or* Toran Darell — so naming a character would halve the Informant's reach. Seven buttons, 2 through 8. Value 1 is absent because the Informant may never guess itself, which is a rule about what is legal rather than an option the player happens to lack.
+
+Each value button shows which characters it covers on tap, or players can open the quick reference below.
 
 Ineligible targets stay visible with their reason attached. Hiding them would leave a player wondering where someone went; showing "protected" teaches the rule.
 
@@ -261,7 +267,7 @@ Ineligible targets stay visible with their reason attached. Hiding them would le
 
 ```
 ┌──────────────────────────────────┐
-│  Informant  ·  value 1           │
+│  1 · Informant                   │
 ├──────────────────────────────────┤
 │  No legal targets.               │
 │  Every other player is protected │
@@ -277,6 +283,52 @@ This is a genuine, legal move, not an error. The card is still played and discar
 ### Action panel — no target needed
 
 Shielded Mind, The First Speaker, and The Mule take no target. Their panel shows the card's effect and a Play button alone.
+
+---
+
+## 📖 Quick reference
+
+Always reachable from the table — a persistent tab that opens over the playfield and closes on tap. Available at every moment, including another player's turn, because deduction depends on knowing what is still out there.
+
+**Ordered from 8 down to 1**, matching the direction the game is played in: high cards win showdowns, low cards do the work.
+
+```
+┌──────────────────────────────────────────────────────────┐
+│  THE COURT — 16 cards                              [ ✕ ] │
+├─────┬─────┬──────────────────┬───────────────────────────┤
+│  8  │ ×1  │ The Mule         │ Discard this and you are  │
+│     │     │                  │ eliminated.               │
+├─────┼─────┼──────────────────┼───────────────────────────┤
+│  7  │ ×1  │ The First Speaker│ Held with a 6 or a 5, you │
+│     │     │                  │ must play this.           │
+├─────┼─────┼──────────────────┼───────────────────────────┤
+│  6  │ ×1  │ Mayor Indbur     │ Trade hands with another  │
+│     │     │                  │ player.                   │
+├─────┼─────┼──────────────────┼───────────────────────────┤
+│  5  │ ×2  │ Bayta Darell     │ Choose any player, even   │
+│     │     │ Toran Darell     │ yourself, to discard and  │
+│     │     │                  │ draw a new card.          │
+├─────┼─────┼──────────────────┼───────────────────────────┤
+│  4  │ ×2  │ Shielded Mind    │ Until your next turn you  │
+│     │     │                  │ cannot be targeted.       │
+├─────┼─────┼──────────────────┼───────────────────────────┤
+│  3  │ ×2  │ Ebling Mis       │ Compare hands with a      │
+│     │     │ Magnifico        │ player. Lower value is    │
+│     │     │   Giganticus     │ eliminated. A tie does    │
+│     │     │                  │ nothing.                  │
+├─────┼─────┼──────────────────┼───────────────────────────┤
+│  2  │ ×2  │ Han Pritcher     │ Look at another player's  │
+│     │     │ Bail Channis     │ hand.                     │
+├─────┼─────┼──────────────────┼───────────────────────────┤
+│  1  │ ×5  │ Informant        │ Guess a value from 2 to 8.│
+│     │     │                  │ If your target holds it,  │
+│     │     │                  │ they are eliminated.      │
+└─────┴─────┴──────────────────┴───────────────────────────┘
+```
+
+**The quantity column is the whole point of this panel.** It counts cards *at that value*, not copies of a name — four values are shared by two different characters, and five Informants sit at value 1. A player deciding what to guess needs to know that value 5 covers both Darells and value 1 covers a third of the deck. Ordering by value and counting by value makes the panel answer the question the Informant actually asks.
+
+Values shared by two characters list both names in the same row, since the game never distinguishes them: they have identical abilities, they are guessed together, and they compare identically in a showdown. The two names exist for flavour and art alone.
 
 ---
 
@@ -309,10 +361,10 @@ The count comes from `view.deckCount`. An empty deck means the round ends after 
 ║                                           ║
 ║   Deck ran out — highest card wins        ║
 ║                                           ║
-║   CORNELIUS   [Mayor Indbur] 6   ★ WINS   ║
-║   ANA         [Informant]    1            ║
+║   CORNELIUS   [6| Mayor Indbur]  ★ WINS   ║
+║   ANA         [1| Informant]              ║
 ║                                           ║
-║   Ana earns 1 Devotion Token              ║
+║   Cornelius earns 1 Devotion Token        ║
 ║                                           ║
 ║          Next round in 3…                 ║
 ╚═══════════════════════════════════════════╝
