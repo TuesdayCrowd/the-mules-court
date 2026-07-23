@@ -6,7 +6,7 @@ Guidance for coding agents working in this repository. Human contributors are we
 
 **The Mule's Court** is a _Love Letter_-style deduction/elimination card game reskinned into Isaac Asimov's Foundation universe (2–4 players, first to N Devotion Tokens wins). The complete game design — rules, turn structure, and all 11 card types with values/counts/abilities — lives in `README.md`. Treat that file as the gameplay spec.
 
-**Critical:** the game is **designed but not yet implemented.** Everything under `src/game/scenes/` is still the unmodified Phaser "template-bun" starter (the `Game` scene just renders "Make something fun!"). There is no card data, no game-state model, and no gameplay UI yet. The rich art assets in `public/assets/` and the design docs are the raw material; the actual game must be built from the README spec. This started life as the Phaser "template-bun" starter (some scene code and `logo.png`/`bg.png` are still theirs), but `package.json` metadata has been reclaimed for the game (`name: the-mules-court`).
+**Status:** the headless game engine is **built and tested** (`src/game/engine/`, under Vitest), and the WebSocket transport that wraps it is **built and tested** (`src/server/`, under `bun test`). What remains unbuilt is the Phaser **client** that speaks to that transport: everything under `src/game/scenes/` is still the unmodified Phaser "template-bun" starter (the `Game` scene just renders "Make something fun!"). The rich art assets in `public/assets/` and the design docs are the raw material for that client; it must be built from the README spec. This started life as the Phaser "template-bun" starter (some scene code and `logo.png`/`bg.png` are still theirs), but `package.json` metadata has been reclaimed for the game (`name: the-mules-court`).
 
 ## Setup commands
 
@@ -26,20 +26,21 @@ The `dev`/`build` scripts first run `bun log.js <mode>`, which makes one silent,
 
 ## Testing instructions
 
-There is **no test framework and no linter** configured yet. If you add tests, wire the runner into `package.json` scripts.
+Two test runners, split by what each layer needs. Engine tests run under **Vitest** (`bun run test:engine`, config in `vitest.config.ts`, scoped to `src/game/**/*.test.ts`). Server/transport tests run under **Bun's own test runner** (`bun run test:server`, i.e. `bun test src/server`). The split isn't stylistic: Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun globals the transport depends on, so `src/server/` has to run on `bun test` instead. `bun run test` runs both in sequence. There is still **no linter** configured.
 
-Until then, the verification gate before considering any change done is:
+The verification gate before considering any change done is:
 
 ```bash
-bunx tsc --noEmit   # neither vite build nor the dev server type-checks; this is the only check
-bun run build       # confirm the production bundle still builds
+bun run test        # engine tests (Vitest) + server tests (bun test)
+bunx tsc --noEmit    # neither vite build nor the dev server type-checks; this is the only type check
+bun run build        # confirm the production bundle still builds
 ```
 
 ## Architecture
 
 ### Tech stack
 
-Phaser **4.2.1** · Vite 6 · TypeScript 5.7 · Bun. No backend; ships as a static bundle.
+Phaser **4.2.1** · Vite 6 · TypeScript 5.7 · Bun. The client ships as a static bundle; a small Bun backend (`src/server/`) now exists to host multiplayer matches over WebSocket — see [Server (transport layer)](#server-transport-layer) below.
 
 ### Bootstrap & scene flow
 
@@ -63,6 +64,10 @@ Two Vite configs in `vite/`, selected per script:
 - `config.prod.mjs` — Terser minification (2 passes, comments stripped) + a `phasermsg` plugin that prints a build banner.
 
 Both use `base: './'` (relative asset paths, so the `dist/` bundle can be hosted from any subpath) and split Phaser into its own `phaser` chunk via `manualChunks`.
+
+### Server (transport layer)
+
+`src/server/` is a `Bun.serve` WebSocket server that wraps the engine. One process holds rooms (`Map<matchId, Room>`) in memory; each room persists to `bun:sqlite`, storing `{seed, actionLog}` rather than a state snapshot, so recovery replays actions through `reduce()` instead of needing a migration-prone snapshot format. Run it with `bun run serve`. Full design (message protocol, seat identity, reconnection, the validation pipeline) lives in `docs/plans/2026-07-22-transport-design.md`; the code is `index.ts` (Bun.serve entrypoint), `protocol.ts` (message unions + type guards), `room.ts` (Room state machine), `roomRegistry.ts` (room map + reaper sweep), `seatTokens.ts` (minting/hashing/lookup), `dispatch.ts` (the validation pipeline), `persistence.ts` (sqlite store + replay), `rateLimiter.ts` (token buckets), `config.ts` (tunables), and `__tests__/`.
 
 ## Code style
 

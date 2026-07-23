@@ -18,10 +18,14 @@
     "build": "bun log.js build && bunx --bun vite build --config vite/config.prod.mjs",
     "dev-nolog": "bunx --bun vite --config vite/config.dev.mjs",
     "build-nolog": "bunx --bun vite build --config vite/config.prod.mjs",
-    "test": "bunx vitest run",
-    "test:watch": "bunx vitest"
+    "test": "bun run test:engine && bun run test:server",
+    "test:engine": "bunx vitest run",
+    "test:server": "bun test src/server",
+    "test:watch": "bunx vitest",
+    "serve": "bun src/server/index.ts"
   },
   "devDependencies": {
+    "@types/bun": "^1.3.14",
     "terser": "^5.39.0",
     "typescript": "~5.7.2",
     "vite": "^6.3.1",
