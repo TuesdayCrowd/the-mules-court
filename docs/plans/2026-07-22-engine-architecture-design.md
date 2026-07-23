@@ -333,7 +333,7 @@ Sudden death reuses the round engine untouched. Only `setup.ts`, which deals to 
 
 ## 8. Determinism and randomness
 
-A two-field mulberry32 generator supplies all randomness as plain, immutable data:
+A single-field mulberry32 generator supplies all randomness as plain, immutable data. Its state advance is a bare constant addition — a bijection over 32-bit integers, so the stream has a full period and distinct seeds never converge. The mixing steps shape the output only and must never feed back into the state:
 
 ```ts
 interface RngState { readonly s: number; }
@@ -379,7 +379,7 @@ function seedRng(seed: string): RngState;   // FNV-1a fold of the seed string
 | `RedactedView` as a distinct type | Turns an accidental raw-state forward into a compile error | Prose documentation and reviewer vigilance |
 | Eight effect types, keeping `COUNTESS` and `PRINCESS` apart | Their metadata differs; merging them would overload one no-op row with unrelated flags | A single shared `NOOP` effect type |
 | Peek records bound to `(viewer, subject, instance)` and checked live | A moved card stops rendering with no cleanup code and no misattribution | Slot-bound knowledge, which misreports a card after a King trade |
-| Two-field mulberry32 RNG | Simple to verify by hand and easy to thread across rounds | A four-word xorshift128, more machinery for no benefit at sixteen cards |
+| Single-field mulberry32 RNG | Simple to verify by hand and easy to thread across rounds | A four-word xorshift128, more machinery for no benefit at sixteen cards |
 
 ---
 
