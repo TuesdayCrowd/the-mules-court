@@ -139,6 +139,21 @@ function driveUntilRoundOver(room: Room, conns: readonly RecordingConn[]): void 
     throw new Error('drive did not reach round-over within the iteration cap');
 }
 
+/**
+ * Shared factory (code-review consolidation) for the persist-before-send
+ * ordering tests below: a `MatchStore` whose `save` appends `'save'` to the
+ * given `order` array before delegating to the real implementation.
+ */
+function makeOrderTrackingStore(order: string[]): MatchStore {
+    class OrderTrackingStore extends MatchStore {
+        save(record: MatchRecord): void {
+            order.push('save');
+            super.save(record);
+        }
+    }
+    return new OrderTrackingStore(':memory:');
+}
+
 describe('Room.create', () => {
     it('mints the host at seat 0 before any join, and persists a lobby record whose seat 0 hash matches the returned token', () => {
         const store = new MatchStore(':memory:');
@@ -464,15 +479,7 @@ describe('Room.enqueue', () => {
 describe('persist-before-send ordering', () => {
     it('persists before any conn.send on a state-changing operation (Design §9)', () => {
         const order: string[] = [];
-
-        class OrderTrackingStore extends MatchStore {
-            save(record: MatchRecord): void {
-                order.push('save');
-                super.save(record);
-            }
-        }
-
-        const store = new OrderTrackingStore(':memory:');
+        const store = makeOrderTrackingStore(order);
         const { room } = Room.create(makeConfig({ dbPath: ':memory:' }), store); // create()'s own save is not under test
         order.length = 0;
 
@@ -486,15 +493,7 @@ describe('persist-before-send ordering', () => {
 
     it('persists before any conn.send on a legal PLAY_CARD commit too (Design §9)', () => {
         const order: string[] = [];
-
-        class OrderTrackingStore extends MatchStore {
-            save(record: MatchRecord): void {
-                order.push('save');
-                super.save(record);
-            }
-        }
-
-        const store = new OrderTrackingStore(':memory:');
+        const store = makeOrderTrackingStore(order);
         const { room, hostSeatToken } = Room.create(makeConfig({ dbPath: ':memory:' }), store);
 
         const hostConn = new RecordingConn(order);

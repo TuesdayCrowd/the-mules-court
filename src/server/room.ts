@@ -14,18 +14,21 @@
  *
  * This file implements the lobby-phase surface (Design §5 transitions 1, 2,
  * 3, 6: `create`, `claimSeat`, `resumeSeat`, `handleClose`, `enqueue`, lobby
- * `sweep`) AND the active/ended-phase gameplay surface added in Task 8:
+ * `sweep`), the active/ended-phase gameplay surface added in Task 8:
  * `startMatch`, `playCard`, `endMatch`, `resync`, and the active/ended
- * branches of `handleClose`/`resumeSeat`. `armRevealTimer`/`clearRevealTimer`
- * are a deliberate seam: Task 8 only ever sets or nulls `revealDeadline`;
- * Task 9 adds the real `setTimeout` and `advanceRound`. Active-phase `sweep`
- * (rows 12, 13) still arrives in Task 10.
+ * branches of `handleClose`/`resumeSeat`, AND real round advancement (Task 9):
+ * `armRevealTimer` schedules a genuine `setTimeout` into `advanceRound`,
+ * routed through `enqueue` like every other room message (Design §6, §10).
+ * `dispose()` is the shutdown seam a registry or test uses to drop a room
+ * without leaving a dangling timer behind. Active-phase `sweep` (rows 12, 13)
+ * still arrives in Task 10.
  */
 
 import {
     createMatch as engineCreateMatch,
     isMatchOver as engineIsMatchOver,
     reduce as engineReduce,
+    startNextRound as engineStartNextRound,
     view as engineView
 } from '../game/engine';
 import type { MatchState, PlayCardAction, PlayerId, ReduceResult, RedactedView } from '../game/engine';
@@ -64,12 +67,13 @@ interface Seat {
  * Explicit dependency injection (plan Task 8), not mocking: every default is
  * the real engine function or the real clock, and only a test that must
  * force an otherwise-unreachable state overrides a field. `startNextRound`
- * joins this interface in Task 9.
+ * (Task 9) is what `advanceRound` calls once the reveal window elapses.
  */
 export interface RoomDeps {
     now?: () => number;
     createMatch?: (playerIds: readonly PlayerId[], seed: string, matchId: string) => MatchState;
     reduce?: (match: MatchState, action: PlayCardAction) => ReduceResult;
+    startNextRound?: (match: MatchState) => MatchState;
     view?: (match: MatchState, viewerId: PlayerId) => RedactedView;
     isMatchOver?: (match: MatchState) => boolean;
 }
@@ -103,12 +107,14 @@ export class Room {
     private match: MatchState | null;
     /** Epoch ms, non-null only while a round-over reveal is armed (Design §6). */
     private revealDeadline: number | null;
-    /**
-     * Timer seam: Task 8 only ever assigns `null` here — no `setTimeout` yet.
-     * Task 9 schedules a real timer into this field and clears it on commit,
-     * reconnect, and match end.
-     */
+    /** The live `setTimeout` backing `revealDeadline`; cleared on commit, reconnect, match end, and dispose. */
     private revealTimer: ReturnType<typeof setTimeout> | null;
+    /**
+     * Advance-lock (Design §13 row 10: "advance lock leaks on an engine
+     * throw"). Guards re-entrancy of `advanceRound` and survives a throw from
+     * `startNextRound` via `try/finally` — it is never left `true`.
+     */
+    private advancing: boolean;
 
     private queue: Promise<void> = Promise.resolve();
 
@@ -130,6 +136,7 @@ export class Room {
         this.match = null;
         this.revealDeadline = null;
         this.revealTimer = null;
+        this.advancing = false;
         this.createdAt = createdAt;
         this.config = config;
         this.store = store;
@@ -146,6 +153,7 @@ export class Room {
             now: deps.now ?? Date.now,
             createMatch: deps.createMatch ?? engineCreateMatch,
             reduce: deps.reduce ?? engineReduce,
+            startNextRound: deps.startNextRound ?? engineStartNextRound,
             view: deps.view ?? engineView,
             isMatchOver: deps.isMatchOver ?? engineIsMatchOver
         };
@@ -274,11 +282,7 @@ export class Room {
         }
 
         if (nowUnpaused) {
-            for (const other of this.seats) {
-                if (other !== seat && other.conn !== null) {
-                    this.send(other.conn, this.buildStateUpdate(other));
-                }
-            }
+            this.pushStateToConnectedSeats(seat);
         }
 
         return { seat: seat.index, playerId: seat.playerId };
@@ -375,7 +379,8 @@ export class Room {
         const match = this.match;
         if (match === null) {
             // Unreachable in practice: phase 'active' is only ever set alongside `match`.
-            this.sendError(conn, 'ROUND_NOT_IN_PROGRESS');
+            // Echoes clientMsgId like every other rejection below it.
+            this.sendError(conn, 'ROUND_NOT_IN_PROGRESS', msg.clientMsgId);
             return;
         }
 
@@ -443,11 +448,7 @@ export class Room {
             return;
         }
 
-        this.phase = 'ended';
-        this.endReason = 'abandoned';
-        this.winnerSeat = null;
-        this.endedAt = now;
-        this.clearRevealTimer();
+        this.transitionToEnded('abandoned', null);
 
         this.persist();
 
@@ -456,6 +457,15 @@ export class Room {
         }
 
         this.broadcastMatchEnded('abandoned');
+    }
+
+    /**
+     * Room shutdown seam: clears the reveal timer so a dropped room (test
+     * teardown, or the registry retiring an entry) never leaves a dangling
+     * `setTimeout` keeping the process alive. Nothing else is touched.
+     */
+    dispose(): void {
+        this.clearRevealTimer();
     }
 
     /** Rebuilds and resends this seat's current snapshot; changes nothing (Design §7). */
@@ -531,9 +541,7 @@ export class Room {
         }
 
         if (now - this.createdAt > this.config.lobbyTtlMs) {
-            this.phase = 'ended';
-            this.endReason = 'abandoned';
-            this.endedAt = now;
+            this.transitionToEnded('abandoned', null);
             this.persist();
             this.broadcastMatchEnded('abandoned');
             return 'keep';
@@ -561,20 +569,33 @@ export class Room {
     }
 
     /**
-     * Timer seam (Task 9 finishes this): only ever sets `revealDeadline` — no
-     * `setTimeout` yet, so a round-over commit in this task arms a deadline
-     * nothing currently schedules against. Clearing any pre-existing
-     * `revealTimer` first is a no-op today (nothing ever assigns one yet)
-     * but makes re-arming idempotent once Task 9 does.
+     * Arms the real reveal-window timer (Design §6). Preconditions are
+     * established by every call site, not re-asserted here: `commitMatchState`
+     * only calls this when `!isMatchOver(state) && round.phase === 'round-over'`,
+     * and `resumeSeat` only when that resume is what cleared the last missing
+     * seat during a round-over. Both sites are already inside `phase ===
+     * 'active'` and neither is reachable while `paused` — this method assumes
+     * that context rather than re-checking it.
+     *
+     * `advanceRound` is the timer's target, and it is re-entered through
+     * `enqueue` exactly like any client message (Design §10) — so round
+     * advancement has no unserialized path of its own. A throw out of
+     * `advanceRound` (i.e. out of `deps.startNextRound`) would otherwise be an
+     * unhandled rejection on the promise `enqueue` returns; it is caught here
+     * and logged instead (Design §8 step 10's "log, never crash a socket
+     * handler" philosophy, applied to a timer instead of a message).
      */
     private armRevealTimer(): void {
-        if (this.revealTimer !== null) {
-            clearTimeout(this.revealTimer);
-            this.revealTimer = null;
-        }
+        this.clearRevealTimer();
         this.revealDeadline = this.deps.now() + this.config.revealWindowMs;
+        this.revealTimer = setTimeout(() => {
+            void this.enqueue(() => this.advanceRound()).catch(err => {
+                console.error('advanceRound failed', this.matchId, err);
+            });
+        }, this.config.revealWindowMs);
     }
 
+    /** Clears both the scheduled timeout and the deadline it backs — the only way either is unset. */
     private clearRevealTimer(): void {
         if (this.revealTimer !== null) {
             clearTimeout(this.revealTimer);
@@ -583,9 +604,44 @@ export class Room {
         this.revealDeadline = null;
     }
 
-    private pushStateToConnectedSeats(): void {
+    /**
+     * `armRevealTimer`'s scheduled callback, routed through `enqueue`. Design
+     * §6's sketch and §13 row 10 ("advance lock leaks on an engine throw"):
+     * every precondition is re-checked rather than trusted, because the world
+     * may have moved on while this callback sat in the room's queue (a
+     * disconnect, a manual `endMatch`, a match decided some other way).
+     * `advancing` is a re-entrancy guard set/cleared around the call to
+     * `deps.startNextRound`, released in `finally` so a throw from the engine
+     * still leaves the room able to advance again later.
+     */
+    private advanceRound(): void {
+        if (this.advancing) return;
+        this.advancing = true;
+        try {
+            const match = this.match;
+            if (
+                this.phase !== 'active' ||
+                match === null ||
+                match.round.phase !== 'round-over' ||
+                this.deps.isMatchOver(match) ||
+                this.paused
+            ) {
+                return;
+            }
+
+            this.match = this.deps.startNextRound(match);
+            this.clearRevealTimer();
+            this.persist();
+            this.pushStateToConnectedSeats();
+        } finally {
+            this.advancing = false;
+        }
+    }
+
+    /** Shared iteration for both a full broadcast-by-loop push and resumeSeat's "everyone but the resumer" push. */
+    private pushStateToConnectedSeats(exclude?: Seat): void {
         for (const seat of this.seats) {
-            if (seat.conn !== null) {
+            if (seat.conn !== null && seat !== exclude) {
                 this.send(seat.conn, this.buildStateUpdate(seat));
             }
         }
@@ -597,6 +653,24 @@ export class Room {
                 ? { type: 'MATCH_ENDED', matchId: this.matchId, reason, winnerSeat: this.winnerSeat }
                 : { type: 'MATCH_ENDED', matchId: this.matchId, reason };
         this.broadcast(msg);
+    }
+
+    /**
+     * The ended-transition field cluster, shared by `commitMatchState`
+     * (won), `endMatch` (abandoned), and `sweep`'s lobby-TTL branch
+     * (abandoned) — a code-review consolidation. Sets phase/endReason/
+     * winnerSeat/endedAt and clears any armed reveal timer; persisting,
+     * pushing, and broadcasting stay with each caller since those differ
+     * legitimately (e.g. `commitMatchState` has already pushed the
+     * STATE_UPDATE batch that `MATCH_ENDED` follows; `endMatch` only pushes
+     * when a match exists at all).
+     */
+    private transitionToEnded(reason: EndReason, winnerSeat: PlayerId | null): void {
+        this.phase = 'ended';
+        this.endReason = reason;
+        this.winnerSeat = winnerSeat;
+        this.endedAt = this.deps.now();
+        this.clearRevealTimer();
     }
 
     /**
@@ -613,11 +687,7 @@ export class Room {
         this.match = state;
 
         if (this.deps.isMatchOver(state)) {
-            this.phase = 'ended';
-            this.endReason = 'won';
-            this.winnerSeat = state.matchWinnerId;
-            this.endedAt = this.deps.now();
-            this.clearRevealTimer();
+            this.transitionToEnded('won', state.matchWinnerId);
         } else if (state.round.phase === 'round-over') {
             this.armRevealTimer();
         }
@@ -657,6 +727,11 @@ export class Room {
             paused: this.paused,
             missingSeats: this.missingSeats(),
             serverTime: this.deps.now(),
+            // Cast kept: `endReason` is typed `EndReason | null` because it starts
+            // null, but `transitionToEnded` always sets it in the same assignment
+            // as `phase = 'ended'` — an invariant true by construction that TS
+            // cannot see across methods/fields, so the null case here is provably
+            // unreachable rather than actually possible.
             ...(this.phase === 'ended' ? { endReason: this.endReason as EndReason } : {}),
             ...(this.phase === 'ended' && this.winnerSeat !== null ? { winnerSeat: this.winnerSeat } : {}),
             ...(this.revealDeadline !== null ? { revealDeadline: this.revealDeadline } : {})
