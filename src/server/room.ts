@@ -20,8 +20,9 @@
  * `armRevealTimer` schedules a genuine `setTimeout` into `advanceRound`,
  * routed through `enqueue` like every other room message (Design §6, §10).
  * `dispose()` is the shutdown seam a registry or test uses to drop a room
- * without leaving a dangling timer behind. Active-phase `sweep` (rows 12, 13)
- * still arrives in Task 10.
+ * without leaving a dangling timer behind. Task 10 completes the lifecycle:
+ * `Room.rebuild` (lazy crash recovery, Design §7, §9) and the active-phase
+ * sweep branch (Design §5 row 13 — row 12 already lives in `endMatch` above).
  */
 
 import {
@@ -34,7 +35,7 @@ import {
 import type { MatchState, PlayCardAction, PlayerId, ReduceResult, RedactedView } from '../game/engine';
 import type { TransportConfig } from './config';
 import type { EndReason, MatchPhase, MatchRecord, StoredSeat } from './persistence';
-import { MatchStore } from './persistence';
+import { MatchStore, replayMatch } from './persistence';
 import type { ClientMessage, ErrorCode, ServerMessage, SeatStatus } from './protocol';
 import { hashToken, mintMatchId, mintSeed, mintToken, tokenMatches } from './seatTokens';
 
@@ -89,6 +90,27 @@ function makeEmptySeats(): Seat[] {
     }));
 }
 
+/**
+ * Rebuilds the seat table from a persisted record (Design §7, §9; Task 10).
+ * Every claimed seat comes back disconnected with `disconnectedAt` stamped
+ * at REBUILD time, never at whatever it was before the crash: a rebuilt room
+ * is indistinguishable from a mass disconnect, and every grace window
+ * (lobby reopening, `activeGraceMs`, `zeroConnTtlMs`) must measure from this
+ * instant, never a lost past the process has no record of.
+ */
+function restoreSeats(stored: readonly StoredSeat[], rebuiltAt: number): Seat[] {
+    const seats = makeEmptySeats();
+    for (const s of stored) {
+        const seat = seats[s.index];
+        seat.tokenHash = s.tokenHash;
+        // '' unambiguously means "no nickname set" — the mirror of toStoredSeats below.
+        seat.nickname = s.nickname === '' ? null : s.nickname;
+        seat.conn = null;
+        seat.disconnectedAt = rebuiltAt;
+    }
+    return seats;
+}
+
 export class Room {
     readonly matchId: string;
 
@@ -125,15 +147,19 @@ export class Room {
         createdAt: number,
         config: TransportConfig,
         store: MatchStore,
-        deps: Required<RoomDeps>
+        deps: Required<RoomDeps>,
+        // Rebuild-only initial state (Task 10): `create()` never passes this,
+        // so every field defaults exactly as before. `rebuild()` is the one
+        // other caller, and supplies whichever of these its phase needs.
+        initial: { match?: MatchState | null; endReason?: EndReason | null; winnerSeat?: PlayerId | null; endedAt?: number | null } = {}
     ) {
         this.matchId = matchId;
         this.seats = seats;
         this.phase = phase;
-        this.endReason = null;
-        this.winnerSeat = null;
-        this.endedAt = null;
-        this.match = null;
+        this.endReason = initial.endReason ?? null;
+        this.winnerSeat = initial.winnerSeat ?? null;
+        this.endedAt = initial.endedAt ?? null;
+        this.match = initial.match ?? null;
         this.revealDeadline = null;
         this.revealTimer = null;
         this.advancing = false;
@@ -172,6 +198,80 @@ export class Room {
         room.persist();
 
         return { room, hostSeatToken };
+    }
+
+    /**
+     * Lazy crash recovery (Design §7, §9; plan Task 10). Called by the
+     * registry on a cold `get()` — never eagerly for every stored row, so a
+     * restart with many rooms doesn't stall before it can accept
+     * connections. Every phase restores the seat table the same way
+     * (`restoreSeats`): a rebuilt room is indistinguishable from everybody
+     * having disconnected at once, and `disconnectedAt` is stamped at THIS
+     * instant so every grace window measures from the rebuild, never a lost
+     * past.
+     *
+     *  - `'lobby'`: no match; otherwise a plain lobby room.
+     *  - `'active'`: replays `{seed, actionLog}` through the real engine
+     *    (`replayMatch`). A null seed or a replay that fails validation both
+     *    mean a corrupt log — the row is quarantined and `null` returned so
+     *    the caller treats this id as gone rather than trusting a state
+     *    nobody can reconstruct. No timer is armed here even if the
+     *    replayed match sits at round-over: the room comes back fully
+     *    paused (every seat missing), and the ordinary resume flow (Design
+     *    §7) re-arms it the moment someone actually reconnects — arming a
+     *    timer with nobody here to see it would just burn a countdown into
+     *    silence.
+     *  - `'ended'`: a corpse awaiting retention deletion. No replay needed —
+     *    nobody will ever play this match again — so `match` stays `null`;
+     *    `resync`/dispatch's gates answer `MATCH_OVER` without one (Task 11).
+     *    `endedAt` is not itself a persisted column, but `updatedAt`
+     *    coincides with the ended-transition's own `persist()` call
+     *    (`transitionToEnded` is always immediately followed by `persist()`
+     *    everywhere above), so `record.updatedAt` is exactly the value
+     *    `endedAt` held right before the crash. Skipping this would leave
+     *    `sweep`'s retention check with no deadline to compare against, and
+     *    a rebuilt ended room would never get deleted.
+     */
+    static rebuild(config: TransportConfig, store: MatchStore, record: MatchRecord, deps: RoomDeps = {}): Room | null {
+        const resolvedDeps: Required<RoomDeps> = {
+            now: deps.now ?? Date.now,
+            createMatch: deps.createMatch ?? engineCreateMatch,
+            reduce: deps.reduce ?? engineReduce,
+            startNextRound: deps.startNextRound ?? engineStartNextRound,
+            view: deps.view ?? engineView,
+            isMatchOver: deps.isMatchOver ?? engineIsMatchOver
+        };
+
+        const seats = restoreSeats(record.seats, resolvedDeps.now());
+
+        if (record.phase === 'lobby') {
+            return new Room(record.matchId, seats, 'lobby', record.createdAt, config, store, resolvedDeps);
+        }
+
+        if (record.phase === 'active') {
+            if (record.seed === null) {
+                store.quarantine(record.matchId);
+                return null;
+            }
+            // Seat order is already index order from toStoredSeats(), but a
+            // fixed sort documents that guarantee rather than leaning on it.
+            const playerIds = [...record.seats].sort((a, b) => a.index - b.index).map(s => s.playerId);
+            const matchState = replayMatch(playerIds, record.seed, record.matchId, record.actionLog);
+            if (matchState === null) {
+                store.quarantine(record.matchId);
+                return null;
+            }
+            return new Room(record.matchId, seats, 'active', record.createdAt, config, store, resolvedDeps, {
+                match: matchState
+            });
+        }
+
+        // 'ended'
+        return new Room(record.matchId, seats, 'ended', record.createdAt, config, store, resolvedDeps, {
+            endReason: record.endReason,
+            winnerSeat: record.winnerSeat,
+            endedAt: record.updatedAt
+        });
     }
 
     /** The 15-line chain of Design §10, copied exactly: every room message routes through one queue. */
@@ -497,12 +597,15 @@ export class Room {
     }
 
     /**
-     * Lobby-phase transitions only (Design §5 rows 3, 6): a disconnected
-     * seat past grace reopens; a lobby past its TTL ends. `active`/`ended`
-     * transitions (rows 7-14) arrive in Tasks 8-10. `'delete'` past
-     * retention is included since it needs nothing this task doesn't
-     * already track — the registry (Task 10) still owns dropping the room
-     * from its map and the store.
+     * Every phase's reaper-driven transition (Design §5 rows 3, 6, 13, 14):
+     * a disconnected lobby seat past grace reopens; a lobby past its TTL
+     * ends; an active match with zero connections past `zeroConnTtlMs`
+     * ends abandoned (row 13 — row 12, the grace-based `END_MATCH` a
+     * connected player can call themselves, already lives in `endMatch`
+     * above); an ended room past `retentionMs` is reported for deletion.
+     * `'delete'` itself is only ever returned from the `ended` branch — the
+     * registry (Task 10) still owns dropping the room from its map and the
+     * store once told to.
      */
     sweep(): 'keep' | 'delete' {
         const now = this.deps.now();
@@ -514,10 +617,12 @@ export class Room {
             return 'keep';
         }
 
-        if (this.phase !== 'lobby') {
-            return 'keep'; // active-phase reaping (rows 12, 13) arrives in Task 10
+        if (this.phase === 'active') {
+            this.sweepActive(now);
+            return 'keep'; // active rooms are only ever removed via the 'ended' branch, on a LATER sweep
         }
 
+        // phase === 'lobby' — the only case left.
         let seatsReopened = false;
         for (const seat of this.seats) {
             if (
@@ -566,6 +671,37 @@ export class Room {
     private canStart(): boolean {
         const claimed = this.seats.filter(s => s.tokenHash !== null);
         return claimed.length >= 2 && claimed.length <= 4 && claimed.every(s => s.conn !== null);
+    }
+
+    /**
+     * Design §5 transition 13 — the reaper's own backstop for an active
+     * match nobody is left to end. Transition 12 (grace-based `END_MATCH` by
+     * ANY connected seat once someone else has been missing past
+     * `activeGraceMs`) already lives in `endMatch` above, but that requires
+     * somebody connected to call it. When every claimed seat is missing,
+     * there is nobody left to — so once the longest absence clears
+     * `zeroConnTtlMs`, the room ends itself the same way `endMatch` would.
+     *
+     * `disconnectedAt` is non-null for every claimed seat counted here by
+     * construction: a claimed seat only ever has `conn === null` after
+     * `handleClose` or a rebuild, and both stamp `disconnectedAt` in the same
+     * step that clears `conn` — so the `as number` below is provably safe,
+     * not merely assumed. `broadcastMatchEnded` is a no-op with zero
+     * connected seats; it still runs so this transition commits through the
+     * exact same end-of-match code path as every other one, not a bespoke
+     * copy of it.
+     */
+    private sweepActive(now: number): void {
+        const claimed = this.seats.filter(s => s.tokenHash !== null);
+        const zeroConnected = claimed.length > 0 && claimed.every(s => s.conn === null);
+        if (!zeroConnected) return;
+
+        const longestMissingMs = Math.max(...claimed.map(s => now - (s.disconnectedAt as number)));
+        if (longestMissingMs <= this.config.zeroConnTtlMs) return;
+
+        this.transitionToEnded('abandoned', null);
+        this.persist();
+        this.broadcastMatchEnded('abandoned');
     }
 
     /**
