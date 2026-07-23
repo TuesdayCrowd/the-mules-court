@@ -1,5 +1,5 @@
 import type { PlayCardAction, RoundState, ValidationResult } from './types';
-import { CARD_CATALOG, INFORMANT_ID, cardTypeOf } from './cardCatalog';
+import { CARD_CATALOG, INFORMANT_VALUE, MAX_CARD_VALUE, MIN_CARD_VALUE, cardTypeOf } from './cardCatalog';
 import { EFFECT_DEFS } from './effectRegistry';
 import { computeLegalPlays, computeLegalTargets } from './legality';
 
@@ -63,14 +63,17 @@ export function validateAction(round: RoundState, action: PlayCardAction): Valid
     // 7. The Informant's guess.
     const guessApplies = effectDef.requiresGuess && legalTargets.length > 0;
     if (guessApplies) {
-        // A guess must name a real card. An unknown string could only ever miss,
-        // so this buys no advantage — but the engine never accepts a shape it did
-        // not define.
-        if (action.guess === undefined || CARD_CATALOG[action.guess] === undefined) {
+        // A guess must be a card value the deck actually contains.
+        if (
+            action.guess === undefined ||
+            !Number.isInteger(action.guess) ||
+            action.guess < MIN_CARD_VALUE ||
+            action.guess > MAX_CARD_VALUE
+        ) {
             return { ok: false, error: { code: 'GUESS_REQUIRED' } };
         }
-        // Banned by identity, never by value, so the rule survives a future value-1 card.
-        if (action.guess === INFORMANT_ID) {
+        // The Informant may never guess its own value.
+        if (action.guess === INFORMANT_VALUE) {
             return { ok: false, error: { code: 'GUESS_CANNOT_BE_INFORMANT' } };
         }
     } else if (action.guess !== undefined) {

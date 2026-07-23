@@ -22,8 +22,8 @@ const rig = (match: MatchState, round: Partial<MatchState['round']>): MatchState
 
 const twoPlayer = () => createMatch(['p0', 'p1'], 'edge', 'edge-match');
 
-describe('§9 informant-may-not-name-itself', () => {
-    it('rejects the guess by identity, never by value', () => {
+describe('§9 informant-may-not-guess-its-own-value', () => {
+    it('rejects a guess of value 1', () => {
         const match = rig(twoPlayer(), {
             seatOrder: ['p0', 'p1'],
             currentPlayerIndex: 0,
@@ -37,7 +37,7 @@ describe('§9 informant-may-not-name-itself', () => {
             playerId: 'p0',
             cardInstanceId: 'informant#0',
             target: 'p1',
-            guess: 'informant'
+            guess: 1 as never   // deliberately illegal: the Informant's own value
         };
         const result = validateAction(match.round, action);
         expect(result.ok).toBe(false);
@@ -201,7 +201,7 @@ describe('§9 elimination-reveals-the-victims-card', () => {
             playerId: 'p0',
             cardInstanceId: 'informant#0',
             target: 'p1',
-            guess: 'mule'
+            guess: 8
         });
         if (!result.ok) throw new Error('expected a legal play');
         expect(result.state.round.players.p1.discardPile.map(e => e.cardId)).toEqual(['mule']);

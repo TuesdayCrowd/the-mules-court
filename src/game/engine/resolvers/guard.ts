@@ -1,13 +1,14 @@
 import type { ResolveContext } from '../types';
-import { cardTypeOf } from '../cardCatalog';
+import { CARD_CATALOG, cardTypeOf } from '../cardCatalog';
 import { eliminate } from '../discard';
 import { heldCard, logFizzle } from './shared';
 
 /**
  * Informant (GUARD): name a card. A targeted opponent holding it is eliminated.
  *
- * The Informant may never name itself; validateAction enforces that by identity
- * before this ever runs.
+ * The guess names a VALUE, not a character. Four values are shared by two
+ * characters each, so guessing 5 catches either Darell. The Informant may never
+ * guess its own value; validateAction enforces that before this runs.
  */
 export function resolveGuard(context: ResolveContext): void {
     const { round, actorId, targetId, guess, playedCardId } = context;
@@ -18,14 +19,15 @@ export function resolveGuard(context: ResolveContext): void {
     }
 
     const target = heldCard(round, targetId);
-    const hit = target !== undefined && cardTypeOf(target) === guess;
+    // Compared by VALUE: a guess of 5 catches either Darell, a guess of 2 either Priest.
+    const hit = target !== undefined && CARD_CATALOG[cardTypeOf(target)].value === guess;
 
     round.publicLog.push({
         kind: 'GUESS',
         turn: round.turnNumber,
         actorId,
         targetId,
-        guessedCardId: guess,
+        guessedValue: guess,
         hit
     });
 

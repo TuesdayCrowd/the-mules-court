@@ -34,7 +34,7 @@ describe('reduce — rejection', () => {
     it('leaves the original state untouched on success', () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['mule#0'] }, ['han-pritcher#0']);
         const snapshot = JSON.parse(JSON.stringify(match));
-        reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         expect(JSON.parse(JSON.stringify(match))).toEqual(snapshot);
     });
 });
@@ -42,7 +42,7 @@ describe('reduce — rejection', () => {
 describe('reduce — the pipeline', () => {
     it('discards the played card before resolving its effect', () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['first-speaker#0'] }, ['mule#0']);
-        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         expect(result.ok).toBe(true);
         if (!result.ok) return;
         expect(result.state.round.players.p0.discardPile.map(e => e.cardId)).toEqual(['informant']);
@@ -76,7 +76,7 @@ describe('reduce — the pipeline', () => {
 
     it('appends the action to the replay log', () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['first-speaker#0'] }, ['mule#0']);
-        const action = play('p0', 'informant#0', { target: 'p1', guess: 'mule' });
+        const action = play('p0', 'informant#0', { target: 'p1', guess: 8 });
         const result = reduce(match, action);
         if (!result.ok) return;
         expect(result.state.actionLog).toEqual([action]);
@@ -84,7 +84,7 @@ describe('reduce — the pipeline', () => {
 
     it('passes the turn and draws for the next player', () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['first-speaker#0'] }, ['mule#0']);
-        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 'bayta-darell' }));
+        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 5 }));
         if (!result.ok) return;
         expect(result.state.round.seatOrder[result.state.round.currentPlayerIndex]).toBe('p1');
         expect(result.state.round.players.p1.hand).toEqual(['first-speaker#0', 'mule#0']);
@@ -94,7 +94,7 @@ describe('reduce — the pipeline', () => {
 describe('reduce — ending a round', () => {
     it('awards a token to the last survivor', () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['mule#0'] }, ['han-pritcher#0']);
-        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         if (!result.ok) return;
         expect(result.state.players.find(p => p.id === 'p0')?.tokens).toBe(1);
         expect(result.state.players.find(p => p.id === 'p1')?.tokens).toBe(0);
@@ -104,7 +104,7 @@ describe('reduce — ending a round', () => {
     // table is swept. Dealing straight through would make it unobservable.
     it('halts at round-over carrying its result rather than dealing on', () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['mule#0'] }, ['han-pritcher#0']);
-        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         if (!result.ok) return;
         expect(result.state.round.phase).toBe('round-over');
         expect(result.state.round.roundResult).toEqual({ reason: 'last-survivor', winnerIds: ['p0'] });
@@ -114,7 +114,7 @@ describe('reduce — ending a round', () => {
 
     it('refuses further plays once the round is over', () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['mule#0'] }, ['han-pritcher#0']);
-        const first = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        const first = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         if (!first.ok) return;
         expect(reduce(first.state, play('p0', 'magnifico#0')).ok).toBe(false);
     });
@@ -123,7 +123,7 @@ describe('reduce — ending a round', () => {
 describe('startNextRound', () => {
     const finishedRound = () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['mule#0'] }, ['han-pritcher#0']);
-        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         if (!result.ok) throw new Error('setup failed');
         return result.state;
     };
@@ -162,19 +162,19 @@ describe('reduce — ending a match', () => {
     };
 
     it('declares a winner on reaching the token target', () => {
-        const result = reduce(onePointShort('p0'), play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        const result = reduce(onePointShort('p0'), play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         if (!result.ok) return;
         expect(result.state.matchWinnerId).toBe('p0');
     });
 
     it('refuses further play once the match is over', () => {
-        const first = reduce(onePointShort('p0'), play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        const first = reduce(onePointShort('p0'), play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         if (!first.ok) return;
         expect(reduce(first.state, play('p0', 'magnifico#0')).ok).toBe(false);
     });
 
     it('refuses to deal another round once the match is decided', () => {
-        const first = reduce(onePointShort('p0'), play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        const first = reduce(onePointShort('p0'), play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         if (!first.ok) return;
         expect(() => startNextRound(first.state)).toThrow();
     });
@@ -183,13 +183,13 @@ describe('reduce — ending a match', () => {
 describe('reduce — determinism', () => {
     it('produces identical state for identical input', () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['first-speaker#0'] }, ['mule#0']);
-        const action = play('p0', 'informant#0', { target: 'p1', guess: 'mule' });
+        const action = play('p0', 'informant#0', { target: 'p1', guess: 8 });
         expect(reduce(match, action)).toEqual(reduce(match, action));
     });
 
     it('keeps state JSON-serializable', () => {
         const match = withHands({ p0: ['informant#0', 'magnifico#0'], p1: ['first-speaker#0'] }, ['mule#0']);
-        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 'mule' }));
+        const result = reduce(match, play('p0', 'informant#0', { target: 'p1', guess: 8 }));
         if (!result.ok) return;
         expect(JSON.parse(JSON.stringify(result.state))).toEqual(result.state);
     });

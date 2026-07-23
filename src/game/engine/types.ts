@@ -42,6 +42,15 @@ export type EffectType =
 
 export type CardValue = 1 | 2 | 3 | 4 | 5 | 6 | 7 | 8;
 
+/**
+ * What the Informant may guess.
+ *
+ * Guessing names a VALUE rather than a character. Four values are shared by two
+ * characters each, so naming a character would catch only half of what the value
+ * covers. Value 1 is excluded: the Informant may never guess itself.
+ */
+export type GuessValue = 2 | 3 | 4 | 5 | 6 | 7 | 8;
+
 // ---------------------------------------------------------------- static data
 
 export interface CardDef {
@@ -94,7 +103,7 @@ export interface ResolveContext {
     readonly actorId: PlayerId;
     /** Absent when no legal target existed and the play fizzled. */
     readonly targetId?: PlayerId;
-    readonly guess?: CardTypeId;
+    readonly guess?: GuessValue;
     readonly playedCardId: CardTypeId;
 }
 
@@ -134,7 +143,7 @@ export type PublicLogEntry =
           readonly turn: number;
           readonly actorId: PlayerId;
           readonly targetId: PlayerId;
-          readonly guessedCardId: CardTypeId;
+          readonly guessedValue: GuessValue;
           readonly hit: boolean;
       }
     | {
@@ -264,8 +273,8 @@ export interface PlayCardAction {
     readonly cardInstanceId: CardInstanceId;
     /** Present only when the legal-target set is non-empty. Omitted, never null. */
     readonly target?: PlayerId;
-    /** Informant only, and never 'informant'. */
-    readonly guess?: CardTypeId;
+    /** Informant only. A value from 2 to 8; never 1, which is the Informant itself. */
+    readonly guess?: GuessValue;
 }
 
 /** A closed union of one variant today. A future action joins it as a new member. */

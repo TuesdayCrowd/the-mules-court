@@ -1,4 +1,4 @@
-import type { CardDef, CardInstanceId, CardTypeId } from './types';
+import type { CardDef, CardInstanceId, CardTypeId, CardValue } from './types';
 
 /**
  * The eleven card identities of The Mule's Court, totalling sixteen physical cards.
@@ -104,10 +104,17 @@ export const CARD_CATALOG: Readonly<Record<CardTypeId, CardDef>> = {
 };
 
 /**
- * The identity the Informant may never name. Banning by identity rather than by
- * value keeps the rule correct if the roster ever gains another value-1 card.
+ * The Informant's own value, which it may never guess.
+ *
+ * Guessing names a VALUE rather than a character, because four values are shared
+ * by two characters each — a guess of 5 catches either Darell. Naming a character
+ * would halve the Informant's reach on every doubled value.
  */
-export const INFORMANT_ID: CardTypeId = 'informant';
+export const INFORMANT_VALUE: CardValue = 1;
+
+/** The values the deck contains, and therefore the range a guess may name. */
+export const MIN_CARD_VALUE: CardValue = 1;
+export const MAX_CARD_VALUE: CardValue = 8;
 
 /** Builds the instance id for one physical copy of a card. */
 export function makeCardInstanceId(cardId: CardTypeId, ordinal: number): CardInstanceId {

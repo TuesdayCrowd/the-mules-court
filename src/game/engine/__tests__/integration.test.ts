@@ -28,7 +28,7 @@ function autoAction(match: MatchState): PlayCardAction | null {
 
     const target = targets[0];
     if (!effect.requiresGuess) return { ...action, target };
-    return { ...action, target, guess: 'mule' };
+    return { ...action, target, guess: 8 };
 }
 
 /** Plays a whole match to completion, collecting every state along the way. */
