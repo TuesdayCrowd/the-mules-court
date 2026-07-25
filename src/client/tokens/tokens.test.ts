@@ -13,11 +13,40 @@ function parseCssTokens(css: string): Map<string, number> {
     return found;
 }
 
+/**
+ * UIX §2.3's palette, named explicitly.
+ *
+ * The two drift checks below each walk one side and look for the other, so they
+ * prove the CSS and TypeScript key sets are identical — but a token deleted from
+ * *both* files leaves them identical and passes. Naming the design's tokens is
+ * what makes that deletion fail. `colorTextPrimary` joins them because the deck's
+ * legibility check is written against it.
+ */
+const REQUIRED_TOKENS = [
+    'colorBg',
+    'colorNebulaRed',
+    'colorNebulaPurple',
+    'colorTextPrimary',
+    'colorSeatCurrent',
+    'colorSeatOther',
+    'colorSeatProtected',
+    'colorSeatEliminated',
+    'colorSeatDisconnected',
+    'colorStateYourTurn',
+    'colorStateWaiting',
+    'colorStateRoundOver',
+    'colorStatePaused',
+    'colorStateMatchOver',
+    'colorDeckFull',
+    'colorDeckLow',
+    'colorDeckEmpty'
+] as const;
+
 describe('design tokens', () => {
     const css = parseCssTokens(readFileSync('src/client/styles/tokens.css', 'utf8'));
 
-    it('finds every colour token declared in CSS', () => {
-        expect(css.size).toBeGreaterThanOrEqual(14);
+    it('declares every colour the design names', () => {
+        expect(REQUIRED_TOKENS.filter(name => !css.has(name))).toEqual([]);
     });
 
     it('mirrors every CSS colour token in TypeScript with the same value', () => {

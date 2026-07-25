@@ -49,4 +49,20 @@ describe('pure client layer', () => {
             }
         }
     });
+
+    it('never reaches a global through globalThis', () => {
+        // The checks above ban `window.` and `document.` as member access, so
+        // `globalThis.window.x` still trips them — but `globalThis.localStorage`
+        // slipped past the bare-token check, whose lookbehind exists to permit
+        // `deps.localStorage` on an injected object. Rather than patch that one
+        // regex, close the hatch: `globalThis` is how *any* ambient global gets
+        // reached, `fetch` and `WebSocket` included, and a pure module has no
+        // business with any of them.
+        for (const dir of PURE_DIRS) {
+            for (const file of sourceFiles(dir)) {
+                if (file.endsWith('.test.ts')) continue;
+                expect(readFileSync(file, 'utf8'), `${file} reaches through globalThis`).not.toMatch(/\bglobalThis\b/);
+            }
+        }
+    });
 });
