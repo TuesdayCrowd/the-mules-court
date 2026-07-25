@@ -1,0 +1,42 @@
+/**
+ * The one palette (UIX §2.3), authoritative for the DOM layer.
+ *
+ * `src/client/tokens/tokens.ts` mirrors every colour here as an integer for
+ * Phaser draw calls, and `tokens.test.ts` fails if the two ever disagree — in
+ * either direction. Add a colour here first, then to the mirror.
+ */
+:root {
+    /* Base */
+    --color-bg: #000000;
+    --color-nebula-red: #ef4444;
+    --color-nebula-purple: #a855f7;
+
+    /* Seat states */
+    --color-seat-current: #ef4444;
+    --color-seat-other: #6b7280;
+    --color-seat-protected: #22d3ee;
+    --color-seat-eliminated: #9ca3af;
+    --color-seat-disconnected: #6b7280;
+
+    /* Game states */
+    --color-state-your-turn: #c084fc;
+    --color-state-waiting: #9ca3af;
+    --color-state-round-over: #4ade80;
+    --color-state-paused: #fbbf24;
+    --color-state-match-over: #fbbf24;
+
+    /* Deck */
+    --color-deck-full: #9333ea;
+    --color-deck-low: #b45309;
+    --color-deck-empty: #991b1b;
+
+    /* Non-colour scale — not mirrored in TS; canvas computes its own spacing */
+    --space-1: 0.25rem;
+    --space-2: 0.5rem;
+    --space-3: 0.75rem;
+    --space-4: 1rem;
+    --space-6: 1.5rem;
+    --space-8: 2rem;
+    --radius: 0.5rem;
+    --tap-min: 48px;
+}
