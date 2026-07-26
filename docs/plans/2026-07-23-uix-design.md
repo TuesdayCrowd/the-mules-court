@@ -330,11 +330,12 @@ Work this design requires beyond what exists in `public/assets/`:
 
 ## 13. Open questions and follow-ups
 
-1. **Host nickname (transport gap, blocks the lobby design).** The host seat is minted over HTTP with no nickname; `claimSeat` is the only setter and `RESUME_SEAT` carries no nickname field, so every lobby shows a blank host. Recommend a small transport addition: an optional `nickname` on `RESUME_SEAT`, applied only when the seat has none and the phase is `lobby`. Until then the client falls back to "Host".
+1. ~~**Host nickname (transport gap, blocks the lobby design).**~~ **RESOLVED** — the optional `RESUME_SEAT` nickname landed in Task 8, and D2 decided where the host types it: on the menu, before `POST /api/rooms` (Task 21). Original text follows.
+   **Host nickname (transport gap, blocks the lobby design).** The host seat is minted over HTTP with no nickname; `claimSeat` is the only setter and `RESUME_SEAT` carries no nickname field, so every lobby shows a blank host. Recommend a small transport addition: an optional `nickname` on `RESUME_SEAT`, applied only when the seat has none and the phase is `lobby`. Until then the client falls back to "Host".
 2. **Real-device QA pass** before implementation sign-off: iOS Safari keyboard/toolbar resize storms, devicePixelRatio crispness, and the DOM/canvas touch seam. Devtools emulation does not reproduce Safari's viewport behavior.
 3. **Manual VoiceOver/TalkBack pass** — axe-core catches structure, not experience.
 4. **VISUAL_SHOWCASE.md** carries superseded metrics and the stale 10-minute figure; it gains a pointer note to this document (done alongside this design) and should be pruned or absorbed when the client ships.
-5. **AGENTS.md** describes the five-scene starter chain; update it when the scene change (§2.5) lands.
+5. **AGENTS.md** describes the five-scene starter chain. **Partly addressed in Task 33:** its status, testing, architecture and Vite-base sections are now true of the built client, and the stale "keep this Scene chain as the skeleton" guidance is replaced by a pointer to §2.5. The chain description itself is still accurate and is deliberately left alone — it changes when Stage 6 replaces the scenes, not before.
 
 ## 14. Interface rules
 

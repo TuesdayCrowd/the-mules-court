@@ -1984,7 +1984,26 @@ but commit uix-client -m "feat(client): the Court scene, its reconciler, and the
 
 **Goal:** Make accessibility a regression test rather than a hope; produce the assets the design lists; leave the repo's guidance true.
 **Success criteria:** axe-core runs inside `bun run test` and is clean; fonts and icons ship; `AGENTS.md` describes the scene chain that actually exists.
-**Status:** Not Started
+**Status:** Tasks 31 and 32 Complete. Task 33 partly done, Task 34 written but not run — both blocked on Stage 6.
+
+> **What is blocked, and why.** Stage 7 was taken before Stage 6, so the Phaser
+> layer does not exist yet and `src/main.ts` still boots the starter scenes —
+> nothing in `src/client/` runs in a browser.
+>
+> - **Task 33** did every truth-up that is true *today*: AGENTS.md's status,
+>   testing, architecture and Vite-base sections; VISUAL_SHOWCASE's superseded
+>   layout section, its `Scale.FIT` premise and its wrong 10-minute figure; and
+>   design follow-ups 1 and 5. The **scene-chain rewrite is deliberately not
+>   done**: the chain AGENTS.md documents is still the one that exists, and
+>   replacing it with `Boot → Preloader → Court` would make the file describe
+>   scenes that are not there. Do it in Stage 6, with the change.
+> - **Task 34**'s checklist is written in full at
+>   `docs/plans/2026-07-24-uix-qa-checklist.md` and every box is unchecked. It
+>   cannot be run: there is no application to open on a device, and it needs
+>   physical hardware regardless.
+>
+> Stage 6 therefore ends with: rewrite AGENTS.md's scene section, then run the
+> checklist.
 
 ### Task 31: The offscreen twin and the axe-core gate
 

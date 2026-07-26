@@ -2,7 +2,7 @@
 
 > **Superseded in part by [`docs/plans/2026-07-23-uix-design.md`](docs/plans/2026-07-23-uix-design.md).** That document absorbs this one's interaction design (action panel, quick reference, seat states, palette, interface rules) and replaces its fixed 1024×768 layout system with a responsive DOM+canvas hybrid. Where the two disagree — layout metrics, the `Scale.FIT` assumption, the paused overlay's "after 10 min" figure — the design doc wins.
 
-Design reference for the game's interface. Nothing here is implemented yet: `src/game/scenes/` is still the Phaser starter template.
+Design reference for the game's interface. The DOM chrome described here **is** implemented, in `src/client/ui/`; the canvas table is not — `src/game/scenes/` is still the Phaser starter template.
 
 This document describes appearance and interaction only. The rules live in `README.md`, the state model in `docs/plans/2026-07-22-engine-architecture-design.md`, and the client-server protocol in `docs/plans/2026-07-22-transport-design.md`.
 
@@ -10,7 +10,7 @@ This document describes appearance and interaction only. The rules live in `READ
 
 The interface holds no game state. It renders a `RedactedView` pushed by the server and sends back one message, `PLAY_CARD`. Anything it appears to "decide" — whose turn it is, which cards are playable, who may be targeted — it read from that view.
 
-The design space is a fixed 1024×768 landscape, scaled to any screen by Phaser's `Scale.FIT`. Phone-landscape is in scope, so **nothing may depend on hover**.
+~~The design space is a fixed 1024×768 landscape, scaled to any screen by Phaser's `Scale.FIT`.~~ **Superseded.** The table is laid out by `src/client/layout/`, which computes every position as a fraction of the live viewport across three topology classes — see *UIX §2.2*. Phone-landscape is in scope, so **nothing may depend on hover**.
 
 ---
 
@@ -388,7 +388,7 @@ A round won by elimination shows the winner without a hand comparison, since the
 ║                                           ║
 ║   The match resumes automatically.        ║
 ║                                           ║
-║        [ End match ]  ← after 10 min      ║
+║        [ End match ]  ← after 2 min       ║
 ╚═══════════════════════════════════════════╝
 ```
 
@@ -469,55 +469,16 @@ Empty    #991b1b   Dark red
 
 ## 📐 Layout
 
-### Seat area
+**Superseded by `src/client/layout/`.** The fixed-pixel tables that stood here
+described a 1024×768 design space scaled by `Scale.FIT`; the client instead
+computes geometry from the live viewport, so there are no fixed numbers left to
+document. `computeLayout(input) → LayoutSpec` is the whole surface, its
+constants are named and commented in `tableLayout.ts`, and the design's spatial
+promises are assertions in `tableLayout.test.ts` rather than prose here.
 
-```
-300 × 180, 10px corner radius
-
-Nickname       18px bold,  -60 from top
-Status panel   280 × 40,   -10 from top
-Token badges   40 × 40 each, horizontal, wrapping at 4
-Hand / count   150 × 60,   +50 from top
-```
-
-Token badges wrap after four, since two-player matches run to seven.
-
-### Centre panel
-
-```
-400 × 120, top centre, -200 from centre
-
-Title          24px, -35 from centre
-Game state     16px,  +5 from centre    (Your Turn / Waiting for X / …)
-Countdown      18px, +35 from centre    (round-over only)
-```
-
-### Deck
-
-```
-150 × 220, centre
-
-Card back      120 × 180
-Count          20px, +80
-Label          12px, +100
-```
-
-### Action panel
-
-```
-360 wide, height follows content, anchored beside the raised card
-Kept inside the 1024 × 768 bounds; flips to the card's other side near an edge
-
-Card name + value    18px bold
-Effect text          14px
-Target buttons       160 × 48, portrait thumbnail plus nickname
-Guess buttons        160 × 40, two columns
-Cancel / Play        140 × 48
-```
-
-Buttons are at least 48px tall so they remain comfortable targets on a phone in landscape.
-
----
+One figure from the old table was also simply wrong, and is worth recording:
+a single seat can reach **eight** discards in a two-player round, not seven.
+See Task 18 of the implementation plan for the derivation.
 
 ## ✅ Interface rules
 
