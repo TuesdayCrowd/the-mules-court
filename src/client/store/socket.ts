@@ -12,6 +12,7 @@
  */
 
 import type { ClientMessage, ServerMessage } from '../../server/protocol';
+import { validateNickname } from '../content/nickname';
 import type { StoredSeat } from './seatTokenStore';
 import type { ConnectionStatus } from './types';
 
@@ -31,40 +32,17 @@ export interface WebSocketLike {
 }
 
 /**
- * `DEFAULT_CONFIG.maxNicknameLength`, restated rather than imported.
- *
- * The convention here is that the client takes *types* from the server and never
- * its runtime, so the constant is duplicated across the wire the same way the
- * validation is. The duplication is safe in the direction that matters: a
- * deployment raising the server's limit makes this client merely conservative
- * (a long name is dropped, the seat still resumes), which is the same outcome as
- * offering no nickname at all.
- */
-const MAX_NICKNAME_LENGTH = 24;
-
-/** True for any C0 control character or DEL, mirroring `protocol.ts`'s `hasControlChar`. */
-function hasControlChar(value: string): boolean {
-    for (let i = 0; i < value.length; i++) {
-        const code = value.charCodeAt(i);
-        if (code <= 0x1f || code === 0x7f) return true;
-    }
-    return false;
-}
-
-/**
  * The nickname to put on the wire, or `undefined` to omit the key.
  *
- * Holds to `parseNickname`'s rules exactly (`protocol.ts:107-114`), and that
- * completeness is the point: an invalid nickname fails the *whole* RESUME_SEAT
- * frame as MALFORMED, so a name the server refuses costs the seat rather than
- * just the name. Guarding one rule and not the others would look like a check
- * while leaving the expensive failures open.
+ * Defers to `content/nickname.ts` rather than keeping its own copy of the rules.
+ * An invalid nickname fails the *whole* RESUME_SEAT frame as MALFORMED, so a
+ * name the server refuses costs the seat rather than just the name — and two
+ * validators that agree today are exactly how that starts going wrong.
  */
 function sendableNickname(raw: string | undefined): string | undefined {
     if (raw === undefined) return undefined;
-    const trimmed = raw.trim();
-    if (trimmed.length === 0 || trimmed.length > MAX_NICKNAME_LENGTH) return undefined;
-    return hasControlChar(trimmed) ? undefined : trimmed;
+    const result = validateNickname(raw);
+    return result.ok ? result.value : undefined;
 }
 
 /** Opaque: a number in the browser, a `Timeout` object under Node. Never inspected. */

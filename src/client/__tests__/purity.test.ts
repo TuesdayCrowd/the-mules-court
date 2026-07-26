@@ -50,6 +50,27 @@ describe('pure client layer', () => {
         }
     });
 
+    it('takes only types from the server, with one documented exception', () => {
+        // The client bundles for a browser; the server runs under Bun. A runtime
+        // import across that line drags transport code into the game bundle, and
+        // the failure mode is a build that succeeds and a page that does not.
+        //
+        // `content/nickname.ts` is the exception, argued in Task 22 and checked
+        // rather than waved through: `src/server/config.ts` has zero imports and
+        // touches neither Bun nor `process`, so it is a plain literal — and the
+        // alternative is a second copy of the nickname limit that can drift into
+        // the client sending exactly what the server refuses.
+        const ALLOWED = new Set(['src/client/content/nickname.ts']);
+        const runtimeServerImport = /^\s*import\s+(?!type\b)[^;]*?from\s+['"][^'"]*\/server\/[^'"]*['"]/m;
+
+        for (const dir of PURE_DIRS) {
+            for (const file of sourceFiles(dir)) {
+                if (file.endsWith('.test.ts') || ALLOWED.has(file)) continue;
+                expect(readFileSync(file, 'utf8'), `${file} imports server runtime`).not.toMatch(runtimeServerImport);
+            }
+        }
+    });
+
     it('never reaches a global through globalThis', () => {
         // The checks above ban `window.` and `document.` as member access, so
         // `globalThis.window.x` still trips them — but `globalThis.localStorage`
