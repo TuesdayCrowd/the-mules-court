@@ -278,6 +278,34 @@ describe('ERROR', () => {
         expect(h.store.getState().pendingPlay).not.toBeNull();
     });
 
+    it.each(['ROOM_NOT_FOUND', 'ROOM_FULL', 'MATCH_OVER'] as const)(
+        'routes %s to the fatal screen, because it arrives as ERROR and the socket stays open',
+        code => {
+            // FATAL carries only BAD_TOKEN and SEAT_TAKEN (room.ts:344,364). Every
+            // other dead end UIX §5 designs full-screen copy for is an ERROR, and a
+            // toast would leave the player on the join screen forever.
+            const h = harness();
+            h.store.apply({ type: 'ERROR', code });
+
+            expect(h.store.getState().screen).toBe('fatal');
+            expect(h.store.getState().fatal).toBe(code);
+            expect(h.store.getState().notices).toEqual([]); // the screen carries the copy; a toast would double-report
+        }
+    );
+
+    it('leaves a seated player at the table when MATCH_OVER answers a late play', () => {
+        // Same code, different situation: someone who is already watching the
+        // match-over overlay has somewhere to be, so this is a toast, not a wall.
+        const h = harness();
+        h.store.apply(makeStateUpdate({ phase: 'ended', endReason: 'won', winnerSeat: 'p2' }));
+
+        h.store.apply({ type: 'ERROR', code: 'MATCH_OVER' });
+
+        expect(h.store.getState().screen).toBe('table');
+        expect(h.store.getState().fatal).toBeNull();
+        expect(h.store.getState().notices).toHaveLength(1);
+    });
+
     it('is never fatal, RATE_LIMITED included', () => {
         const h = harness();
         h.store.apply({ type: 'ERROR', code: 'RATE_LIMITED' });
@@ -321,11 +349,17 @@ describe('FATAL', () => {
         expect(h.store.getState().seat).toEqual({ seat: 0, playerId: 'p1' });
     });
 
-    it('goes fatal for every other code', () => {
-        for (const code of ['ROOM_NOT_FOUND', 'ROOM_FULL', 'MATCH_OVER'] as const) {
+    it('goes fatal for any other code, defensively', () => {
+        // The server only ever sends FATAL with BAD_TOKEN or SEAT_TAKEN
+        // (room.ts:344,364), so these are unreachable today. They are asserted
+        // anyway: a FATAL the client does not recognise must still stop the
+        // player rather than be silently dropped, and the ERROR tests above are
+        // what cover the codes actually in use.
+        for (const code of ['ROOM_NOT_FOUND', 'ROOM_FULL', 'INTERNAL'] as const) {
             const h = harness();
             h.store.apply({ type: 'FATAL', code });
             expect(h.store.getState().fatal, code).toBe(code);
+            expect(h.store.getState().screen, code).toBe('fatal');
         }
     });
 
@@ -532,6 +566,28 @@ describe('subscribe', () => {
         h.store.apply(makeStateUpdate({ serverTime: 1_000_100 }));
 
         expect(seen).toHaveLength(1);
+    });
+
+    it('shows every subscriber every state, in order, even when one calls back into the store', () => {
+        // A listener that reacts by calling an intent is ordinary Stage 6 code.
+        // Without a queue the reentrant commit runs inside the outer loop, and
+        // later listeners skip the state the earlier ones already saw.
+        const h = harness();
+        h.store.apply(makeStateUpdate());
+        h.store.playCard({ cardInstanceId: 'informant#1' });
+
+        const first: Array<string | null> = [];
+        const second: Array<string | null> = [];
+        h.store.subscribe(state => {
+            first.push(state.pendingPlay?.clientMsgId ?? null);
+            if (state.pendingPlay !== null) h.store.cancelPending();
+        });
+        h.store.subscribe(state => second.push(state.pendingPlay?.clientMsgId ?? null));
+
+        h.store.apply({ type: 'ERROR', code: 'RATE_LIMITED' }); // a notice; pendingPlay survives
+
+        expect(first).toEqual(['id-1', null]);
+        expect(second).toEqual(['id-1', null]); // the same two states, not one of them twice
     });
 
     it('notifies every subscriber', () => {

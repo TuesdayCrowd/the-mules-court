@@ -30,6 +30,43 @@ export interface WebSocketLike {
     onerror: (() => void) | null;
 }
 
+/**
+ * `DEFAULT_CONFIG.maxNicknameLength`, restated rather than imported.
+ *
+ * The convention here is that the client takes *types* from the server and never
+ * its runtime, so the constant is duplicated across the wire the same way the
+ * validation is. The duplication is safe in the direction that matters: a
+ * deployment raising the server's limit makes this client merely conservative
+ * (a long name is dropped, the seat still resumes), which is the same outcome as
+ * offering no nickname at all.
+ */
+const MAX_NICKNAME_LENGTH = 24;
+
+/** True for any C0 control character or DEL, mirroring `protocol.ts`'s `hasControlChar`. */
+function hasControlChar(value: string): boolean {
+    for (let i = 0; i < value.length; i++) {
+        const code = value.charCodeAt(i);
+        if (code <= 0x1f || code === 0x7f) return true;
+    }
+    return false;
+}
+
+/**
+ * The nickname to put on the wire, or `undefined` to omit the key.
+ *
+ * Holds to `parseNickname`'s rules exactly (`protocol.ts:107-114`), and that
+ * completeness is the point: an invalid nickname fails the *whole* RESUME_SEAT
+ * frame as MALFORMED, so a name the server refuses costs the seat rather than
+ * just the name. Guarding one rule and not the others would look like a check
+ * while leaving the expensive failures open.
+ */
+function sendableNickname(raw: string | undefined): string | undefined {
+    if (raw === undefined) return undefined;
+    const trimmed = raw.trim();
+    if (trimmed.length === 0 || trimmed.length > MAX_NICKNAME_LENGTH) return undefined;
+    return hasControlChar(trimmed) ? undefined : trimmed;
+}
+
 /** Opaque: a number in the browser, a `Timeout` object under Node. Never inspected. */
 export type TimerHandle = unknown;
 
@@ -141,23 +178,17 @@ export function createSocket(deps: SocketDeps): Socket {
         deps.onStatus(next);
     }
 
-    /**
-     * The first frame of every open, or null when there is nothing to resume.
-     *
-     * A blank nickname is dropped rather than sent: `parseNickname` rejects it
-     * and the server fails the *whole* frame as MALFORMED, so an empty name
-     * would cost the seat and not merely the name.
-     */
+    /** The first frame of every open, or null when there is nothing to resume. */
     function handshake(): ClientMessage | null {
         const seat = deps.storedSeat();
         if (seat === null) return null;
 
-        const nickname = deps.nickname()?.trim();
+        const nickname = sendableNickname(deps.nickname());
         return {
             type: 'RESUME_SEAT',
             matchId: deps.matchId,
             seatToken: seat.seatToken,
-            ...(nickname !== undefined && nickname.length > 0 ? { nickname } : {})
+            ...(nickname !== undefined ? { nickname } : {})
         };
     }
 

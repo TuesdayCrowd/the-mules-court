@@ -78,6 +78,62 @@ describe('diffSnapshots on the public log', () => {
         expect(diffSnapshots(prev, makeView({ publicLog: fresh }))).toHaveLength(3);
     });
 
+    it('treats a longer log that merely collides at the boundary as a reset', () => {
+        // The boundary entry alone is a heuristic, not a proof: kind has eight
+        // values and turn restarts at 1 each round, so two unrelated rounds
+        // collide there routinely. Only the whole shared prefix proves continuity.
+        const prev = makeView({ publicLog: [PLAY, TRADED, PROTECTED] });
+        const fresh: PublicLogEntry[] = [
+            { kind: 'PLAY', turn: 1, actorId: 'p2', cardId: 'ebling-mis' },
+            { kind: 'COMPARE', turn: 1, actorId: 'p2', targetId: 'p1', result: 'tie' },
+            { kind: 'PROTECTED', turn: 2, actorId: 'p1' }, // same kind and turn as prev's last
+            { kind: 'PLAY', turn: 3, actorId: 'p1', cardId: 'informant' }
+        ];
+
+        expect(diffSnapshots(prev, makeView({ publicLog: fresh }))).toEqual(fresh.map(entry => ({ kind: 'log', entry })));
+    });
+
+    it('treats a one-entry log replaced by a different one-entry opening as a reset', () => {
+        // The shortest possible collision, and the likeliest: every round opens
+        // with { kind: 'PLAY', turn: 1 } from whoever leads it.
+        const prev = makeView({ publicLog: [{ kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'han-pritcher' }] });
+        const fresh: PublicLogEntry[] = [
+            { kind: 'PLAY', turn: 1, actorId: 'p2', cardId: 'mayor-indbur' },
+            { kind: 'TRADED', turn: 1, actorId: 'p2', targetId: 'p1' }
+        ];
+
+        expect(diffSnapshots(prev, makeView({ publicLog: fresh }))).toEqual(fresh.map(entry => ({ kind: 'log', entry })));
+    });
+
+    it('distinguishes entries that differ only in a field beyond kind and turn', () => {
+        const prev = makeView({ publicLog: [{ kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'han-pritcher' }] });
+        const next = makeView({
+            publicLog: [
+                { kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'bail-channis' }, // same seat, different card
+                PROTECTED
+            ]
+        });
+
+        expect(diffSnapshots(prev, next)).toHaveLength(2);
+    });
+
+    it('compares array fields by contents, so a differing co-win list reads as a reset', () => {
+        const prev = makeView({ publicLog: [{ kind: 'ROUND_END', turn: 3, reason: 'deck-out', winners: ['p1'] }] });
+        const next = makeView({
+            publicLog: [{ kind: 'ROUND_END', turn: 3, reason: 'deck-out', winners: ['p1', 'p2'] }, PROTECTED]
+        });
+
+        expect(diffSnapshots(prev, next)).toHaveLength(2);
+    });
+
+    it('still recognises a genuine continuation of a long log', () => {
+        const shared = [PLAY, TRADED, PROTECTED];
+        const prev = makeView({ publicLog: shared });
+        const next = makeView({ publicLog: [...shared, ROUND_END] });
+
+        expect(diffSnapshots(prev, next)).toEqual([{ kind: 'log', entry: ROUND_END }]);
+    });
+
     it('continues normally when the log grows from empty', () => {
         expect(diffSnapshots(makeView({ publicLog: [] }), makeView({ publicLog: [PLAY] }))).toEqual([
             { kind: 'log', entry: PLAY }

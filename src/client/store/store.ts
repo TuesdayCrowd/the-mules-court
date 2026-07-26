@@ -12,9 +12,20 @@
  */
 
 import type { CardInstanceId, GuessValue, PlayerId } from '../../game/engine';
-import type { ClientMessage, ServerMessage } from '../../server/protocol';
+import type { ClientMessage, ErrorCode, ServerMessage } from '../../server/protocol';
 import type { SeatTokenStore } from './seatTokenStore';
 import type { ClientState, ConnectionStatus, Notice, TableSnapshot } from './types';
+
+/**
+ * The codes that end a player's journey rather than interrupting it (UIX §5).
+ *
+ * They arrive as `ERROR`, not `FATAL`, and the socket stays open. `FATAL` is
+ * only ever `BAD_TOKEN` or `SEAT_TAKEN` (`room.ts:344,364`); every other dead
+ * end the design writes full-screen copy for comes through the ordinary error
+ * channel, so routing on the frame type alone would leave a player holding a
+ * stale invite link staring at the join screen behind a toast.
+ */
+const DEAD_END_CODES: ReadonlySet<ErrorCode> = new Set<ErrorCode>(['ROOM_NOT_FOUND', 'ROOM_FULL', 'MATCH_OVER']);
 
 export interface StoreDeps {
     /** The match this browser tab is in, fixed for the store's lifetime. `null` on the menu route. */
@@ -67,12 +78,36 @@ function initialState(deps: StoreDeps): ClientState {
 export function createStore(deps: StoreDeps): Store {
     let state = initialState(deps);
     let listeners: ReadonlyArray<(state: ClientState) => void> = [];
+    /** States awaiting publication. Non-empty only while a reentrant commit is in flight. */
+    const unpublished: ClientState[] = [];
+    let publishing = false;
 
-    /** Swap in a new state and publish it. A no-op change publishes nothing. */
+    /**
+     * Swap in a new state and publish it. A no-op change publishes nothing.
+     *
+     * Publication is queued rather than recursive. A listener calling back into
+     * the store — `cancelPending()` on seeing a stale play, say — is ordinary
+     * caller code, and running its commit inside this loop would let later
+     * listeners skip the state earlier ones already saw. Queueing keeps the
+     * guarantee simple: every subscriber sees every state, in the same order.
+     */
     function commit(next: ClientState): void {
         if (next === state) return;
         state = next;
-        for (const listener of listeners) listener(state);
+        unpublished.push(next);
+
+        if (publishing) return; // the loop below will reach it
+        publishing = true;
+        try {
+            while (unpublished.length > 0) {
+                const published = unpublished.shift() as ClientState;
+                // `listeners` is replaced, never mutated, so this iterates a
+                // stable snapshot: unsubscribing mid-broadcast is safe.
+                for (const listener of listeners) listener(published);
+            }
+        } finally {
+            publishing = false;
+        }
     }
 
     function withNotice(base: ClientState, code: Notice['code']): ClientState {
@@ -144,6 +179,13 @@ export function createStore(deps: StoreDeps): Store {
                 };
 
             case 'ERROR': {
+                // A dead end only counts as one for a player with nowhere to
+                // fall back to. The same MATCH_OVER answering a late play from
+                // someone already watching the match-over overlay is a toast.
+                if (DEAD_END_CODES.has(msg.code) && state.table === null) {
+                    return { ...state, screen: 'fatal', fatal: msg.code };
+                }
+
                 const answersPending =
                     msg.refId !== undefined && state.pendingPlay !== null && msg.refId === state.pendingPlay.clientMsgId;
                 return withNotice(answersPending ? { ...state, pendingPlay: null } : state, msg.code);

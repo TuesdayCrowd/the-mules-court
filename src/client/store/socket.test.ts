@@ -184,6 +184,41 @@ describe('createSocket handshake', () => {
         expect(h.transport.last().frames()).toEqual([{ type: 'RESUME_SEAT', matchId: 'K7QX2', seatToken: 'tok-abc' }]);
     });
 
+    it('omits a nickname the server would reject for length, keeping the resume alive', () => {
+        // parseNickname caps at maxNicknameLength (24). An over-length name fails
+        // the WHOLE frame as MALFORMED, so sending it costs the seat; dropping it
+        // costs only the name, which the lobby already falls back to 'Host' for.
+        const h = harness({ storedSeat: () => SEAT, nickname: () => 'C'.repeat(25) });
+        h.socket.connect();
+        h.transport.last().onopen?.();
+
+        expect(h.transport.last().frames()).toEqual([{ type: 'RESUME_SEAT', matchId: 'K7QX2', seatToken: 'tok-abc' }]);
+    });
+
+    it('sends a nickname of exactly the maximum length', () => {
+        const h = harness({ storedSeat: () => SEAT, nickname: () => 'C'.repeat(24) });
+        h.socket.connect();
+        h.transport.last().onopen?.();
+
+        expect(h.transport.last().frames()[0]).toHaveProperty('nickname', 'C'.repeat(24));
+    });
+
+    it('omits a nickname carrying a control character, which trim cannot remove', () => {
+        const h = harness({ storedSeat: () => SEAT, nickname: () => 'Ana\u0007na' });
+        h.socket.connect();
+        h.transport.last().onopen?.();
+
+        expect(h.transport.last().frames()).toEqual([{ type: 'RESUME_SEAT', matchId: 'K7QX2', seatToken: 'tok-abc' }]);
+    });
+
+    it('sends a trimmed nickname, matching what the server would store', () => {
+        const h = harness({ storedSeat: () => SEAT, nickname: () => '  Ana  ' });
+        h.socket.connect();
+        h.transport.last().onopen?.();
+
+        expect(h.transport.last().frames()[0]).toHaveProperty('nickname', 'Ana');
+    });
+
     it('sends nothing on open when no token is stored — the join flow drives CLAIM_SEAT', () => {
         const h = harness();
         h.socket.connect();
