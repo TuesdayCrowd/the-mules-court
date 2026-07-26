@@ -9,7 +9,7 @@
 </head>
 
 <body>
-    <div id="app">
+    <main id="app">
         <div id="game-container"></div>
         <!-- The DOM layer (UIX §2). Fixed above the canvas, pointer-events:none at
              the root; interactive children restore auto, so the two layers never
@@ -19,9 +19,11 @@
         <!-- The canvas table's offscreen twin (UIX §11): a per-seat status list
              plus focusable proxies for this viewer's hand. Visually hidden, but
              never aria-hidden or display:none — either would remove it from the
-             accessibility tree it exists to populate. -->
-        <div id="a11y-twin" aria-live="polite"></div>
-    </div>
+             accessibility tree it exists to populate. NOT a live region either:
+             announcements belong to the toast channel, and a list re-rendered on
+             every snapshot would read every seat aloud each time. -->
+        <div id="a11y-twin"></div>
+    </main>
     <!-- No <link rel="stylesheet"> here: src/main.ts imports the stylesheets so
          Vite bundles and fingerprints them. -->
     <script type="module" src="/src/main.ts"></script>

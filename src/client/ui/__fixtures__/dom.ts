@@ -25,7 +25,7 @@ export function loadRealStyles(): void {
 
 /** A fresh `#ui-root`, matching the shell `index.html` ships. */
 export function makeUiRootElement(): HTMLElement {
-    document.body.innerHTML = '<div id="app"><div id="game-container"></div><div id="ui-root"></div></div>';
+    document.body.innerHTML = '<main id="app"><div id="game-container"></div><div id="ui-root"></div></main>';
     return document.getElementById('ui-root') as HTMLElement;
 }
 
