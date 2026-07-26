@@ -8,7 +8,8 @@
  */
 
 import { readFileSync } from 'node:fs';
-import type { ClientState } from '../../store/types';
+import { makeView } from '../../store/__fixtures__/view';
+import type { ClientState, TableSnapshot } from '../../store/types';
 import type { Timers } from '../surface';
 
 let styles: string | null = null;
@@ -72,4 +73,18 @@ const BASE_STATE: ClientState = {
 
 export function makeState(overrides: Partial<ClientState> = {}): ClientState {
     return { ...BASE_STATE, ...overrides };
+}
+
+/** A `TableSnapshot` around `makeView()`, with the transport fields at rest. */
+export function makeTable(overrides: Partial<TableSnapshot> = {}): TableSnapshot {
+    return {
+        view: makeView(),
+        nicknames: { p1: 'Ana', p2: 'Bayta' },
+        phase: 'active',
+        paused: false,
+        missingSeats: [],
+        serverTime: 1_000_000,
+        receivedAt: 1_000_000,
+        ...overrides
+    };
 }
