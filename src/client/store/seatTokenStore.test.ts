@@ -40,6 +40,29 @@ describe('createSeatTokenStore', () => {
         expect(store.load('K7QX2')).toEqual(SEAT);
     });
 
+    it('round-trips the nickname alongside the token', () => {
+        // The host names themselves on the menu, before the room exists (D2).
+        // That name has to survive the navigation to /join/:matchId, and this is
+        // the only thing that crosses it.
+        const store = createSeatTokenStore(fakeStorage());
+        store.save('K7QX2', { ...SEAT, nickname: 'Cornelius' });
+        expect(store.load('K7QX2')).toEqual({ ...SEAT, nickname: 'Cornelius' });
+    });
+
+    it('still reads a seat stored before nicknames were kept', () => {
+        const store = createSeatTokenStore(
+            fakeStorage({ 'mules-court:K7QX2': JSON.stringify({ seat: 0, playerId: 'p1', seatToken: 'tok-abc' }) })
+        );
+        expect(store.load('K7QX2')).toEqual(SEAT);
+    });
+
+    it('rejects a stored nickname of the wrong type rather than passing it to the wire', () => {
+        const store = createSeatTokenStore(
+            fakeStorage({ 'mules-court:K7QX2': JSON.stringify({ ...SEAT, nickname: 42 }) })
+        );
+        expect(store.load('K7QX2')).toBeNull();
+    });
+
     it('returns null for a match it has never seen', () => {
         expect(createSeatTokenStore(fakeStorage()).load('nope')).toBeNull();
     });

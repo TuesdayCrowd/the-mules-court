@@ -49,6 +49,8 @@ export interface Store {
     getState(): ClientState;
     subscribe(listener: (state: ClientState) => void): () => void;
     apply(msg: ServerMessage): void;
+    /** Take an open seat under `nickname`. True when the CLAIM_SEAT frame actually left. */
+    claimSeat(nickname: string): boolean;
     /** True when a PLAY_CARD frame actually left. */
     playCard(intent: PlayIntent): boolean;
     cancelPending(): void;
@@ -78,6 +80,14 @@ function initialState(deps: StoreDeps): ClientState {
 export function createStore(deps: StoreDeps): Store {
     let state = initialState(deps);
     let listeners: ReadonlyArray<(state: ClientState) => void> = [];
+    /**
+     * The name sent on CLAIM_SEAT, held until SEAT_CLAIMED can persist it.
+     *
+     * SEAT_CLAIMED does not echo the nickname, and only this browser knows what
+     * it asked for — so without holding it here a reconnect would resume a
+     * seat it could no longer name.
+     */
+    let claimedNickname: string | undefined;
     /** States awaiting publication. Non-empty only while a reentrant commit is in flight. */
     const unpublished: ClientState[] = [];
     let publishing = false;
@@ -137,7 +147,12 @@ export function createStore(deps: StoreDeps): Store {
                 // Persist before publishing, mirroring the server's own ordering
                 // discipline (Design §9): a subscriber that reacts by reading
                 // storage must not race the write that makes the seat survivable.
-                deps.tokens.save(msg.matchId, { seat: msg.seat, playerId: msg.playerId, seatToken: msg.seatToken });
+                deps.tokens.save(msg.matchId, {
+                    seat: msg.seat,
+                    playerId: msg.playerId,
+                    seatToken: msg.seatToken,
+                    ...(claimedNickname !== undefined ? { nickname: claimedNickname } : {})
+                });
                 return { ...state, screen: 'lobby', seat: { seat: msg.seat, playerId: msg.playerId } };
             }
 
@@ -223,6 +238,18 @@ export function createStore(deps: StoreDeps): Store {
             // anything arriving afterwards is stale by definition.
             if (state.fatal !== null) return;
             commit(next(msg));
+        },
+
+        claimSeat(nickname) {
+            if (state.matchId === null) return false;
+            if (state.seat !== null) return false; // one seat per browser; ALREADY_SEATED is the server's answer
+
+            if (!deps.send({ type: 'CLAIM_SEAT', matchId: state.matchId, nickname })) return false;
+
+            // Remembered only once the frame is away, so a refused claim leaves
+            // no name to persist against someone else's SEAT_CLAIMED.
+            claimedNickname = nickname;
+            return true;
         },
 
         playCard(intent) {

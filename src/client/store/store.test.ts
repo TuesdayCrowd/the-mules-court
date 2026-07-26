@@ -129,6 +129,52 @@ describe('SEAT_CLAIMED', () => {
     });
 });
 
+describe('claimSeat', () => {
+    it('sends CLAIM_SEAT carrying the nickname', () => {
+        const h = harness();
+
+        const sent = h.store.claimSeat('Ana');
+
+        expect(sent).toBe(true);
+        expect(h.sent).toEqual([{ type: 'CLAIM_SEAT', matchId: 'K7QX2', nickname: 'Ana' }]);
+    });
+
+    it('persists the nickname the player claimed with, so a reconnect resumes under it', () => {
+        const h = harness();
+        h.store.claimSeat('Ana');
+
+        h.store.apply({ type: 'SEAT_CLAIMED', matchId: 'K7QX2', seat: 1, playerId: 'p2', seatToken: 'tok-new' });
+
+        expect(h.tokens.held.get('K7QX2')).toEqual({
+            seat: 1,
+            playerId: 'p2',
+            seatToken: 'tok-new',
+            nickname: 'Ana'
+        });
+    });
+
+    it('refuses when this browser already holds a seat', () => {
+        const h = harness({}, recordingTokens({ K7QX2: SEAT }));
+        expect(h.store.claimSeat('Mallory')).toBe(false);
+        expect(h.sent).toEqual([]);
+    });
+
+    it('refuses when there is no match to sit in', () => {
+        const h = harness({ matchId: null });
+        expect(h.store.claimSeat('Ana')).toBe(false);
+        expect(h.sent).toEqual([]);
+    });
+
+    it('does not remember a nickname the socket refused to send', () => {
+        const h = harness({ send: () => false });
+
+        expect(h.store.claimSeat('Ana')).toBe(false);
+        h.store.apply({ type: 'SEAT_CLAIMED', matchId: 'K7QX2', seat: 1, playerId: 'p2', seatToken: 'tok-new' });
+
+        expect(h.tokens.held.get('K7QX2')?.nickname).toBeUndefined();
+    });
+});
+
 describe('LOBBY_UPDATE', () => {
     // Typed rather than `as const`: the protocol declares `seats` mutable, and a
     // const assertion would make the literal readonly and unassignable.

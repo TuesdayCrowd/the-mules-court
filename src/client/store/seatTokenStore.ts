@@ -12,6 +12,15 @@ export interface StoredSeat {
     readonly seat: number;
     readonly playerId: PlayerId;
     readonly seatToken: string;
+    /**
+     * The name this browser sits under, when it knows one.
+     *
+     * Optional because a seat stored before D2 has none, and because it is the
+     * host's path that needs it: they name themselves on the menu, *before* the
+     * room exists, and this record is the only thing that survives the
+     * navigation to `/join/:matchId` where the socket finally sends it.
+     */
+    readonly nickname?: string;
 }
 
 /**
@@ -52,8 +61,16 @@ function parseStoredSeat(raw: string): StoredSeat | null {
     if (typeof candidate.seat !== 'number') return null;
     if (typeof candidate.playerId !== 'string') return null;
     if (typeof candidate.seatToken !== 'string') return null;
+    // Absent is fine — seats predate the field. Present but not a string is not:
+    // it would reach RESUME_SEAT and fail the whole frame as MALFORMED.
+    if (candidate.nickname !== undefined && typeof candidate.nickname !== 'string') return null;
 
-    return { seat: candidate.seat, playerId: candidate.playerId, seatToken: candidate.seatToken };
+    return {
+        seat: candidate.seat,
+        playerId: candidate.playerId,
+        seatToken: candidate.seatToken,
+        ...(candidate.nickname !== undefined ? { nickname: candidate.nickname } : {})
+    };
 }
 
 /**
