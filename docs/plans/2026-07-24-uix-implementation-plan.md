@@ -790,6 +790,7 @@ but commit uix-client -m "feat(server): let RESUME_SEAT adopt a nickname for the
 **Files:**
 - Modify: `src/server/config.ts`
 - Modify: `src/server/index.ts:52-79`
+- Modify: `package.json` (the `serve` script)
 - Create: `src/server/__tests__/static.test.ts`
 
 `joinUrl` is `publicBaseUrl + '/join/' + matchId` (`src/server/roomRegistry.ts:63`) and `publicBaseUrl` defaults to the server's own origin — but `fetch` currently answers every non-upgrade request with `404`. Every invite link is therefore dead. This task makes the server host the built client with SPA fallback.
@@ -862,7 +863,30 @@ describe('static hosting', () => {
 
 **Step 2: Run — FAIL** (`staticRoot` is not a config field; every route 404s).
 
-**Step 3: Add the config field.** In `src/server/config.ts`, add `readonly staticRoot: string | null; // 'dist' in production, null in tests` and default it to `'dist'`.
+**Step 3: Add the config field, defaulting to `null`.** In `src/server/config.ts`:
+
+```ts
+/** Directory of built client files to host, or null to serve none. */
+readonly staticRoot: string | null;
+```
+
+**Default it to `null`, not `'dist'`.** `dist/` is gitignored Vite output; a transport default naming it would make the server's configuration depend on a build artifact that need not exist. A transport with no client to serve is a valid configuration — it is precisely what all 169 pre-existing server tests are — so `null` is the honest default and hosting is an explicit deployment opt-in.
+
+The one mention of `dist` lives in `package.json`, one line from the `build` script that produces it:
+
+```json
+"serve": "MULES_STATIC_ROOT=dist bun src/server/index.ts",
+```
+
+and `index.ts`'s entrypoint reads it:
+
+```ts
+if (import.meta.main) {
+    startServer(makeConfig({ staticRoot: Bun.env.MULES_STATIC_ROOT ?? null }));
+}
+```
+
+*(Checked rather than assumed: exactly one pre-existing test requests a non-`/api` path — `abuse.test.ts:385` fetches `/` — and it sends `Upgrade: websocket` and asserts `101`, so under header-keyed routing it takes the upgrade branch and never reaches `serveStatic`. A `'dist'` default would not have broken any test. It would still have been the wrong default.)*
 
 **Step 4: Rewrite `fetch` in `src/server/index.ts`** with an explicit route order:
 
@@ -933,7 +957,7 @@ async function serveStatic(root: string, pathname: string): Promise<Response> {
 
 Import `{ basename, join, resolve, sep }` from `node:path`. Note `fetch` now returns `Promise<Response>` on the static branch — Bun accepts that.
 
-**Step 6: Run the full server suite.** Expected: PASS, all pre-existing tests included (they pass `staticRoot` implicitly as `'dist'`, but never issue a plain HTTP GET).
+**Step 6: Run the full server suite.** Expected: PASS, all pre-existing tests included — they inherit `staticRoot: null`, so their behaviour is unchanged and they gain no filesystem dependency. `static.test.ts` is the only suite that passes a root, and it builds its own fixture directory under a temp path.
 
 **Step 7: Commit.**
 
