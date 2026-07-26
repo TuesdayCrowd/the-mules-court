@@ -17,7 +17,7 @@
  */
 
 import { cardTypeOf } from '../../game/engine';
-import type { PlayerId, RedactedView } from '../../game/engine';
+import type { CardInstanceId, PlayerId, RedactedView } from '../../game/engine';
 import { cardCopyFor } from '../content/cardCopy';
 import type { LayoutSpec } from '../layout/types';
 import type { ClientState, TableSnapshot } from '../store/types';
@@ -26,6 +26,14 @@ import type { Surface } from './surface';
 export interface A11yTwinDeps {
     /** The live spec, or null before the first layout. Hand proxies need geometry; the seat list does not. */
     readonly layout: () => LayoutSpec | null;
+    /**
+     * Raising a card. Optional, and wired in `main.ts`.
+     *
+     * The proxy is the accessible path to playing a card, so it is also a
+     * perfectly good pointer path — one interaction surface serving both is
+     * fewer places for the two to disagree.
+     */
+    readonly onSelect?: (cardInstanceId: CardInstanceId) => void;
 }
 
 type SeatView = RedactedView['players'][number];
@@ -84,6 +92,10 @@ export function createA11yTwin(deps: A11yTwinDeps): Surface {
             button.style.top = `${slot.y}px`;
             button.style.width = `${slot.w}px`;
             button.style.height = `${slot.h}px`;
+
+            if (deps.onSelect !== undefined) {
+                button.addEventListener('click', () => deps.onSelect?.(instanceId));
+            }
 
             proxies.push(button);
         });

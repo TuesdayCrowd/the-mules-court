@@ -1,46 +1,65 @@
 import { Scene } from 'phaser';
+import { CARD_CATALOG } from '../engine';
+import type { CardTypeId } from '../engine';
+import { cardCopyFor } from '../../client/content/cardCopy';
+import { CARD_BACK_ASSET, CARD_FRONT_ASSET, portraitPath } from '../../client/content/portraits';
+import { TOKENS } from '../../client/tokens/tokens';
 
-export class Preloader extends Scene
-{
-    constructor ()
-    {
+/** Texture keys the Court scene looks up. Named here so nothing guesses a string twice. */
+export const TEXTURES = {
+    playfield: 'playfield',
+    cardFront: 'card-front',
+    cardBack: 'card-back',
+    devotionToken: 'devotion-token',
+    distortion: 'shader-distortion',
+    sparkle: 'shader-sparkle',
+    rainbow: 'shader-rainbow'
+} as const;
+
+export class Preloader extends Scene {
+    constructor() {
         super('Preloader');
     }
 
-    init ()
-    {
-        //  We loaded this image in our Boot Scene, so we can display it here
-        this.add.image(512, 384, 'background');
+    init() {
+        const { width, height } = this.scale.gameSize;
 
-        //  A simple progress bar. This is the outline of the bar.
-        this.add.rectangle(512, 384, 468, 32).setStrokeStyle(1, 0xffffff);
+        this.add.image(width / 2, height / 2, TEXTURES.playfield).setAlpha(0.35);
 
-        //  This is the progress bar itself. It will increase in size from the left based on the % of progress.
-        const bar = this.add.rectangle(512-230, 384, 4, 28, 0xffffff);
+        const barWidth = Math.min(width * 0.6, 460);
+        this.add.rectangle(width / 2, height / 2, barWidth, 24).setStrokeStyle(1, TOKENS.colorStateWaiting);
+        const bar = this.add.rectangle(width / 2 - barWidth / 2 + 2, height / 2, 4, 20, TOKENS.colorNebulaPurple);
+        bar.setOrigin(0, 0.5);
 
-        //  Use the 'progress' event emitted by the LoaderPlugin to update the loading bar
         this.load.on('progress', (progress: number) => {
-
-            //  Update the progress bar (our bar is 464px wide, so 100% = 464px)
-            bar.width = 4 + (460 * progress);
-
+            bar.width = 4 + (barWidth - 8) * progress;
         });
     }
 
-    preload ()
-    {
-        //  Load the assets for the game - Replace with your own assets
+    preload() {
         this.load.setPath('assets');
 
-        this.load.image('logo', 'logo.png');
+        // Derived from the catalog, never listed: a card added to the engine
+        // cannot be forgotten here, because there is no list to forget it from.
+        for (const id of Object.keys(CARD_CATALOG) as CardTypeId[]) {
+            this.load.image(cardCopyFor(id).portraitKey, portraitPath(id));
+        }
+
+        this.load.image(TEXTURES.cardFront, CARD_FRONT_ASSET);
+        this.load.image(TEXTURES.cardBack, CARD_BACK_ASSET);
+        this.load.image(TEXTURES.devotionToken, 'misc/devotion_token.png');
+
+        // UIX §8.5 assigns each of these to exactly one beat.
+        this.load.image(TEXTURES.distortion, 'shaders/distortion_map.png');
+        this.load.image(TEXTURES.sparkle, 'shaders/sparkle_pattern.png');
+        this.load.image(TEXTURES.rainbow, 'shaders/rainbow_gradient.png');
     }
 
-    create ()
-    {
-        //  When all the assets have loaded, it's often worth creating global objects here that the rest of the game can use.
-        //  For example, you can define global animations here, so we can use them in other scenes.
-
-        //  Move to the MainMenu. You could also swap this for a Scene Transition, such as a camera fade.
-        this.scene.start('MainMenu');
+    async create() {
+        // UIX §2.4. Canvas text is painted pixels: created before the face
+        // loads, it renders in a fallback and never re-renders itself the way
+        // DOM text does. Waiting here is the whole fix.
+        await document.fonts.ready;
+        this.scene.start('Court');
     }
 }

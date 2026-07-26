@@ -1,31 +1,39 @@
+import { AUTO, Game, Scale } from 'phaser';
 import { Boot } from './scenes/Boot';
-import { GameOver } from './scenes/GameOver';
-import { Game as MainGame } from './scenes/Game';
-import { MainMenu } from './scenes/MainMenu';
-import { AUTO, Game } from 'phaser';
+import { Court } from './scenes/Court';
 import { Preloader } from './scenes/Preloader';
 
-// Find out more information about the Game Config at:
-// https://docs.phaser.io/api-documentation/typedef/types-core#gameconfig
+/**
+ * The game config (UIX §2.2, §2.5).
+ *
+ * `Scale.RESIZE` with no design resolution: the canvas fills its parent 1:1, so
+ * there is no letterboxing and no coordinate system to translate through. Every
+ * position comes from `src/client/layout/`, computed against the live viewport —
+ * which is only coherent if the canvas *is* that viewport.
+ *
+ * Three scenes, not five. `MainMenu` and `GameOver` are DOM surfaces now, in
+ * `src/client/ui/`, and an empty Phaser scene behind each would be dead weight.
+ * `Court` is the only gameplay scene; between matches it idles as the ambient
+ * nebula behind the DOM screens.
+ */
 const config: Phaser.Types.Core.GameConfig = {
     type: AUTO,
-    width: 1024,
-    height: 768,
     parent: 'game-container',
-    backgroundColor: '#028af8',
-    scene: [
-        Boot,
-        Preloader,
-        MainMenu,
-        MainGame,
-        GameOver
-    ]
+    backgroundColor: '#000000',
+    scale: {
+        mode: Scale.RESIZE,
+        // No centring. With RESIZE the canvas already fills the parent, and a
+        // centring margin would offset it away from the very coordinates the
+        // layout computed against that same parent.
+        autoCenter: Scale.NO_CENTER,
+        width: '100%',
+        height: '100%'
+    },
+    scene: [Boot, Preloader, Court]
 };
 
 const StartGame = (parent: string) => {
-
     return new Game({ ...config, parent });
-
-}
+};
 
 export default StartGame;
