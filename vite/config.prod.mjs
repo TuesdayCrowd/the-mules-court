@@ -17,7 +17,11 @@ const phasermsg = () => {
 }   
 
 export default defineConfig({
-    base: './',
+    // Absolute, not './': the client owns the /join/:matchId route (UIX §2.6),
+    // and a relative base resolves asset URLs against /join/ on a real invite
+    // link, so the app never boots. The relative base existed so dist/ could be
+    // hosted from a subpath; those routes trade that away deliberately.
+    base: '/',
     logLevel: 'warning',
     build: {
         rollupOptions: {

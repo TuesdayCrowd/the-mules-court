@@ -35,3 +35,8 @@ dist-ssr
 # Test / coverage output
 coverage/
 *.lcov
+
+# Server database (DEFAULT_CONFIG.dbPath writes to the working directory)
+*.sqlite
+*.sqlite-shm
+*.sqlite-wal

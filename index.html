@@ -3,15 +3,27 @@
 <head>
     <meta charset="UTF-8" />
     <link rel="icon" type="image/png" href="/favicon.png" />
-    <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <link rel="stylesheet" href="/style.css">
-    <title>Phaser - Template</title>
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>The Mule's Court</title>
 </head>
 
 <body>
     <div id="app">
         <div id="game-container"></div>
+        <!-- The DOM layer (UIX §2). Fixed above the canvas, pointer-events:none at
+             the root; interactive children restore auto, so the two layers never
+             fight for the same tap. Anchored to the viewport, never to a canvas
+             coordinate — the layers share design tokens, not geometry. -->
+        <div id="ui-root"></div>
+        <!-- The canvas table's offscreen twin (UIX §11): a per-seat status list
+             plus focusable proxies for this viewer's hand. Visually hidden, but
+             never aria-hidden or display:none — either would remove it from the
+             accessibility tree it exists to populate. -->
+        <div id="a11y-twin" aria-live="polite"></div>
     </div>
+    <!-- No <link rel="stylesheet"> here: src/main.ts imports the stylesheets so
+         Vite bundles and fingerprints them. -->
     <script type="module" src="/src/main.ts"></script>
 </body>
 </html>
