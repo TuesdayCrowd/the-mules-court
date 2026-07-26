@@ -19,10 +19,32 @@ Requires [Bun](https://bun.sh).
 | Command                                     | Description                                                               |
 | ------------------------------------------- | ------------------------------------------------------------------------- |
 | `bun install`                               | Install dependencies                                                      |
-| `bun run dev`                               | Dev server with hot reload at `http://localhost:8080`                     |
+| `bun run dev`                               | Client dev server at `http://localhost:8080` — **needs `dev:server` too** |
+| `bun run dev:server`                        | The API and WebSocket half, on `:3000`. Run it in a second terminal        |
 | `bun run build`                             | Production build to `dist/`                                               |
 | `bun run dev-nolog` / `bun run build-nolog` | Same, but skip the `log.js` telemetry ping                                |
 | `bunx tsc --noEmit`                         | Type-check (see gotcha below — this is the only way to catch type errors) |
+
+### Running in dev takes two processes
+
+The client calls `POST /api/rooms` and opens a WebSocket, so `bun run dev` alone
+gives an `ECONNREFUSED` on the first click of *Host a game*. Run both:
+
+```bash
+bun run dev:server   # :3000 — API and WebSocket
+bun run dev          # :8080 — client, proxying /api and /ws to :3000
+```
+
+`dev:server` deliberately sets no `MULES_STATIC_ROOT`: Vite serves the client in
+dev, so the backend only answers `/api/rooms` and the socket upgrade. `bun run
+serve` is the production shape — one process serving the built `dist/` as well.
+
+**The dev script does not use `--bun`, and that is load-bearing.** Vite's
+WebSocket proxy silently fails under Bun: `/api` proxies fine, the socket upgrade
+hangs with no error in any log, and the client sits on *Connecting* forever.
+Verified both ways — the same config that times out under `bunx --bun vite`
+connects immediately under `bunx vite`. `build` still uses `--bun`, which is
+fine: nothing is proxied during a build.
 
 ### About `log.js`
 
