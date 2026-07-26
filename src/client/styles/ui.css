@@ -515,3 +515,56 @@ body {
     display: grid;
     gap: var(--space-1);
 }
+
+/**
+ * Round over, match over, paused (UIX §9). The table stays visible beneath —
+ * the round result only makes sense against the seats that produced it.
+ */
+.overlay {
+    position: fixed;
+    inset: auto 0 auto 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 6;
+    margin: 0 auto;
+    width: min(90%, 34rem);
+    max-height: 80dvh;
+    overflow-y: auto;
+    padding: var(--space-6);
+    border-radius: var(--radius);
+    background: rgb(0 0 0 / 0.94);
+    border: 1px solid var(--color-state-round-over);
+    text-align: center;
+}
+
+.overlay[data-overlay='paused'] {
+    border-color: var(--color-state-paused);
+}
+
+.overlay[data-overlay='match-over'] {
+    border-color: var(--color-state-match-over);
+}
+
+.overlay h2 {
+    margin: 0 0 var(--space-3);
+}
+
+.overlay ul {
+    list-style: none;
+    margin: var(--space-3) 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-1);
+}
+
+.overlay button {
+    min-height: var(--tap-min);
+    margin-top: var(--space-3);
+    padding: 0 var(--space-6);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-paused);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}

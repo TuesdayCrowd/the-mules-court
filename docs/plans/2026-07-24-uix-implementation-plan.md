@@ -1523,7 +1523,7 @@ but commit uix-client -m "feat(client): pure table layout for all three topology
 
 **Goal:** Every surface made of words, as real DOM with real buttons, real focus order, and real disabled reasons.
 **Success criteria:** Menu → host → lobby → table chrome all drive from the store; every failure code in *UIX §5* has designed copy; axe-core is clean.
-**Status:** Not Started
+**Status:** Complete
 
 **Shared conventions for this stage.** Every UI module exports one factory:
 
@@ -2324,6 +2324,19 @@ predicate `endMatch` already applies, and have the reaper broadcast when it flip
 existing predicate reused, no new state. The lobby then renders the button
 exactly when pressing it will work, and the caption becomes unnecessary.
 
+**The same gap exists in the active phase.** Found again in Task 27. UIX §9.3
+gives a paused match an **End match** button to any seat once one has been
+missing past `activeGraceMs` (2 minutes), and the server enforces it with the
+same predicate. `STATE_UPDATE` carries `missingSeats` but no timestamp for them,
+so once more the client can see *that* a seat is gone and never *since when*.
+`overlays.ts` therefore takes `canEndMatch()` as an injected predicate and Task
+27 tests both sides of it; the wiring is deferred to the same fix.
+
+One field answers both: whatever it is called, it is computed by the predicate
+`endMatch` already applies and sent on the message the client already receives —
+`LOBBY_UPDATE` for the lobby case, `STATE_UPDATE` for the active one.
+
 **Definition of done:** a non-host client sees no Dissolve button before the
-grace and sees one within a sweep interval after it; `bun run test && bunx tsc
---noEmit && bun run build` all pass; no existing server test changes shape.
+lobby grace and sees one within a sweep interval after it; the same for **End
+match** past `activeGraceMs`; `bun run test && bunx tsc --noEmit && bun run
+build` all pass; no existing server test changes shape.
