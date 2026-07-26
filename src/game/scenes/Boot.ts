@@ -12,7 +12,12 @@ export class Boot extends Scene {
     }
 
     preload() {
-        this.load.image('playfield', 'assets/misc/playfield_background_space.png');
+        // Absolute, not relative. On /join/:matchId a relative URL resolves to
+        // /join/<id>/assets/..., which the SPA fallback answers with index.html
+        // and a 200 — so the loader never sees a 404, it just decodes HTML as an
+        // image and silently substitutes a missing texture. Same reason Vite's
+        // base is '/' rather than './'.
+        this.load.image('playfield', '/assets/misc/playfield_background_space.png');
     }
 
     create() {

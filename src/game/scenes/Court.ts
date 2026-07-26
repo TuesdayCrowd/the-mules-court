@@ -145,6 +145,24 @@ export class Court extends Scene {
                     .setOrigin(0, 0)
                     .setStrokeStyle(2, TOKENS.colorStateYourTurn);
                 this.table.add(border);
+
+                /**
+                 * A dedicated hit target, sized from the LayoutSpec.
+                 *
+                 * Deliberately not `face.setInteractive()`: that derives its hit
+                 * area from the texture frame, so a card whose art failed to
+                 * load would take taps over a 32x32 placeholder instead of the
+                 * card. That is not hypothetical — it is exactly what the
+                 * missing-texture bug alongside this one produced. A rectangle
+                 * built from the same numbers that placed the card cannot
+                 * disagree with where the card appears.
+                 */
+                const hit = this.add
+                    .rectangle(card.rect.x, card.rect.y, card.rect.w, card.rect.h, 0x000000, 0)
+                    .setOrigin(0, 0)
+                    .setInteractive({ useHandCursor: true });
+                hit.on('pointerdown', () => this.events.emit(CARD_SELECTED, card.cardInstanceId));
+                this.table.add(hit);
             }
         }
     }
@@ -216,6 +234,9 @@ export class Court extends Scene {
         }, RESIZE_DEBOUNCE_MS);
     }
 }
+
+/** Emitted on the scene when a playable card is raised. `main.ts` opens the sheet. */
+export const CARD_SELECTED = 'card-selected';
 
 /** Long enough to ride out a toolbar collapse, short enough to feel immediate. */
 const RESIZE_DEBOUNCE_MS = 100;

@@ -37,7 +37,16 @@ export class Preloader extends Scene {
     }
 
     preload() {
-        this.load.setPath('assets');
+        // Leading slash is load-bearing — see Boot. A relative path resolves
+        // against /join/:matchId and quietly loads index.html as every texture.
+        this.load.setPath('/assets');
+
+        // A texture that fails is otherwise invisible: Phaser substitutes its
+        // placeholder and carries on, so the table renders in green diagonals
+        // with nothing in any log to explain it.
+        this.load.on('loaderror', (file: Phaser.Loader.File) => {
+            console.error(`[preloader] failed to load ${file.key} from ${file.url}`);
+        });
 
         // Derived from the catalog, never listed: a card added to the engine
         // cannot be forgotten here, because there is no list to forget it from.

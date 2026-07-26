@@ -46,6 +46,7 @@ import { createSeatDossier } from './client/ui/seatDossier';
 import { REAL_TIMERS } from './client/ui/surface';
 import { createToasts } from './client/ui/toasts';
 import { createUiRoot } from './client/ui/uiRoot';
+import { CARD_SELECTED } from './game/scenes/Court';
 import type { Court } from './game/scenes/Court';
 import StartGame from './game/main';
 
@@ -189,6 +190,9 @@ function boot(): void {
 
     game.events.once('court-ready', () => {
         court = game.scene.getScene('Court') as Court;
+        // Tapping a card on the canvas and activating its accessibility proxy
+        // are the same intent, so both land here.
+        court.events.on(CARD_SELECTED, (id: CardInstanceId) => openSheetFor(id));
         court.renderView(store.getState());
     });
 
