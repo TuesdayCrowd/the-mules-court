@@ -300,6 +300,96 @@ body {
 }
 
 /**
+ * The action sheet (UIX §7.2).
+ *
+ * Anchored to the VIEWPORT, never to a card: a bottom sheet on narrow layouts, a
+ * right-edge panel on wide ones. `data-anchor` is written by a live measurement
+ * at open time, so a rotated phone re-evaluates rather than remembering.
+ */
+.action-sheet {
+    position: fixed;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: rgb(0 0 0 / 0.94);
+    border: 1px solid var(--color-state-your-turn);
+    /* Never taller than the viewport: the footer must stay reachable without
+       scrolling past the grids. */
+    max-height: 100dvh;
+    overflow-y: auto;
+}
+
+.action-sheet[data-anchor='bottom'] {
+    inset: auto 0 0 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+}
+
+.action-sheet[data-anchor='right'] {
+    inset: 0 0 0 auto;
+    width: min(28rem, 40vw);
+    border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.action-sheet h2,
+.action-sheet h3 {
+    margin: 0;
+}
+
+.action-sheet section {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+}
+
+.action-sheet button {
+    min-height: var(--tap-min);
+    min-width: var(--tap-min);
+    padding: 0 var(--space-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-your-turn);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.action-sheet button[aria-pressed='true'] {
+    background: var(--color-state-your-turn);
+    color: var(--color-bg);
+}
+
+.action-sheet button:disabled {
+    border-color: var(--color-seat-other);
+    color: var(--color-state-waiting);
+    cursor: not-allowed;
+}
+
+.action-sheet button:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+}
+
+/* The Mule alone. The words on the button carry the warning; the colour only
+   reinforces it, so this is never colour-alone. */
+.action-sheet button[data-variant='danger'] {
+    border-color: var(--color-nebula-red);
+    color: var(--color-nebula-red);
+}
+
+/* Pinned last so Cancel and Play stay thumb-reachable. */
+.sheet-footer {
+    display: flex;
+    gap: var(--space-3);
+    justify-content: flex-end;
+    margin-top: auto;
+    padding-top: var(--space-2);
+}
+
+/**
  * The offscreen twin (UIX §11).
  *
  * Visually hidden by clipping, never by `display: none` or `visibility: hidden`
