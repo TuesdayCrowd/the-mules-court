@@ -331,3 +331,67 @@ describe('the sheet as a dialog', () => {
         expect(results.violations.map(v => v.id)).toEqual([]);
     });
 });
+
+describe('sharing the bottom corner with the quick-reference tab', () => {
+    // Both want bottom-right, and the tab wins on z-index — so it lands on
+    // Cancel and Play and the sheet cannot be used at all.
+    function withTab() {
+        const h = harness();
+        loadRealStyles();
+        const tab = document.createElement('button');
+        tab.className = 'reference-tab';
+        (h.root as HTMLElement).appendChild(tab);
+        return { ...h, tab, root: h.root as HTMLElement };
+    }
+
+    it('leaves the tab in its own corner when no sheet is open', () => {
+        const ui = withTab();
+        expect(ui.root.hasAttribute('data-sheet')).toBe(false);
+        expect(getComputedStyle(ui.tab).right).not.toBe('auto');
+    });
+
+    it('announces the open sheet and its anchor', () => {
+        const ui = withTab();
+        ui.openSheetFor('mule', { targets: [] });
+        expect(ui.root.getAttribute('data-sheet')).toBe('bottom');
+    });
+
+    it('announces the right-edge anchor on a wide viewport', () => {
+        const ui = withTab();
+        ui.openSheetFor('mule', { targets: [], available: DESKTOP });
+        expect(ui.root.getAttribute('data-sheet')).toBe('right');
+    });
+
+    it('moves the tab out of the corner the footer needs', () => {
+        const ui = withTab();
+        ui.openSheetFor('mule', { targets: [] });
+
+        expect(getComputedStyle(ui.tab).right).toBe('auto');
+        expect(getComputedStyle(ui.tab).left).not.toBe('auto');
+    });
+
+    it('gives the corner back when the sheet closes', () => {
+        const ui = withTab();
+        ui.openSheetFor('mule', { targets: [] });
+        ui.sheet.close();
+
+        expect(ui.root.hasAttribute('data-sheet')).toBe(false);
+        expect(getComputedStyle(ui.tab).right).not.toBe('auto');
+    });
+
+    it('gives it back after a play, not only after a cancel', () => {
+        const ui = withTab();
+        const sheet = ui.openSheetFor('shielded-mind', { targets: [] });
+        click(sheet.querySelector('[data-action="play"]'));
+
+        expect(ui.root.hasAttribute('data-sheet')).toBe(false);
+    });
+
+    it('gives it back after a cancel', () => {
+        const ui = withTab();
+        const sheet = ui.openSheetFor('mule', { targets: [] });
+        click(sheet.querySelector('[data-action="cancel"]'));
+
+        expect(ui.root.hasAttribute('data-sheet')).toBe(false);
+    });
+});

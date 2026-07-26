@@ -89,7 +89,24 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
     }
     let live: Live | null = null;
 
+    /**
+     * Tells the rest of the DOM layer that a sheet is up, and where.
+     *
+     * The quick-reference tab and the sheet's footer both want the bottom-right
+     * corner — UIX §10 layers the tab above the sheet, UIX §7.2 pins Cancel and
+     * Play to the sheet's bottom edge — so the tab covers the very buttons the
+     * sheet exists to offer. One attribute lets CSS move the tab aside for as
+     * long as the sheet is open, with no measurement and no coupling beyond it.
+     */
+    function announceAnchor(anchor: string | null): void {
+        const host = container.parentElement;
+        if (host === null) return;
+        if (anchor === null) host.removeAttribute('data-sheet');
+        else host.setAttribute('data-sheet', anchor);
+    }
+
     function reset(): void {
+        announceAnchor(null);
         request = null;
         target = null;
         guess = null;
@@ -293,6 +310,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
 
         live = { targets, guesses, hint, play: built.play };
         container.replaceChildren(sheet);
+        announceAnchor(sheet.dataset.anchor ?? 'bottom');
         refresh();
     }
 

@@ -438,6 +438,20 @@ h2,
     cursor: pointer;
 }
 
+/**
+ * While an action sheet is open the tab swaps corners.
+ *
+ * Both want bottom-right, and the tab wins on z-index — so it lands squarely on
+ * Cancel and Play and the sheet cannot be used at all. The sheet covers the hand
+ * while it is open, which is exactly what frees the opposite corner, and the tab
+ * has to stay reachable because choosing a guess is when the reference is most
+ * wanted (UIX §10).
+ */
+#ui-root[data-sheet] .reference-tab {
+    right: auto;
+    left: var(--space-3);
+}
+
 .reference-modal {
     position: fixed;
     inset: 0;
