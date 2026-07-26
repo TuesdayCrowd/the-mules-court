@@ -1275,8 +1275,16 @@ it('runs animations one at a time', async () => { /* overlapping enqueues do not
 ## Stage 4: Layout — geometry as pure data
 
 **Goal:** Every canvas position and size is computed by tested functions that have never heard of Phaser.
-**Success criteria:** Three opponent chips fit 390 px; ~~seven~~ **eight** discard pips stay legible (the worst case measured against the engine — see Task 18); no two rects overlap in any topology; every rect is inside the viewport.
+**Success criteria:** Three opponent chips fit 390 px; **eight** discard pips stay legible; no two rects overlap in any topology; every rect is inside the viewport. Each holds across the full cross product of viewport, seat count, and hand size, not at one reference phone.
 **Status:** Complete
+
+> **Eight, not seven.** Task 18 measures the worst case against the engine rather
+> than taking UIX §6.2's figure on trust, and gets eight at every seat count. A
+> two-player round deals a deck of ten, so turns alternate and one seat takes five
+> of them: five own-turn discards, plus the two Prince-effect cards — Bayta and
+> Toran — each forcing that seat to discard out of turn, plus the one held card
+> revealed on elimination. The design's figure counted a single Prince.
+> **UIX §6.2 still says seven and wants correcting when the design doc is next opened.**
 
 ### Task 16: Topology classification
 
