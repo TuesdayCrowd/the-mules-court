@@ -57,11 +57,22 @@ describe('seedRng and nextRng', () => {
             return states;
         };
         const alpha = walk('alpha', 40_000);
+
+        // One assertion, not 40,000. The walk itself is microseconds; it was the
+        // matcher overhead of an expect() per step that took seven seconds and
+        // left this test tipping over the default timeout whenever the machine
+        // was busy. Same coverage, and the failure still names the draw.
+        let convergedAt = -1;
         let beta = seedRng('beta');
         for (let i = 0; i < 40_000; i++) {
-            expect(alpha.has(beta.s), `seeds converged after ${i} draws`).toBe(false);
+            if (alpha.has(beta.s)) {
+                convergedAt = i;
+                break;
+            }
             beta = nextRng(beta).rng;
         }
+
+        expect(convergedAt, `seeds converged after ${convergedAt} draws`).toBe(-1);
     });
 
     it('survives a JSON round trip', () => {
