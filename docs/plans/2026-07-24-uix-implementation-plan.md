@@ -2285,3 +2285,45 @@ straight to the lobby — which is exactly the `screen: 'joining'` with a non-nu
 `bun run dev` on :8080 copies an invite link pointing at :3000 — which serves the
 app only if `dist/` is current. It is one config value and does not affect
 production, but it will be confusing during Stage 5 lobby testing.
+
+### D4: The client is never told when the host's lobby grace expires
+
+**Status:** Open, found building Task 23. Small, well-scoped transport fix.
+**Scope:** `src/server/protocol.ts` (`LOBBY_UPDATE`), `src/server/room.ts`
+(`broadcastLobbyUpdate`, the reaper), `src/client/store/types.ts`,
+`src/client/ui/lobbyScreen.ts`.
+
+*UIX §4*: "If the host stays gone past the lobby grace, every remaining player's
+screen offers **Dissolve lobby**." The server enforces exactly that — a non-host
+`END_MATCH` is accepted only once `now - hostSeat.disconnectedAt >
+lobbyDisconnectGraceMs` (`room.ts:556-560`). **Nothing tells the client when that
+moment arrives.**
+
+Two facts combine to close every channel it might have arrived through:
+
+1. **The host seat never reopens** (`room.ts:643`). Seat reopening is what sets
+   `seatsReopened` and triggers a `LOBBY_UPDATE` from the reaper (`room.ts:669`),
+   so the host's grace expiring produces no broadcast at all.
+2. **`LOBBY_UPDATE` carries no timing.** `seats[]` has `status` but no
+   `disconnectedAt`, and there is no `canDissolve` field. A client holding a
+   `disconnected` host seat cannot tell a two-second drop from a two-minute one.
+
+Deriving it locally is not available either: interface rule 5 gives every clock
+to the server, and the client has no timestamp to measure from regardless — it
+learns only that the status *is* `disconnected`, never when it became so.
+
+**What Task 23 does meanwhile.** The button appears as soon as the host seat
+reads `disconnected`, captioned with the condition rather than a promise: *"The
+host has left. Once they have been gone a minute, the court can be dissolved."*
+Pressing too early is refused by the server and surfaces as a toast. That is
+honest and it works, but it asks the player to guess.
+
+**The change:** add `canDissolve: boolean` to `LOBBY_UPDATE`, computed by the
+predicate `endMatch` already applies, and have the reaper broadcast when it flips
+— the same shape as Task 8's `RESUME_SEAT` nickname: one optional field, one
+existing predicate reused, no new state. The lobby then renders the button
+exactly when pressing it will work, and the caption becomes unnecessary.
+
+**Definition of done:** a non-host client sees no Dissolve button before the
+grace and sees one within a sweep interval after it; `bun run test && bunx tsc
+--noEmit && bun run build` all pass; no existing server test changes shape.
