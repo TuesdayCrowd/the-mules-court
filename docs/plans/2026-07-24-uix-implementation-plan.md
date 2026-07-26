@@ -1372,7 +1372,8 @@ describe('portrait layout', () => {
         const spec = computeLayout({ ...PHONE, opponentCount: 3, handCount: 1, showsRemovedCard: false, maxDiscards: 3 });
         expect(spec.opponents).toHaveLength(3);
         for (const chip of spec.opponents) expect(chip.w).toBeGreaterThanOrEqual(110);
-        const spanned = spec.opponents.at(-1)!.x + spec.opponents.at(-1)!.w - spec.opponents[0].x;
+        const rightmost = last(spec.opponents); // see the note below — not `.at(-1)`
+        const spanned = rightmost.x + rightmost.w - spec.opponents[0].x;
         expect(spanned).toBeLessThanOrEqual(PHONE.w);
     });
 
@@ -1414,6 +1415,28 @@ describe('portrait layout', () => {
 ```
 
 `allRects(spec)` is a test helper that flattens the spec, skipping `null`s and `viewport`.
+
+**`last()`, not `.at(-1)`.** `Array.prototype.at` is ES2022 and `tsconfig.json` sets
+`lib: ["ES2020", ...]`, so `.at(-1)` fails `bunx tsc --noEmit` with TS2550. No file
+in `src/` uses an ES2021+ array method, and this snippet was the plan's only one.
+Put the helper beside `allRects` in the layout test file — Task 19 reuses the same
+invariant helpers, and it drops two non-null assertions and a duplicated lookup:
+
+```ts
+/** Last element, or a clear failure. `.at(-1)` is ES2022; tsconfig's lib is ES2020. */
+function last<T>(items: readonly T[]): T {
+    if (items.length === 0) throw new Error('expected a non-empty array');
+    return items[items.length - 1];
+}
+```
+
+**Do not "fix" this by widening `lib` alone.** `lib` governs type declarations while
+`target` governs syntax downleveling, and `.at` is neither — it is a runtime method
+that no tool in this pipeline polyfills (tsc runs with `noEmit`; Vite/esbuild
+transpile syntax only). Raising `lib` to ES2022 while `target` stays ES2020 makes
+`tsc` accept code that would throw on any browser matching the declared target. If
+the project later wants modern methods generally, raise **both** so the config
+stops claiming support it does not have.
 
 **Step 3: Implement `computeLayout`** as fractions of the live viewport, with the topology chosen by `classifyTopology`. Every constant gets a named `const` with a comment; no bare numbers in the body.
 
@@ -2184,7 +2207,8 @@ all pass; the engine's `PlayerId` is untouched.
 
 ### D2: Where the host types a nickname
 
-**Status:** Open question, needs a design decision before Stage 5 Task 21/22.
+**Status:** **Decided 2026-07-26 — option (a).** The host names themselves on the
+menu, before `POST /api/rooms`. The Stage 3 groundwork has landed; the UI is Task 21.
 
 Task 8 gave `RESUME_SEAT` an optional nickname, but the client flow never asks
 the host for one: *UIX §3* routes Host → `POST /api/rooms` → store token →
@@ -2201,9 +2225,49 @@ Two candidate fixes, either supported by the server as built:
   nickname, token or not. One nickname UI for everyone; the host renders blank
   until they type. Changes Task 22.
 
-Recommendation: **(a)**. It matches how hosting is expected to work and avoids a
-second `RESUME_SEAT` round-trip. Validation stays on the WebSocket path either
-way, where `parseNickname` and `maxNicknameLength` already live.
+**Decision: (a).** Every player types their name into the same field, with the
+same validation, before they are seated — the host's field simply lives on the
+menu because their seat is minted over HTTP rather than claimed over the socket.
+That is name parity, which is what was asked for; screen parity is not available,
+because the two seats come into existence by different routes.
+
+(b) was rejected on the round-trip. The client cannot know whether a seat already
+has a nickname until it has connected and received `LOBBY_UPDATE`, so a nickname
+step gated on "the seat has none" must connect first, send a nameless
+`RESUME_SEAT`, render a blank host, and then send a second `RESUME_SEAT` once the
+player types. (a) has the name on the first frame and never renders a blank host
+at all.
+
+**What this cost, and where it landed (Stage 3):** the host's name is
+chosen *before* the room exists and must survive a full page navigation to
+`/join/:matchId`, so something has to carry it. `StoredSeat` gained an optional
+`nickname`, and it is the only thing that crosses that boundary.
+
+- `seatTokenStore` round-trips `nickname` and validates it on read. Absent is fine
+  (seats predate the field); present-but-not-a-string returns `null`, because such
+  a value would reach `RESUME_SEAT` and fail the whole frame as `MALFORMED`.
+- The store gained a `claimSeat(nickname)` intent, mirroring `playCard`: it sends
+  `CLAIM_SEAT` and holds the name so `SEAT_CLAIMED` can persist it. `SEAT_CLAIMED`
+  does not echo the nickname and only this browser knows what it asked for, so
+  without that the joiner's reconnect would resume a seat it could no longer name.
+  The name is remembered only once the frame is away, so a refused claim leaves
+  nothing to persist against someone else's `SEAT_CLAIMED`.
+- `socket.ts`'s `sendableNickname` already holds to `parseNickname`'s rules exactly,
+  so an over-length or control-bearing name is dropped rather than costing the seat.
+
+**Task 21 changes.** *Host a game* reveals a labelled nickname field and a submit
+button disabled until it validates, reusing Task 22's `validateNickname` — write
+that module first, or the two validators drift. The order the existing test pins
+becomes `['save', 'navigate']` with the nickname already inside the saved record:
+
+```ts
+tokens.save(matchId, { seat: 0, playerId: hostSeat, seatToken: hostSeatToken, nickname });
+```
+
+**Task 22 changes.** The join screen shows its nickname field only when there is no
+stored seat. A host arriving at `/join/:matchId` has one, already named, and goes
+straight to the lobby — which is exactly the `screen: 'joining'` with a non-null
+`state.seat` that Stage 3's store already produces at construction.
 
 ### D3: `publicBaseUrl` in dev
 
