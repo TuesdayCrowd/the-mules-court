@@ -46,6 +46,24 @@ const HAND_MAX_CARD_H = 0.26;
 
 // ---------------------------------------------------------------------- pips
 
+/**
+ * The deepest single-seat discard pile the layout reserves room for.
+ *
+ * **Eight, not the seven UIX §6.2 states.** Measured against the engine rather
+ * than taken on trust — `discardCapacity.test.ts` sweeps seeds and play choices
+ * at two, three, and four players and reaches eight at every seat count — and
+ * the arithmetic says why. A two-player round deals a deck of ten, so turns
+ * alternate and one seat takes five of them: five own-turn discards, plus the
+ * two Prince-effect cards (Bayta and Toran) each forcing that seat to discard
+ * out of turn, plus the one held card revealed on elimination. The design's
+ * figure is one short because it counted a single Prince.
+ *
+ * The layout must fit reality rather than the estimate: a pip block sized for
+ * seven would truncate the eighth value, and interface rule 7 makes that a
+ * design failure rather than a graceful degradation.
+ */
+export const MAX_DISCARDS = 8;
+
 /** Below this a pip stops reading as a value and becomes a dot. */
 export const MIN_PIP_PX = 8;
 /** Above this pips crowd the nickname out of the chip. */
@@ -61,8 +79,13 @@ function pipRowsAt(size: number, count: number, areaW: number): { perRow: number
     return { perRow, rows: Math.ceil(count / perRow) };
 }
 
-function pipBlockHeight(size: number, rows: number): number {
-    return rows * size + (rows - 1) * PIP_GAP_PX;
+export function pipBlockHeight(spec: PipSpec): number {
+    return spec.rows * spec.size + (spec.rows - 1) * PIP_GAP_PX;
+}
+
+/** The chip height a pip block needs, given the share of the chip it may claim. */
+function chipHeightFor(spec: PipSpec): number {
+    return pipBlockHeight(spec) / PIP_AREA_H;
 }
 
 /**
@@ -84,11 +107,12 @@ function fitPips(count: number, chip: { w: number; h: number }): PipSpec {
 
     for (let size = MAX_PIP_PX; size >= MIN_PIP_PX; size--) {
         const { perRow, rows } = pipRowsAt(size, pips, areaW);
-        if (pipBlockHeight(size, rows) <= areaH) return { size, perRow, rows };
+        if (pipBlockHeight({ size, perRow, rows }) <= areaH) return { size, perRow, rows };
     }
 
-    // The floor still overflows: keep every value and let the block be tall.
-    // The chip grows to match; the values do not disappear.
+    // The floor still overflows on a very small phone: keep every value and let
+    // the block be tall. `computeLayout` grows the chip to match — the values do
+    // not disappear, which is the whole of interface rule 7.
     const { perRow, rows } = pipRowsAt(MIN_PIP_PX, pips, areaW);
     return { size: MIN_PIP_PX, perRow, rows };
 }
@@ -126,12 +150,20 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
     // --- anchored to the top
     const statusStrip: Rect = { x: margin, y: margin, w: contentW, h: STATUS_STRIP_H * h };
 
-    const chipH = CHIP_H * h;
+    // Pips are fitted before the chip height is final, because on a very small
+    // phone even floor-sized pips need more rows than the nominal chip affords —
+    // and then the chip is what gives way, never a discard value.
+    const chipGap = CHIP_GAP * w;
+    const chipW = (contentW - chipGap * (input.opponentCount - 1)) / input.opponentCount;
+    const nominalChipH = CHIP_H * h;
+    const pip = fitPips(input.maxDiscards, { w: chipW, h: nominalChipH });
+    const chipH = Math.max(nominalChipH, chipHeightFor(pip));
+
     const opponents = row(
         input.opponentCount,
         margin,
         contentW,
-        CHIP_GAP * w,
+        chipGap,
         statusStrip.y + statusStrip.h + gap,
         chipH
     );
@@ -194,6 +226,6 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
         ownStatus,
         hand,
         cardScale: card.w / CARD_ART_WIDTH,
-        pip: fitPips(input.maxDiscards, { w: opponents[0].w, h: chipH })
+        pip
     };
 }

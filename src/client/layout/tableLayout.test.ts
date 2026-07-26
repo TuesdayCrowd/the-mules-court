@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import { bottom, contains, intersects, right } from './rect';
-import { computeLayout } from './tableLayout';
+import { MAX_DISCARDS, MIN_PIP_PX, computeLayout, pipBlockHeight } from './tableLayout';
 import type { LayoutInput, LayoutSpec, Rect } from './types';
 
 // ------------------------------------------------------------------ helpers
@@ -161,5 +161,68 @@ describe('portrait layout', () => {
     it('keeps the deck a card-shaped rect', () => {
         const spec = portrait();
         expect(spec.deck.w / spec.deck.h).toBeCloseTo(0.75, 2);
+    });
+});
+
+describe('discard pips', () => {
+    it('keeps pips legible at the worst-case pile', () => {
+        const spec = portrait({ maxDiscards: MAX_DISCARDS });
+        expect(spec.pip.size).toBeGreaterThanOrEqual(MIN_PIP_PX);
+    });
+
+    it('gives every value in the worst-case pile a slot', () => {
+        const spec = portrait({ maxDiscards: MAX_DISCARDS });
+        expect(spec.pip.perRow * spec.pip.rows).toBeGreaterThanOrEqual(MAX_DISCARDS);
+    });
+
+    it('wastes no row — the pile is spread as flat as it fits', () => {
+        const spec = portrait({ maxDiscards: MAX_DISCARDS });
+        expect(spec.pip.rows).toBe(Math.ceil(MAX_DISCARDS / spec.pip.perRow));
+    });
+
+    it('shrinks pips before it shrinks anything else in the chip', () => {
+        const roomy = portrait({ maxDiscards: 2 });
+        const crowded = portrait({ maxDiscards: MAX_DISCARDS });
+
+        expect(crowded.pip.size).toBeLessThan(roomy.pip.size);
+        expect(crowded.opponents[0].w).toBe(roomy.opponents[0].w); // the chip itself does not give way
+    });
+
+    it('gives every value a slot at every pile depth up to the worst case', () => {
+        for (let pile = 0; pile <= MAX_DISCARDS; pile++) {
+            const spec = portrait({ maxDiscards: pile });
+            expect(spec.pip.size, `pile of ${pile}`).toBeGreaterThanOrEqual(MIN_PIP_PX);
+            expect(spec.pip.perRow * spec.pip.rows, `pile of ${pile}`).toBeGreaterThanOrEqual(pile);
+        }
+    });
+
+    it('never shrinks a pip below the legible floor, whatever the pile', () => {
+        // Beyond MAX_DISCARDS is unreachable, but the floor is a floor.
+        expect(portrait({ maxDiscards: 20 }).pip.size).toBe(MIN_PIP_PX);
+    });
+
+    it('grows the chip rather than dropping a value when the floor will not fit', () => {
+        // A 320x568 phone with a full pile: even floor-sized pips need two rows,
+        // and two rows need more than the nominal chip affords.
+        const tiny = { w: 320, h: 568 } as const;
+        const roomy = computeLayout({ ...tiny, opponentCount: 3, handCount: 1, showsRemovedCard: false, maxDiscards: 1 });
+        const full = computeLayout({ ...tiny, opponentCount: 3, handCount: 1, showsRemovedCard: false, maxDiscards: MAX_DISCARDS });
+
+        expect(full.pip.perRow * full.pip.rows).toBeGreaterThanOrEqual(MAX_DISCARDS);
+        expect(full.opponents[0].h).toBeGreaterThan(roomy.opponents[0].h);
+        expect(full.opponents[0].w).toBe(roomy.opponents[0].w); // it grows down, not sideways
+    });
+
+    it('keeps the pip block inside the chip it was fitted to', () => {
+        for (const maxDiscards of [1, 4, MAX_DISCARDS]) {
+            const spec = portrait({ maxDiscards });
+            expect(pipBlockHeight(spec.pip), `pile of ${maxDiscards}`).toBeLessThanOrEqual(spec.opponents[0].h);
+        }
+    });
+
+    it('survives a small phone with a full pile without breaking the table', () => {
+        const spec = computeLayout({ w: 320, h: 568, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: MAX_DISCARDS });
+        expectInsideViewport(spec);
+        expectNoOverlaps(spec);
     });
 });
