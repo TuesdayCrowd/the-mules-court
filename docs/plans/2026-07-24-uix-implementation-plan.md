@@ -2123,3 +2123,93 @@ Then play a real match: two browsers, one hosting and one joining through the co
 - [ ] Every interface rule in *UIX §14* holds; rules 4 and 7 in particular — no other player's hand outside `revealed[]` and `roundResult.revealedHands`, and no truncated discard value at any viewport size
 - [ ] `AGENTS.md` describes the client that exists
 - [ ] No TODO without an issue number
+
+---
+
+## Deferred: work agreed but deliberately not done here
+
+These are scoped and decided, but sequenced **after** the client ships. They are
+recorded with their evidence so the next session does not have to rediscover it.
+
+### D1: A closed `SeatId` union in the protocol layer
+
+**Status:** Deferred by decision, 2026-07-26. Do after Stage 7.
+**Scope:** `src/server/protocol.ts`, `src/server/room.ts` (seat construction), and
+whichever client boundaries consume seat ids.
+
+The four-seat rule is real and already enforced at runtime, but it is thrown away
+at the type level:
+
+```ts
+const TARGET_RE = /^p[1-4]$/;
+function isTarget(value: unknown): value is PlayerId { … }   // PlayerId = string
+```
+
+That guard narrows `unknown` to `string`. It validates the rule and then discards
+what it learned. Likewise `room.ts:85` builds `playerId: \`p${index + 1}\``, which
+infers as `` `p${number}` `` — nothing in the type system stops a `p5`.
+
+**The change:** add `export type SeatId = 'p1' | 'p2' | 'p3' | 'p4'` to
+`protocol.ts`, return `value is SeatId` from `isTarget`, and pin the seat
+construction site so it cannot produce an out-of-range id.
+
+**Not a TypeScript `enum`,** which was the shape originally proposed. Three
+reasons specific to this repo: `enum` emits a runtime object, while
+`engine/types.ts` states "Types only — no runtime code lives here" and requires
+everything reachable from `MatchState` to be plain JSON; `isolatedModules: true`
+bans the only zero-cost variant, `const enum`; and every other domain type here
+is a string-literal union (`CardTypeId`, `EffectType`, `MatchMode`,
+`RoundEndReason`, `SeatStatus`), so an enum would be the sole exception. A union
+serialises as `"p1"` with no indirection.
+
+**Not applied to the engine's `PlayerId`.** Measured, not assumed: changing
+`PlayerId = string` to the union produces **369 tsc errors**. Two findings explain
+why that is the wrong layer rather than merely expensive work:
+
+1. `Record<PlayerId, X>` silently changes meaning. As `Record<string, X>` it is an
+   index signature; as a 4-member union it demands all four keys, so a
+   two-player match fails to typecheck (`Type '{ p0: …; p1: … }' is missing …:
+   p2, p3, p4`). Every such record — `RoundState.players`,
+   `STATE_UPDATE.nicknames`, `RoundResult.revealedHands` — would become
+   `Partial<Record<…>>`, forcing `| undefined` handling across 53 lookup sites.
+2. The engine is deliberately seat-agnostic. Its own tests seat players as `p0`,
+   `p1`, … (`engine/__tests__/reduce.test.ts:17`) while the transport mints
+   `p1`–`p4`; the two coexist precisely because the engine treats `PlayerId` as
+   opaque. Narrowing it would couple a reusable headless reducer to the
+   transport's four-chair convention.
+
+**Definition of done:** `isTarget` narrows to `SeatId`; seat construction cannot
+produce an out-of-range id; `bun run test && bunx tsc --noEmit && bun run build`
+all pass; the engine's `PlayerId` is untouched.
+
+### D2: Where the host types a nickname
+
+**Status:** Open question, needs a design decision before Stage 5 Task 21/22.
+
+Task 8 gave `RESUME_SEAT` an optional nickname, but the client flow never asks
+the host for one: *UIX §3* routes Host → `POST /api/rooms` → store token →
+`/join/:matchId`, and §3's nickname field appears only on the **no stored token**
+branch. The host always has a token, so they skip it and `RESUME_SEAT` carries
+`nickname: undefined` every time. The transport work is necessary but not
+sufficient.
+
+Two candidate fixes, either supported by the server as built:
+
+- **(a)** The menu's *Host a game* reveals a name field before `POST /api/rooms`.
+  Host is named from the first frame. Changes Task 21.
+- **(b)** `/join/:matchId` shows the nickname step whenever the seat has no
+  nickname, token or not. One nickname UI for everyone; the host renders blank
+  until they type. Changes Task 22.
+
+Recommendation: **(a)**. It matches how hosting is expected to work and avoids a
+second `RESUME_SEAT` round-trip. Validation stays on the WebSocket path either
+way, where `parseNickname` and `maxNicknameLength` already live.
+
+### D3: `publicBaseUrl` in dev
+
+**Status:** Noted, low priority.
+
+`publicBaseUrl` defaults to `http://localhost:3000`, so a host running
+`bun run dev` on :8080 copies an invite link pointing at :3000 — which serves the
+app only if `dist/` is current. It is one config value and does not affect
+production, but it will be confusing during Stage 5 lobby testing.
