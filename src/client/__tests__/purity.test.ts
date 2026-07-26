@@ -39,12 +39,19 @@ describe('pure client layer', () => {
     it('never touches document or window outside injected dependencies', () => {
         // `store/` legitimately owns web storage and the socket, but only through
         // injected factories — the bare globals must not appear.
+        //
+        // The dot must be followed by the start of a property name. What is
+        // banned is member ACCESS, and `content/` holds player-facing copy: UIX
+        // §5 words SEAT_TAKEN as "This match is open in another window.", which
+        // a bare /\bwindow\./ reads as a global reach and fails. Requiring an
+        // identifier character after the dot keeps every real access caught
+        // while letting English end a sentence.
         for (const dir of PURE_DIRS) {
             for (const file of sourceFiles(dir)) {
                 if (file.endsWith('.test.ts')) continue;
                 const src = readFileSync(file, 'utf8');
-                expect(src, `${file} uses document`).not.toMatch(/\bdocument\./);
-                expect(src, `${file} uses window`).not.toMatch(/\bwindow\./);
+                expect(src, `${file} uses document`).not.toMatch(/\bdocument\.[A-Za-z_$]/);
+                expect(src, `${file} uses window`).not.toMatch(/\bwindow\.[A-Za-z_$]/);
                 expect(src, `${file} uses bare localStorage`).not.toMatch(/(?<!\.)\blocalStorage\b/);
             }
         }
