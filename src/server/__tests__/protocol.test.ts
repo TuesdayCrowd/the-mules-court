@@ -85,6 +85,63 @@ const rows: { name: string; raw: string; ok: boolean; expectedMsg?: ClientMessag
         raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', extra: true }),
         ok: false
     },
+
+    // --- RESUME_SEAT's optional nickname (UIX §13.1) ---
+    // The host seat is minted over HTTP with no nickname and never sends
+    // CLAIM_SEAT, so RESUME_SEAT is its one chance to acquire one. Optional,
+    // and held to exactly the same rules CLAIM_SEAT's nickname obeys — a
+    // second entry point with looser validation would be the whole point of
+    // having validation, undone.
+    {
+        name: 'RESUME_SEAT — accepts an optional nickname',
+        raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: 'Cornelius' }),
+        ok: true,
+        expectedMsg: { type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: 'Cornelius' }
+    },
+    {
+        name: 'RESUME_SEAT — omits nickname entirely when absent, never as undefined',
+        raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok' }),
+        ok: true,
+        expectedMsg: { type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok' }
+    },
+    {
+        name: 'RESUME_SEAT — trims a nickname the way CLAIM_SEAT does',
+        raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: '  Ana  ' }),
+        ok: true,
+        expectedMsg: { type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: 'Ana' }
+    },
+    {
+        name: 'RESUME_SEAT — accepts a nickname at the 24-character limit',
+        raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: 'x'.repeat(MAX_NICKNAME) }),
+        ok: true
+    },
+    {
+        name: 'RESUME_SEAT — rejects a nickname one character over the limit',
+        raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: 'x'.repeat(MAX_NICKNAME + 1) }),
+        ok: false
+    },
+    {
+        // Present-but-invalid is MALFORMED, never a silent drop: a client that
+        // sent a name must not be told the frame was fine while the name vanished.
+        name: 'RESUME_SEAT — rejects a control character in the nickname',
+        raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: 'Corn' + String.fromCharCode(1) + 'elius' }),
+        ok: false
+    },
+    {
+        name: 'RESUME_SEAT — rejects a whitespace-only nickname',
+        raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: '   ' }),
+        ok: false
+    },
+    {
+        name: 'RESUME_SEAT — rejects a non-string nickname',
+        raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: 42 }),
+        ok: false
+    },
+    {
+        name: 'RESUME_SEAT — still rejects an unknown field alongside a valid nickname',
+        raw: JSON.stringify({ type: 'RESUME_SEAT', matchId: 'm1', seatToken: 'tok', nickname: 'Ana', extra: true }),
+        ok: false
+    },
     {
         name: 'START_MATCH — rejects an extra field',
         raw: JSON.stringify({ type: 'START_MATCH', matchId: 'm1', extra: true }),

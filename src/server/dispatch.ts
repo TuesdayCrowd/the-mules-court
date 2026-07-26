@@ -155,7 +155,7 @@ export async function dispatchMessage(
                     break;
                 }
                 case 'RESUME_SEAT': {
-                    const result = room.resumeSeat(state.conn, msg.seatToken);
+                    const result = room.resumeSeat(state.conn, msg.seatToken, msg.nickname);
                     if (result !== null) {
                         state.seat = result.playerId;
                         state.matchId = matchId;
