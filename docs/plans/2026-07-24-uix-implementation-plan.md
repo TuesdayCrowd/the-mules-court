@@ -51,7 +51,7 @@
 
 **Goal:** Client tests run in both Node and jsdom environments; the palette exists once and is proven consistent and legible; every string the game shows a player exists as tested data.
 **Success criteria:** `bun run test` runs engine + client + server suites green; a token present in CSS but missing from TypeScript fails a test; every `CardTypeId` has copy.
-**Status:** Not Started
+**Status:** Complete
 
 ### Task 0: Branch
 
@@ -695,7 +695,7 @@ but commit uix-client -m "feat(client): card copy, quick reference, and log narr
 
 **Goal:** Close the one protocol gap the design flagged as blocking, and make a real invite link work end to end in both dev and production.
 **Success criteria:** A lobby shows the host's nickname; `http://localhost:3000/join/<matchId>` serves the app; `bun run dev` reaches the server without CORS or port juggling; path traversal is refused.
-**Status:** Not Started
+**Status:** Complete
 
 ### Task 8: `RESUME_SEAT` carries an optional nickname
 
@@ -1044,7 +1044,7 @@ but commit uix-client -m "build: absolute base, dev proxy, and the two-layer pag
 
 **Goal:** Everything between the WebSocket and the renderer, fully tested without a browser.
 **Success criteria:** A scripted sequence of `ServerMessage`s drives the store through host → lobby → match → round over → match over; a dropped socket reconnects with backoff; `FATAL BAD_TOKEN` clears the stored token exactly once.
-**Status:** Not Started
+**Status:** Complete
 
 ### Task 11: Route parsing
 

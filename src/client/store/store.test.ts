@@ -451,6 +451,60 @@ describe('notices and connection', () => {
     });
 });
 
+describe('the whole arc', () => {
+    it('walks host to lobby to match to round over to match over on one scripted sequence', () => {
+        // Stage 3's stated success criterion. The per-message tests above each
+        // prove one transition; this proves they compose, which is the property
+        // an actual match depends on and no single-message test can show.
+        const h = harness();
+
+        expect(h.store.getState().screen).toBe('joining');
+
+        h.store.setConnection('open');
+        h.store.apply({ type: 'SEAT_CLAIMED', matchId: 'K7QX2', seat: 0, playerId: 'p1', seatToken: 'tok-abc' });
+        expect(h.store.getState().screen).toBe('lobby');
+
+        h.store.apply({
+            type: 'LOBBY_UPDATE',
+            matchId: 'K7QX2',
+            hostSeat: 'p1',
+            canStart: true,
+            seats: [
+                { seat: 0, playerId: 'p1', nickname: 'Ana', status: 'occupied' },
+                { seat: 1, playerId: 'p2', nickname: 'Bayta', status: 'occupied' }
+            ]
+        });
+        expect(h.store.getState().lobby?.canStart).toBe(true);
+
+        h.store.apply({ type: 'MATCH_STARTED', matchId: 'K7QX2' });
+        expect(h.store.getState().screen).toBe('lobby'); // still — the view has not arrived
+
+        h.store.apply(makeStateUpdate());
+        expect(h.store.getState().screen).toBe('table');
+
+        h.store.playCard({ cardInstanceId: 'informant#1', target: 'p2', guess: 5 });
+        expect(h.store.getState().pendingPlay).not.toBeNull();
+
+        h.store.apply(
+            makeStateUpdate({
+                phase: 'round_over',
+                revealDeadline: 1_005_000,
+                view: makeView({ roundResult: { reason: 'last-survivor', winnerIds: ['p1'] } })
+            })
+        );
+        expect(h.store.getState().pendingPlay).toBeNull(); // the server resolved it
+        expect(h.store.getState().table?.phase).toBe('round_over');
+
+        h.store.apply(makeStateUpdate({ phase: 'ended', endReason: 'won', winnerSeat: 'p1' }));
+        h.store.apply({ type: 'MATCH_ENDED', matchId: 'K7QX2', reason: 'won', winnerSeat: 'p1' });
+
+        expect(h.store.getState().ended).toEqual({ reason: 'won', winnerSeat: 'p1' });
+        expect(h.store.getState().screen).toBe('table'); // UIX §9.2 overlays the table, never replaces it
+        expect(h.store.getState().fatal).toBeNull();
+        expect(h.store.getState().notices).toEqual([]);
+    });
+});
+
 describe('subscribe', () => {
     it('notifies once per state-changing apply', () => {
         const h = harness();
