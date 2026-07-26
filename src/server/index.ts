@@ -7,6 +7,7 @@
  * `dispatchMessage`, `RoomRegistry`, or `Room`.
  */
 
+import { basename, join, resolve, sep } from 'node:path';
 import type { TransportConfig } from './config';
 import { makeConfig } from './config';
 import type { ConnectionState } from './dispatch';
@@ -21,6 +22,59 @@ export interface RunningServer {
     server: Bun.Server<ConnectionState>;
     registry: RoomRegistry;
     stop(): void;
+}
+
+/**
+ * Static hosting with an SPA fallback for `/join/:matchId` (UIX §2.6).
+ *
+ * The resolve-then-prefix-check is the whole security story: `resolve`
+ * collapses every `..`, and a resolved path that no longer starts with the root
+ * is refused before `Bun.file` ever opens it. Percent-encoded traversal is
+ * covered because decoding happens first and resolution second — checking the
+ * raw pathname would miss `%2e%2e`, and decoding after resolving would
+ * reintroduce it.
+ *
+ * The `target !== base` arm matters: a request for `/` resolves to the root
+ * itself, which is legitimate and does not carry the trailing separator the
+ * prefix test looks for. Comparing against `base + sep` alone would 404 the
+ * homepage; comparing against `base` alone would let `/../dist-evil` through
+ * on a sibling directory whose name merely starts with the root's.
+ *
+ * Exported for direct testing. Driving this through `fetch` cannot exercise it:
+ * the URL parser collapses `..` before the request leaves the client, so
+ * `/../secret` arrives as `/secret` and a traversal test run that way would
+ * pass against a function with no check in it at all. Only `%2f`-encoded
+ * separators survive that normalisation — and an upstream proxy may well decode
+ * them, so the guard is tested here against raw pathnames instead.
+ */
+export async function serveStatic(root: string, pathname: string): Promise<Response> {
+    const base = resolve(root);
+
+    let decoded: string;
+    try {
+        decoded = decodeURIComponent(pathname);
+    } catch {
+        // A malformed percent-escape is not a path worth guessing at.
+        return new Response('Not Found', { status: 404 });
+    }
+
+    const target = resolve(base, '.' + decoded);
+    if (target !== base && !target.startsWith(base + sep)) {
+        return new Response('Not Found', { status: 404 });
+    }
+
+    const file = Bun.file(target);
+    if (await file.exists()) return new Response(file);
+
+    // A path with no extension is a client route, so hand back the app shell
+    // and let the router sort it out. A missing .png stays a 404: pretending a
+    // broken asset is the homepage hides the breakage.
+    if (!basename(target).includes('.')) {
+        const shell = Bun.file(join(base, 'index.html'));
+        if (await shell.exists()) return new Response(shell);
+    }
+
+    return new Response('Not Found', { status: 404 });
 }
 
 /** Builds the JSON `201` body for a successful `POST /api/rooms` (Design §3). */
@@ -60,20 +114,37 @@ export function startServer(config: TransportConfig): RunningServer {
                 return roomCreatedResponse(registry.createRoom());
             }
 
-            if (!ipLimiter.take(ip)) {
-                return new Response('Too Many Requests', { status: 429 });
+            // Keyed on the header, not the path: the Vite dev proxy wants a
+            // stable `/ws` prefix, while thirteen existing tests connect to
+            // `/`. Both work, and static hosting can own every other path.
+            if (req.headers.get('upgrade')?.toLowerCase() === 'websocket') {
+                if (!ipLimiter.take(ip)) {
+                    return new Response('Too Many Requests', { status: 429 });
+                }
+
+                const data: ConnectionState = {
+                    ip,
+                    bucket: new TokenBucket(config.messageBurst, config.messageRefillPerSec),
+                    seat: null,
+                    matchId: null,
+                    // Assigned in websocket.open(), which always precedes the first
+                    // message — see the comment on ConnectionState.conn in dispatch.ts.
+                    conn: undefined as unknown as ConnectionState['conn']
+                };
+                if (srv.upgrade(req, { data })) return;
+
+                return new Response('Upgrade Failed', { status: 400 });
             }
 
-            const data: ConnectionState = {
-                ip,
-                bucket: new TokenBucket(config.messageBurst, config.messageRefillPerSec),
-                seat: null,
-                matchId: null,
-                // Assigned in websocket.open(), which always precedes the first
-                // message — see the comment on ConnectionState.conn in dispatch.ts.
-                conn: undefined as unknown as ConnectionState['conn']
-            };
-            if (srv.upgrade(req, { data })) return;
+            // An unknown /api/ path is a client bug, never a client route: it
+            // must not fall through to the app shell and 200.
+            if (url.pathname.startsWith('/api/')) {
+                return new Response('Not Found', { status: 404 });
+            }
+
+            if (config.staticRoot !== null) {
+                return serveStatic(config.staticRoot, url.pathname);
+            }
 
             return new Response('Not Found', { status: 404 });
         },
@@ -132,5 +203,7 @@ export function startServer(config: TransportConfig): RunningServer {
 }
 
 if (import.meta.main) {
-    startServer(makeConfig());
+    // Hosting is opt-in, set by package.json's `serve` script — the only place
+    // that knows this repo builds to dist/, one line from the script producing it.
+    startServer(makeConfig({ staticRoot: Bun.env.MULES_STATIC_ROOT ?? null }));
 }
