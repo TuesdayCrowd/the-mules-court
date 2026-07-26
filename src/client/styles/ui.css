@@ -71,6 +71,95 @@ body {
 }
 
 /**
+ * Non-interactive chrome opts back out of pointer events.
+ *
+ * `#ui-root > *` restores `auto` so surfaces can be tapped, but a toast strip
+ * and a status dot have nothing to tap — left as `auto` they would sit over the
+ * table swallowing taps meant for the cards beneath. Anything inside them that
+ * IS interactive restores `auto` for itself.
+ *
+ * Scoped through `#ui-root >` deliberately: a bare `.toasts` is a class selector
+ * and loses to the ID selector it means to override, so the strip would stay
+ * interactive and nothing would say so.
+ */
+#ui-root > .toasts,
+#ui-root > .connection-dot {
+    pointer-events: none;
+}
+
+.toasts button,
+.connection-dot button {
+    pointer-events: auto;
+}
+
+/**
+ * The connection dot (UIX §5). A corner of every surface.
+ *
+ * State is never colour alone: the accessible name carries it in words, and
+ * `data-status` is what styling keys on rather than parsing that name.
+ */
+.connection-dot {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    width: var(--space-3);
+    height: var(--space-3);
+    border-radius: 50%;
+    background: var(--color-state-waiting);
+}
+
+.connection-dot[data-status='open'] {
+    background: var(--color-state-round-over);
+}
+
+.connection-dot[data-status='reconnecting'] {
+    background: var(--color-state-paused);
+}
+
+.connection-dot[data-status='closed'] {
+    background: var(--color-nebula-red);
+}
+
+/**
+ * Toasts (UIX §6.5). Centred above the hand zone, newest last, so the reading
+ * order matches the order things happened.
+ */
+.toasts {
+    position: absolute;
+    left: 50%;
+    bottom: 38%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: center;
+    width: min(90%, 34rem);
+}
+
+.toast {
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius);
+    background: rgb(0 0 0 / 0.82);
+    border: 1px solid var(--color-seat-other);
+    color: var(--color-text-primary);
+    font-size: clamp(0.85rem, 3vw, 1rem);
+    text-align: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .toast {
+        animation: toast-in 160ms ease-out;
+    }
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(var(--space-2));
+    }
+}
+
+/**
  * The offscreen twin (UIX §11).
  *
  * Visually hidden by clipping, never by `display: none` or `visibility: hidden`
