@@ -1275,8 +1275,8 @@ it('runs animations one at a time', async () => { /* overlapping enqueues do not
 ## Stage 4: Layout — geometry as pure data
 
 **Goal:** Every canvas position and size is computed by tested functions that have never heard of Phaser.
-**Success criteria:** Three opponent chips fit 390 px; seven discard pips stay legible; no two rects overlap in any topology; every rect is inside the viewport.
-**Status:** Not Started
+**Success criteria:** Three opponent chips fit 390 px; ~~seven~~ **eight** discard pips stay legible (the worst case measured against the engine — see Task 18); no two rects overlap in any topology; every rect is inside the viewport.
+**Status:** Complete
 
 ### Task 16: Topology classification
 

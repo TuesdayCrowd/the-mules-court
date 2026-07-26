@@ -164,6 +164,150 @@ describe('portrait layout', () => {
     });
 });
 
+const VIEWPORTS = [
+    { name: 'rotated phone', w: 844, h: 390, topology: 'landscape-narrow' },
+    { name: 'tablet', w: 1024, h: 768, topology: 'landscape-narrow' },
+    { name: 'desktop', w: 1920, h: 1080, topology: 'wide' },
+    { name: 'phone', w: 390, h: 844, topology: 'portrait' }
+] as const;
+
+describe.each(VIEWPORTS)('$name ($w x $h)', viewport => {
+    it(`classifies as ${viewport.topology}`, () => {
+        expect(computeLayout({ ...viewport, opponentCount: 1, handCount: 1, showsRemovedCard: false, maxDiscards: 0 }).topology).toBe(
+            viewport.topology
+        );
+    });
+
+    // The full cross product: every seat count, every hand size, with the burn
+    // panel wherever a two-player round would put it, at the worst-case pile.
+    for (const opponentCount of [1, 2, 3] as const) {
+        for (const handCount of [1, 2] as const) {
+            const input: LayoutInput = {
+                w: viewport.w,
+                h: viewport.h,
+                opponentCount,
+                handCount,
+                showsRemovedCard: opponentCount === 1,
+                maxDiscards: MAX_DISCARDS
+            };
+
+            it(`keeps every element inside the viewport at ${opponentCount} opponents and ${handCount} cards`, () => {
+                expectInsideViewport(computeLayout(input));
+            });
+
+            it(`never overlaps two elements at ${opponentCount} opponents and ${handCount} cards`, () => {
+                expectNoOverlaps(computeLayout(input));
+            });
+
+            it(`leaves the hand a real card at ${opponentCount} opponents and ${handCount} cards`, () => {
+                // Compression may shrink the hand, but never to nothing.
+                expect(computeLayout(input).hand[0].h).toBeGreaterThan(0);
+            });
+        }
+    }
+});
+
+describe('landscape-narrow composition', () => {
+    const ROTATED = { w: 844, h: 390 } as const;
+
+    function rotated(overrides: Partial<LayoutInput> = {}): LayoutSpec {
+        return computeLayout({ ...ROTATED, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3, ...overrides });
+    }
+
+    it('spreads three opponents into a shallow arc', () => {
+        const chips = rotated({ opponentCount: 3 }).opponents;
+        const ys = chips.map(chip => chip.y);
+
+        expect(new Set(ys).size).toBeGreaterThan(1); // not a flat row
+        expect(ys[0]).toBeGreaterThan(ys[1]); // outer chips sit lower than the centre
+        expect(ys[2]).toBeGreaterThan(ys[1]);
+        expect(ys[0]).toBeCloseTo(ys[2], 5); // and symmetrically so
+    });
+
+    it('keeps two opponents level, because two points are not an arc', () => {
+        const chips = rotated({ opponentCount: 2 }).opponents;
+        expect(chips[0].y).toBe(chips[1].y);
+    });
+
+    it('keeps the deck clear of the lowest chip in the arc', () => {
+        const spec = rotated({ opponentCount: 3 });
+        for (const chip of spec.opponents) expect(spec.deck.y).toBeGreaterThanOrEqual(bottom(chip));
+    });
+
+    it('spreads the hand to both thumbs rather than centring it', () => {
+        const spec = rotated({ handCount: 2 });
+        const margin = spec.statusStrip.x;
+
+        expect(spec.hand[0].x).toBeCloseTo(margin, 5);
+        expect(right(last(spec.hand))).toBeCloseTo(right(spec.statusStrip), 5);
+    });
+
+    it('still centres a single card', () => {
+        const spec = rotated({ handCount: 1 });
+        expect(spec.hand[0].x + spec.hand[0].w / 2).toBeCloseTo(ROTATED.w / 2, 5);
+    });
+
+    it('stacks the removed card below the deck, as portrait does', () => {
+        const spec = rotated({ opponentCount: 1, showsRemovedCard: true });
+        expect(spec.removedCard!.y).toBeGreaterThanOrEqual(bottom(spec.deck));
+    });
+
+    it('is fully fluid within the class', () => {
+        const small = computeLayout({ w: 760, h: 360, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 });
+        const large = computeLayout({ w: 1024, h: 500, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 });
+
+        expect(large.deck.w).toBeGreaterThan(small.deck.w);
+        expect(large.opponents[0].w).toBeGreaterThan(small.opponents[0].w);
+        expect(large.cardScale).toBeGreaterThan(small.cardScale);
+    });
+});
+
+describe('wide composition', () => {
+    const DESKTOP = { w: 1920, h: 1080 } as const;
+
+    function wide(overrides: Partial<LayoutInput> = {}): LayoutSpec {
+        return computeLayout({ ...DESKTOP, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3, ...overrides });
+    }
+
+    it('sets the removed card beside the deck, not below it', () => {
+        const spec = wide({ opponentCount: 1, showsRemovedCard: true });
+        expect(spec.removedCard).not.toBeNull();
+        expect(spec.removedCard!.x).toBeGreaterThanOrEqual(right(spec.deck));
+        expect(spec.removedCard!.y).toBe(spec.deck.y); // level with it, sharing the band
+    });
+
+    it('keeps the deck and removed card centred as a pair', () => {
+        const spec = wide({ opponentCount: 1, showsRemovedCard: true });
+        const pairCentre = (spec.deck.x + right(spec.removedCard!)) / 2;
+        expect(pairCentre).toBeCloseTo(DESKTOP.w / 2, 5);
+    });
+
+    it('draws larger cards than portrait at the same seat count', () => {
+        const portraitSpec = computeLayout({ w: 390, h: 844, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 });
+        expect(wide({ opponentCount: 3, handCount: 2 }).cardScale).toBeGreaterThan(portraitSpec.cardScale);
+    });
+
+    it('gives seats more generous panels than portrait does', () => {
+        const portraitSpec = computeLayout({ w: 390, h: 844, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 });
+        const spec = wide({ opponentCount: 3, handCount: 2 });
+        expect(spec.opponents[0].h / DESKTOP.h).toBeGreaterThan(portraitSpec.opponents[0].h / 844);
+    });
+
+    it('keeps opponents level — the arc belongs to landscape-narrow', () => {
+        const ys = wide({ opponentCount: 3 }).opponents.map(chip => chip.y);
+        expect(new Set(ys).size).toBe(1);
+    });
+
+    it('is fully fluid within the class', () => {
+        const small = computeLayout({ w: 1440, h: 900, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 });
+        const large = computeLayout({ w: 2560, h: 1440, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 });
+
+        expect(large.deck.w).toBeGreaterThan(small.deck.w);
+        expect(large.hand[0].h).toBeGreaterThan(small.hand[0].h);
+        expect(large.cardScale).toBeGreaterThan(small.cardScale);
+    });
+});
+
 describe('discard pips', () => {
     it('keeps pips legible at the worst-case pile', () => {
         const spec = portrait({ maxDiscards: MAX_DISCARDS });
