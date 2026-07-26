@@ -148,8 +148,16 @@ export function createSocket(deps: SocketDeps): Socket {
     let status: ConnectionStatus = 'closed';
     let retryHandle: TimerHandle | null = null;
     let attempt = 0;
-    /** Set once `close()` is called. Every later event becomes a no-op. */
-    let shutDown = false;
+    /**
+     * Set by `close()`; cleared by `connect()`. Every event in between is a
+     * no-op.
+     *
+     * Deliberately not permanent. A FATAL means stop retrying — auto-reconnect
+     * after `SEAT_TAKEN` turns the server's deterministic eviction into two tabs
+     * evicting each other forever — but "Take over here" then has to be able to
+     * reconnect on purpose. Stopping and shutting down are different things.
+     */
+    let stopped = false;
 
     function setStatus(next: ConnectionStatus): void {
         status = next;
@@ -184,7 +192,7 @@ export function createSocket(deps: SocketDeps): Socket {
         socket = live;
 
         live.onopen = () => {
-            if (shutDown || socket !== live) return;
+            if (stopped || socket !== live) return;
             attempt = 0; // a landed connection earns a fresh schedule
             setStatus('open');
             const first = handshake();
@@ -192,7 +200,7 @@ export function createSocket(deps: SocketDeps): Socket {
         };
 
         live.onmessage = event => {
-            if (shutDown || socket !== live) return;
+            if (stopped || socket !== live) return;
             const msg = parseServerMessage(event.data);
             if (msg !== null) deps.onMessage(msg);
         };
@@ -202,7 +210,7 @@ export function createSocket(deps: SocketDeps): Socket {
         live.onerror = () => {};
 
         live.onclose = () => {
-            if (shutDown || socket !== live) return;
+            if (stopped || socket !== live) return;
             socket = null;
             setStatus('reconnecting');
             scheduleRetry();
@@ -211,20 +219,22 @@ export function createSocket(deps: SocketDeps): Socket {
 
     return {
         connect(): void {
-            if (shutDown || socket !== null || retryHandle !== null) return;
+            if (socket !== null || retryHandle !== null) return;
+            stopped = false;
             setStatus('connecting');
             openSocket();
         },
 
         send(msg: ClientMessage): boolean {
-            if (socket === null || status !== 'open') return false;
+            if (stopped || socket === null || status !== 'open') return false;
             socket.send(JSON.stringify(msg));
             return true;
         },
 
         close(): void {
-            if (shutDown) return;
-            shutDown = true;
+            if (stopped) return;
+            stopped = true;
+            attempt = 0; // a deliberate stop is not a failure to back off from
             if (retryHandle !== null) {
                 deps.timers.clearTimeout(retryHandle);
                 retryHandle = null;

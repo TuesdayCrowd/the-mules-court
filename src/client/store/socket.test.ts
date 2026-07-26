@@ -361,6 +361,31 @@ describe('createSocket close', () => {
         expect(h.transport.last().closed).toBe(true);
     });
 
+    it('reopens on an explicit connect, so a deliberate stop is not permanent', () => {
+        // UIX §5's "Take over here" is exactly this: stop retrying, then
+        // reconnect once because the player asked. Without it the button has
+        // nothing to press against.
+        const h = harness();
+        h.socket.connect();
+        h.socket.close();
+
+        h.socket.connect();
+
+        expect(h.transport.sockets).toHaveLength(2);
+        expect(h.statuses).toEqual(['connecting', 'closed', 'connecting']);
+    });
+
+    it('resumes normal retrying after being reopened', () => {
+        const h = harness();
+        h.socket.connect();
+        h.socket.close();
+        h.socket.connect();
+
+        dropConnection(h);
+
+        expect(h.clock.pendingCount()).toBe(1);
+    });
+
     it('ignores a close event that arrives after the caller closed', () => {
         const h = harness();
         h.socket.connect();

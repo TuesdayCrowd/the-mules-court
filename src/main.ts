@@ -164,8 +164,15 @@ function boot(): void {
     uiRoot.add(
         createFatalScreen({
             onAction: kind => {
-                if (kind === 'menu') location.assign('/');
-                else socket?.connect();
+                if (kind === 'menu') {
+                    location.assign('/');
+                    return;
+                }
+                // "Take over here" (UIX §5). Clearing the wall first is what
+                // lets the reconnect's frames land; the socket was stopped when
+                // the FATAL arrived, so this is the deliberate reopen.
+                store.retryAfterFatal();
+                socket?.connect();
             }
         })
     );
@@ -213,6 +220,12 @@ function boot(): void {
     let previous: ClientState = store.getState();
 
     store.subscribe(state => {
+        // A FATAL means stop retrying. The server closed the socket on purpose,
+        // and reconnecting into SEAT_TAKEN makes two tabs evict each other
+        // forever — verified against the real server at 22 evictions in three
+        // seconds. Only "Take over here" reopens it.
+        if (state.fatal !== null && previous.fatal === null) socket?.close();
+
         uiRoot.update(state);
         twin.update(state);
         court?.renderView(state);

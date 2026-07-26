@@ -54,6 +54,15 @@ export interface Store {
     /** True when a PLAY_CARD frame actually left. */
     playCard(intent: PlayIntent): boolean;
     cancelPending(): void;
+    /**
+     * Leave a fatal wall and accept messages again.
+     *
+     * `apply` ignores everything while `fatal` is set, which is right for a
+     * terminal code and wrong for `SEAT_TAKEN` — there the player is offered
+     * "Take over here", and without this the reconnect would succeed while the
+     * store dropped every frame it produced.
+     */
+    retryAfterFatal(): void;
     dismissNotice(id: string): void;
     setConnection(status: ConnectionStatus): void;
 }
@@ -277,6 +286,12 @@ export function createStore(deps: StoreDeps): Store {
         cancelPending() {
             if (state.pendingPlay === null) return;
             commit({ ...state, pendingPlay: null });
+        },
+
+        retryAfterFatal() {
+            if (state.fatal === null) return;
+            // The seat is kept: taking over is reclaiming it, not abandoning it.
+            commit({ ...state, fatal: null, screen: 'joining' });
         },
 
         dismissNotice(id) {

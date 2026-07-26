@@ -420,6 +420,45 @@ describe('FATAL', () => {
     });
 });
 
+describe('recovering from a fatal', () => {
+    it('accepts messages again once the player chooses to take over', () => {
+        // Without this the reconnect succeeds, the server sends state, and the
+        // store drops every frame — leaving the player on the wall forever.
+        const h = harness();
+        h.store.apply({ type: 'FATAL', code: 'SEAT_TAKEN' });
+
+        h.store.retryAfterFatal();
+        h.store.apply(makeStateUpdate());
+
+        expect(h.store.getState().fatal).toBeNull();
+        expect(h.store.getState().screen).toBe('table');
+    });
+
+    it('returns to joining while it waits for the server to answer', () => {
+        const h = harness();
+        h.store.apply({ type: 'FATAL', code: 'SEAT_TAKEN' });
+        h.store.retryAfterFatal();
+        expect(h.store.getState().screen).toBe('joining');
+    });
+
+    it('keeps the seat, which is the whole point of taking over', () => {
+        const h = harness({}, recordingTokens({ K7QX2: SEAT }));
+        h.store.apply({ type: 'FATAL', code: 'SEAT_TAKEN' });
+        h.store.retryAfterFatal();
+        expect(h.store.getState().seat).toEqual({ seat: 0, playerId: 'p1' });
+    });
+
+    it('does nothing when nothing is fatal', () => {
+        const h = harness();
+        h.store.apply(makeStateUpdate());
+        const before = h.store.getState();
+
+        h.store.retryAfterFatal();
+
+        expect(h.store.getState()).toBe(before);
+    });
+});
+
 describe('MATCH_ENDED', () => {
     it('records the reason and winner without leaving the table', () => {
         const h = harness();
