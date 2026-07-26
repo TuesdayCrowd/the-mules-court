@@ -26,6 +26,16 @@ body {
     background: var(--color-bg);
     color: var(--color-text-primary);
     overscroll-behavior: none;
+    /* UIX §2.4: Inter carries everything a player reads, nicknames included. */
+    font-family: var(--font-ui, system-ui, sans-serif);
+}
+
+/* The display face is reserved for titles and card values. */
+h1,
+h2,
+.reference-modal th[scope='col'] {
+    font-family: var(--font-display, system-ui, sans-serif);
+    font-weight: 600;
 }
 
 #app {

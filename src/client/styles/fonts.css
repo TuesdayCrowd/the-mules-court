@@ -1,0 +1,66 @@
+/**
+ * The two typefaces (UIX §2.4), self-hosted.
+ *
+ * Never a CDN link. An offline dev server must render correctly, and a
+ * third-party font request is a third-party dependency in a game that otherwise
+ * has none — plus a request to another origin on every first load, which is a
+ * privacy cost paid by every player.
+ *
+ * Both are OFL. Vendored from Google Fonts' woff2 builds into `public/fonts/`.
+ *
+ * `font-display: swap` throughout: text appears immediately in the fallback and
+ * re-renders when the face lands. The canvas gets stricter treatment — the
+ * client awaits `document.fonts` before creating any Phaser text, because a
+ * canvas glyph is painted pixels and cannot re-render itself the way DOM text
+ * does.
+ */
+
+/* Display face — titles and card values. Latin only: this face renders the
+   game's own copy, which is English, and never a player-supplied nickname. */
+@font-face {
+    font-family: 'Exo 2';
+    font-style: normal;
+    font-weight: 600;
+    font-display: swap;
+    src: url('/fonts/exo2-600.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+        U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+/**
+ * UI face — everything else, including nicknames.
+ *
+ * One file for both weights: Inter ships as a variable font, so 400 and 600
+ * resolve to the same bytes and `font-weight: 400 600` declares the axis range
+ * rather than pinning a point on it. The plan asked for `inter-400.woff2` and
+ * `inter-600.woff2`; that would have shipped the same 48 KB twice.
+ *
+ * Latin and Latin Extended are both vendored, and `unicode-range` means a
+ * browser fetches only the one it needs. A Cyrillic or CJK nickname — both of
+ * which the server accepts and `nickname.test.ts` asserts — falls back to a
+ * system face, which renders correctly and costs nothing to ship.
+ */
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400 600;
+    font-display: swap;
+    src: url('/fonts/inter-var-latin.woff2') format('woff2');
+    unicode-range: U+0000-00FF, U+0131, U+0152-0153, U+02BB-02BC, U+02C6, U+02DA, U+02DC, U+0304, U+0308, U+0329,
+        U+2000-206F, U+20AC, U+2122, U+2191, U+2193, U+2212, U+2215, U+FEFF, U+FFFD;
+}
+
+@font-face {
+    font-family: 'Inter';
+    font-style: normal;
+    font-weight: 400 600;
+    font-display: swap;
+    src: url('/fonts/inter-var-latin-ext.woff2') format('woff2');
+    unicode-range: U+0100-02BA, U+02BD-02C5, U+02C7-02CC, U+02CE-02D7, U+02DD-02FF, U+0304, U+0308, U+0329,
+        U+1D00-1DBF, U+1E00-1E9F, U+1EF2-1EFF, U+2020, U+20A0-20AB, U+20AD-20C0, U+2113, U+2C60-2C7F, U+A720-A7FF;
+}
+
+:root {
+    --font-display: 'Exo 2', system-ui, sans-serif;
+    --font-ui: 'Inter', system-ui, sans-serif;
+}

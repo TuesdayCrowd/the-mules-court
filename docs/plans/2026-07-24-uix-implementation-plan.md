@@ -2340,3 +2340,31 @@ One field answers both: whatever it is called, it is computed by the predicate
 lobby grace and sees one within a sweep interval after it; the same for **End
 match** past `activeGraceMs`; `bun run test && bunx tsc --noEmit && bun run
 build` all pass; no existing server test changes shape.
+
+### D5: The playfield background needs a larger source
+
+**Status:** Noted in Task 32 Step 5, proceeding with the existing file as instructed.
+**Scope:** `public/assets/misc/playfield_background_space.png`.
+
+`playfield_background_space.png` is **512×720** — a portrait image, where the
+table it backs is usually landscape. Cover-scaling it to a 1920×1080 desktop
+viewport needs `max(1920/512, 1080/720)` = **3.75×**, and a 3.75× upscale of a
+512-pixel-wide source will visibly soften. That is arithmetic rather than an
+impression, so it did not need the browser check the task describes.
+
+Every other asset in `misc/` and `shaders/` is the same 512×720, which suggests
+the whole set came out of one generation pass at a portrait resolution rather
+than being sized for their roles.
+
+**Not blocking.** The task says to proceed with the existing file, and the design
+calls the background ambient — it sits behind a dimmed table and under DOM
+panels, which is the most forgiving possible use of a soft image. Two options
+when art time is available, in order of cost:
+
+1. Regenerate at 1920×1080 or larger, seamless, so it also tiles for viewports
+   wider than the source.
+2. Failing that, lean into it: a deliberate blur plus the nebula gradient the
+   palette already defines would read as intent rather than as a stretched PNG.
+
+**Definition of done:** a background that does not soften at 1920×1080, or a
+recorded decision that the soft look is intentional.
