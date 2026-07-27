@@ -8,7 +8,7 @@ Guidance for coding agents working in this repository. Human contributors are we
 
 **Status:** three of the four layers are **built and tested**. The headless game engine (`src/game/engine/`, Vitest), the WebSocket transport that wraps it (`src/server/`, `bun test`), and now the client's browser-independent half (`src/client/`, Vitest) — its pure layer of geometry, copy, state and palette, plus the whole DOM chrome, all testable under Node and jsdom with no WebGL context and no socket.
 
-**What remains unbuilt is the Phaser layer that draws the table.** Everything under `src/game/scenes/` is still the unmodified "template-bun" starter (the `Game` scene renders "Make something fun!"), and `src/main.ts` still boots it rather than the client — so **nothing in `src/client/` runs in a browser yet.** That wiring is Stage 6 of `docs/plans/2026-07-24-uix-implementation-plan.md`; Stages 1–5 and 7 are complete.
+The Phaser layer now exists too: `src/game/scenes/Court.ts` draws the table, and `src/main.ts` is the composition root that wires store, socket, DOM and canvas together. **A match is playable in a browser.** What remains is the cinematic layer — `beats.ts`, the staged elimination, the Mule ripple, the peek reveal — tracked as Task 30 in `docs/plans/2026-07-24-uix-implementation-plan.md`. Beats aside, every stage is complete bar the real-device QA pass (Task 34).
 
 The rich art assets in `public/assets/` and the design docs are the raw material for that last layer. This started life as the Phaser "template-bun" starter (some scene code and `logo.png`/`bg.png` are still theirs), but `package.json` metadata has been reclaimed for the game (`name: the-mules-court`).
 
@@ -81,16 +81,20 @@ Phaser **4.2.1** · Vite 6 · TypeScript 5.7 · Bun. The client ships as a stati
 `index.html` loads `src/main.ts` → calls `StartGame('game-container')` in `src/game/main.ts`, which builds the `Phaser.Types.Core.GameConfig` (AUTO renderer, 1024×768, mounts into `#game-container`) and registers scenes **in order**:
 
 ```
-Boot → Preloader → MainMenu → Game → GameOver
+Boot → Preloader → Court
 ```
 
-- `Boot` loads the minimal assets the preloader itself needs (the background), then starts `Preloader`.
-- `Preloader` shows the progress bar, loads game assets via `this.load.setPath('assets')` (relative to `public/assets/`), then starts `MainMenu`.
-- `MainMenu` / `Game` / `GameOver` advance on `pointerdown` — pure placeholders to be replaced with real menu, gameplay, and results scenes.
+- `Boot` loads the one asset the preloader itself needs (the playfield background), then starts `Preloader`.
+- `Preloader` shows the progress bar and loads the real assets — every portrait derived from `CARD_CATALOG`, the card faces, the devotion token, the three shader maps — then **awaits `document.fonts.ready`** before starting `Court`. Canvas text is painted pixels: created before the face loads it renders in a fallback and never re-renders itself the way DOM text does.
+- `Court` is the only gameplay scene. Between matches it idles as the ambient nebula behind the DOM screens; during one it draws the table from a `LayoutSpec`.
 
-**This chain is accurate today and is scheduled to change.** *UIX §2.5* replaces it with `Boot → Preloader → Court`: `MainMenu` and `GameOver` become DOM surfaces (they already exist, in `src/client/ui/`), and an empty Phaser scene behind each would be dead weight. `Court` is the only gameplay scene — between matches it idles as the ambient nebula behind the DOM screens.
+**Loader paths are absolute (`/assets`), and that is load-bearing.** A relative path resolves against `/join/:matchId`, which the SPA fallback answers with `index.html` and a **200** — so the loader never sees a 404, decodes HTML as an image, and silently substitutes a missing texture. Same reason Vite's `base` is `/`.
 
-That is a **deliberate deviation** from this file's previous "keep the Scene chain as the skeleton" guidance, and it is recorded in *UIX §2.5* rather than decided ad hoc. Stage 6 of the implementation plan makes the change; **this section should be rewritten then, not before** — describing scenes that do not exist would be worse than describing the starter ones that do.
+**`input.windowEvents` is off** (`src/game/inputPolicy.ts`), also load-bearing. With Phaser's default, `MouseManager` binds `mousedown` to `window.top` and processes it precisely when `event.target !== canvas` — so a tap on the DOM layer hit-tests the table beneath it, and every tap on the action sheet also selected the card under it.
+
+`MainMenu`, `Game`, and `GameOver` were **deleted**, not replaced — a deliberate deviation from this file's former "keep the Scene chain as the skeleton" guidance, recorded in *UIX §2.5* rather than decided ad hoc. Menu and game-over are DOM surfaces now (`src/client/ui/menuScreen.ts`, `overlays.ts`), and an empty Phaser scene behind each would be dead weight.
+
+When adding gameplay, put the *decision* in a pure module and let `Court` walk the result. `buildRenderPlan` and `computeLayout` are both tested without a WebGL context; the scene is glue thin enough to review by reading, and that is the property to preserve.
 
 ### Build config
 

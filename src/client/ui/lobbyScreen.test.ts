@@ -291,3 +291,19 @@ describe('teardown', () => {
         expect(ui.root.querySelector('[data-role="lobby"]')).toBeNull();
     });
 });
+
+describe('the host marker', () => {
+    it('uses an icon rather than an emoji, which renders differently everywhere', () => {
+        const ui = mounted();
+        ui.show();
+        expect(ui.root.querySelector('svg')).not.toBeNull();
+        expect(ui.rows()[0]).not.toContain('⭐');
+    });
+
+    it('keeps the meaning in words, since the glyph is hidden from the tree', () => {
+        const ui = mounted();
+        ui.show();
+        expect(ui.root.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+        expect(ui.rows()[0]).toContain('host');
+    });
+});

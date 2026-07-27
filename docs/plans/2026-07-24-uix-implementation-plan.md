@@ -2014,26 +2014,29 @@ but commit uix-client -m "feat(client): the Court scene, its reconciler, and the
 
 **Goal:** Make accessibility a regression test rather than a hope; produce the assets the design lists; leave the repo's guidance true.
 **Success criteria:** axe-core runs inside `bun run test` and is clean; fonts and icons ship; `AGENTS.md` describes the scene chain that actually exists.
-**Status:** Tasks 31 and 32 Complete. Task 33 partly done, Task 34 written but not run — both blocked on Stage 6.
+**Status:** Tasks 31, 32 and 33 Complete. Task 34 written; **the device run is the only thing left in the whole plan.**
 
-> **What is blocked, and why.** Stage 7 was taken before Stage 6, so the Phaser
-> layer does not exist yet and `src/main.ts` still boots the starter scenes —
-> nothing in `src/client/` runs in a browser.
+> **Task 33 is done now.** It was split deliberately: the truth-ups that were
+> true before Stage 6 landed first, and the scene-chain rewrite waited until the
+> chain had actually changed, because describing scenes that did not exist would
+> have been worse than describing the starter ones that did. Both halves are in.
 >
-> - **Task 33** did every truth-up that is true *today*: AGENTS.md's status,
->   testing, architecture and Vite-base sections; VISUAL_SHOWCASE's superseded
->   layout section, its `Scale.FIT` premise and its wrong 10-minute figure; and
->   design follow-ups 1 and 5. The **scene-chain rewrite is deliberately not
->   done**: the chain AGENTS.md documents is still the one that exists, and
->   replacing it with `Boot → Preloader → Court` would make the file describe
->   scenes that are not there. Do it in Stage 6, with the change.
-> - **Task 34**'s checklist is written in full at
->   `docs/plans/2026-07-24-uix-qa-checklist.md` and every box is unchecked. It
->   cannot be run: there is no application to open on a device, and it needs
->   physical hardware regardless.
+> **Task 34 needs hardware and a person.** The checklist at
+> `docs/plans/2026-07-24-uix-qa-checklist.md` is written in full and every box is
+> unchecked. It cannot be run from here: devtools emulation does not reproduce
+> Safari's viewport behaviour, and nothing emulates VoiceOver or TalkBack
+> gestures. *UIX §13.2* and §13.3 name both as sign-off conditions precisely
+> because a test suite cannot assert them.
 >
-> Stage 6 therefore ends with: rewrite AGENTS.md's scene section, then run the
-> checklist.
+> Two lines on it now carry more weight than when it was written, because the
+> bugs they describe have since actually happened in this build:
+>
+> - *"a tap on the action sheet never reaches the canvas beneath"* — this failed,
+>   twice, for two unrelated reasons (a z-index collision and Phaser's
+>   `windowEvents`). Both are fixed and neither produced a console error.
+> - *"the toast region announces each play once, and never before its animation"*
+>   — half of this is unverifiable until `beats.ts` exists, since there is no
+>   animation to be early to yet.
 
 ### Task 31: The offscreen twin and the axe-core gate
 

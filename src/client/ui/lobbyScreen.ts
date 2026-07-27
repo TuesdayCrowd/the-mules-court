@@ -11,6 +11,7 @@
  * explicitly below.
  */
 
+import { iconElement } from './icons';
 import type { ClientState, LobbySnapshot } from '../store/types';
 import type { Surface } from './surface';
 
@@ -66,8 +67,13 @@ export function createLobbyScreen(deps: LobbyScreenDeps): Surface {
         element.append(label, occupant);
 
         if (isHost) {
+            // The crown is aria-hidden and the word carries the meaning, so a
+            // screen reader hears "host" once rather than a glyph name beside
+            // it — and the emoji it replaces rendered differently on every
+            // platform (UIX §12).
             const marker = document.createElement('span');
-            marker.textContent = '⭐ host';
+            marker.appendChild(iconElement('crown'));
+            marker.appendChild(document.createTextNode(' host'));
             element.appendChild(marker);
         }
         if (row.playerId !== null && row.playerId === ownPlayerId) {

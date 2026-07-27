@@ -335,7 +335,7 @@ Work this design requires beyond what exists in `public/assets/`:
 2. **Real-device QA pass** before implementation sign-off: iOS Safari keyboard/toolbar resize storms, devicePixelRatio crispness, and the DOM/canvas touch seam. Devtools emulation does not reproduce Safari's viewport behavior.
 3. **Manual VoiceOver/TalkBack pass** — axe-core catches structure, not experience.
 4. **VISUAL_SHOWCASE.md** carries superseded metrics and the stale 10-minute figure; it gains a pointer note to this document (done alongside this design) and should be pruned or absorbed when the client ships.
-5. **AGENTS.md** describes the five-scene starter chain. **Partly addressed in Task 33:** its status, testing, architecture and Vite-base sections are now true of the built client, and the stale "keep this Scene chain as the skeleton" guidance is replaced by a pointer to §2.5. The chain description itself is still accurate and is deliberately left alone — it changes when Stage 6 replaces the scenes, not before.
+5. ~~**AGENTS.md** describes the five-scene starter chain.~~ **RESOLVED (Task 33).** The chain is now `Boot → Preloader → Court` in both the code and the file, with the two load-bearing constraints Stage 6 uncovered recorded beside it: absolute loader paths, and `input.windowEvents` off. Original note: **Partly addressed in Task 33:** its status, testing, architecture and Vite-base sections are now true of the built client, and the stale "keep this Scene chain as the skeleton" guidance is replaced by a pointer to §2.5. The chain description itself is still accurate and is deliberately left alone — it changes when Stage 6 replaces the scenes, not before.
 
 ## 14. Interface rules
 
