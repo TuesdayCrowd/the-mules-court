@@ -23,7 +23,7 @@ import type { CardInstanceId, CardTypeId, PlayerId, RedactedView } from './game/
 import { cardTypeOf } from './game/engine';
 import type { PresentationEvent } from './client/store/diff';
 import { announcementFor } from './client/content/announce';
-import { cardCopyFor } from './client/content/cardCopy';
+import { cardCopyFor, cardLabel } from './client/content/cardCopy';
 import { failureCopy } from './client/content/failureCopy';
 import { diffSnapshots } from './client/store/diff';
 import { beatForEvent } from './client/store/motion';
@@ -260,7 +260,11 @@ function boot(): void {
         if (event.kind === 'peek-gained') {
             return {
                 portraitKey: cardCopyFor(event.cardTypeId).portraitKey,
-                label: `Only you see this — ${nameOf(event.subjectId)}`
+                // The caption sits under the portrait, so it labels a card face
+                // and takes the value-first form the faces use. Without it the
+                // reveal is art alone — the one moment the table shows a card
+                // only you may see, and it would not say which card.
+                label: `Only you see this — ${nameOf(event.subjectId)} holds ${cardLabel(event.cardTypeId)}`
             };
         }
 

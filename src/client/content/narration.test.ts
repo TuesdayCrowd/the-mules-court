@@ -100,8 +100,16 @@ describe('narrate', () => {
 });
 
 describe('narratePeek', () => {
-    it('names the card, because that is the whole point of the peek', () => {
-        expect(narratePeek('Bayta', 'mayor-indbur')).toBe('Only you see this — Bayta holds Mayor Indbur.');
+    it('names the card AND its value, because both are the point of the peek', () => {
+        expect(narratePeek('Bayta', 'mayor-indbur')).toBe('Only you see this — Bayta holds Mayor Indbur, value 6.');
+    });
+
+    it('carries the value for every card, since the value is what the rules compare', () => {
+        // A peek that names only a character makes the reader recall its value
+        // from memory — and the two cards easiest to confuse by art, The First
+        // Speaker and the Informant, sit at opposite ends of the scale.
+        expect(narratePeek('Ana', 'first-speaker')).toContain('value 7');
+        expect(narratePeek('Ana', 'informant')).toContain('value 1');
     });
 
     it('says the knowledge is private, so it is never mistaken for a public result', () => {
