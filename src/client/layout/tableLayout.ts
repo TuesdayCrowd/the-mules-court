@@ -291,6 +291,12 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
     const cardW = cardH * CARD_ASPECT;
 
     const handY = h - margin - cardH;
+
+    // The spread is a reach affordance, not a composition choice: it puts both
+    // cards under the thumbs of a phone held in landscape. It rides on the
+    // class rather than on a height test of its own because `classifyTopology`
+    // now admits only short viewports to `landscape-narrow` — the two say the
+    // same thing, and saying it twice would invite them to drift apart.
     const hand: Rect[] = handStarts(input.handCount, cardW, margin, contentW, handGapPx, p.spreadHand).map(x => ({
         x,
         y: handY,
