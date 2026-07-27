@@ -22,6 +22,7 @@ import type { MotionStep } from '../../client/store/motion';
 import { motionPlan } from '../../client/store/motion';
 import type { BeatName } from '../../client/store/motion';
 import type { Rect } from '../../client/layout/types';
+import { FONT_DISPLAY, FONT_UI } from '../../client/tokens/fonts';
 import { TOKENS } from '../../client/tokens/tokens';
 import { TEXTURES } from './Preloader';
 
@@ -78,7 +79,7 @@ export function createBeatRunner(scene: Scene, layer: Phaser.GameObjects.Contain
         const text = transient(
             scene.add
                 .text(at.x, at.y, ctx.label ?? '', {
-                    fontFamily: 'Exo 2, sans-serif',
+                    fontFamily: FONT_DISPLAY,
                     fontSize: '28px',
                     color: '#f5f5f5'
                 })
@@ -172,7 +173,7 @@ export function createBeatRunner(scene: Scene, layer: Phaser.GameObjects.Contain
         const caption = transient(
             scene.add
                 .text(at.x, at.y + 140, ctx.label ?? 'Only you see this', {
-                    fontFamily: 'Inter, sans-serif',
+                    fontFamily: FONT_UI,
                     fontSize: '18px',
                     color: '#22d3ee'
                 })

@@ -2,11 +2,12 @@ import { Scene } from 'phaser';
 import { buildRenderPlan, medallionPlan } from '../../client/layout/renderPlan';
 import type { RenderPlan, SeatPlan } from '../../client/layout/renderPlan';
 import { fitOverline } from '../../client/layout/overline';
-import { computeLayout } from '../../client/layout/tableLayout';
-import type { LayoutSpec, Rect } from '../../client/layout/types';
+import { PIP_GAP_PX, computeLayout, pipBlockHeight } from '../../client/layout/tableLayout';
+import type { LayoutSpec, PipSpec, Rect } from '../../client/layout/types';
 import type { ClientState } from '../../client/store/types';
 import { cardCopyFor, cardLabel } from '../../client/content/cardCopy';
 import type { CardTypeId } from '../../game/engine';
+import { FONT_DISPLAY, FONT_UI } from '../../client/tokens/fonts';
 import { TOKENS } from '../../client/tokens/tokens';
 import type { BeatRunner } from './beats';
 import { createBeatRunner } from './beats';
@@ -99,7 +100,8 @@ export class Court extends Scene {
                     missingSeats: table.missingSeats
                 },
                 this.spec
-            )
+            ),
+            this.spec
         );
     }
 
@@ -114,31 +116,57 @@ export class Court extends Scene {
      * Nothing in this method makes a decision. Every colour, caption, position
      * and flag was settled by `buildRenderPlan`, which is pure and tested.
      */
-    private draw(plan: RenderPlan): void {
+    private draw(plan: RenderPlan, spec: LayoutSpec): void {
         this.table.removeAll(true);
 
-        for (const seat of plan.seats) this.drawSeat(seat);
+        // The pip geometry travels with the seat rather than being read off
+        // `this.spec`: the seat drawing needs the size `fitPips` proved fits,
+        // and passing it makes that dependency visible instead of ambient.
+        for (const seat of plan.seats) this.drawSeat(seat, spec.pip);
 
         const deck = this.add
             .rectangle(plan.deck.rect.x, plan.deck.rect.y, plan.deck.rect.w, plan.deck.rect.h, plan.deck.colour, 0.85)
             .setOrigin(0, 0);
         const deckCount = this.add
             .text(plan.deck.rect.x + plan.deck.rect.w / 2, plan.deck.rect.y + plan.deck.rect.h / 2, String(plan.deck.count), {
-                fontFamily: 'Exo 2, sans-serif',
+                fontFamily: FONT_DISPLAY,
                 fontSize: `${Math.round(plan.deck.rect.h * 0.32)}px`,
                 color: '#f5f5f5'
             })
             .setOrigin(0.5);
         this.table.add([deck, deckCount]);
 
+        // The banner is also the one piece of table text with nothing behind
+        // it — the deck count has its filled rect, the card value its plate,
+        // the card name its scrim, and "Your turn" had bare nebula. That is a
+        // second, smaller reason it was hard to read (the first being that it
+        // drew at 10px; see `FONT_DISPLAY`). It gets a plate like everything
+        // else, sized to the words rather than to the band, so the table does
+        // not grow a full-width bar across its middle.
+        const bannerCentreX = plan.banner.rect.x + plan.banner.rect.w / 2;
+        const bannerCentreY = plan.banner.rect.y + plan.banner.rect.h / 2;
         const banner = this.add
-            .text(plan.banner.rect.x + plan.banner.rect.w / 2, plan.banner.rect.y + plan.banner.rect.h / 2, plan.banner.text, {
-                fontFamily: 'Exo 2, sans-serif',
-                fontSize: `${Math.round(plan.banner.rect.h * 0.7)}px`,
+            .text(bannerCentreX, bannerCentreY, plan.banner.text, {
+                fontFamily: FONT_DISPLAY,
+                fontSize: `${Math.max(MIN_BANNER_PX, Math.round(plan.banner.rect.h * 0.7))}px`,
                 color: hex(plan.banner.colour)
             })
             .setOrigin(0.5);
-        this.table.add(banner);
+
+        // Clamped to the band `computeLayout` proved empty: a plate wider than
+        // its own rect is the same mistake the burn caption made.
+        const bannerPlate = this.add
+            .rectangle(
+                bannerCentreX,
+                bannerCentreY,
+                Math.min(banner.width + BANNER_PLATE_PAD * 2, plan.banner.rect.w),
+                Math.min(banner.height + BANNER_PLATE_PAD, plan.banner.rect.h),
+                TOKENS.colorBg,
+                0.72
+            )
+            .setOrigin(0.5);
+
+        this.table.add([bannerPlate, banner]);
 
         if (plan.removedCard !== null) {
             const panel = plan.removedCard.rect;
@@ -209,12 +237,19 @@ export class Court extends Scene {
             const own = plan.own;
             this.table.add(this.tokenMedallions(own.tokens, own.rect.x, own.rect.y + own.rect.h / 2 - MEDALLION / 2));
 
+            // Sized from the row, not pinned at 13px. This row is a single line
+            // with no wrap, so it takes its own measure rather than the seat
+            // chips' `pip` — that one is fitted against a chip's width and
+            // height, which this row does not share.
+            const ownPipPx = Math.max(MIN_OWN_PIP_PX, Math.round(own.rect.h * OWN_PIP_FRACTION));
+            const ownPipStep = Math.round(ownPipPx * 1.5);
+
             const pipsLeft = own.rect.x + MEDALLION_SPAN;
             const ownPips = own.discardValues.map((value, index) =>
                 this.add
-                    .text(pipsLeft + index * 18, own.rect.y + own.rect.h / 2, String(value), {
-                        fontFamily: 'Inter, sans-serif',
-                        fontSize: '13px',
+                    .text(pipsLeft + index * ownPipStep, own.rect.y + own.rect.h / 2, String(value), {
+                        fontFamily: FONT_UI,
+                        fontSize: `${ownPipPx}px`,
                         color: '#9ca3af'
                     })
                     .setOrigin(0, 0.5)
@@ -224,7 +259,7 @@ export class Court extends Scene {
             if (own.discardValues.length > 0) {
                 const total = this.add
                     .text(own.rect.x + own.rect.w, own.rect.y + own.rect.h / 2, `= ${own.discardTotal}`, {
-                        fontFamily: 'Inter, sans-serif',
+                        fontFamily: FONT_UI,
                         fontSize: '13px',
                         color: '#9ca3af'
                     })
@@ -287,7 +322,7 @@ export class Court extends Scene {
         }
     }
 
-    private drawSeat(seat: SeatPlan): void {
+    private drawSeat(seat: SeatPlan, pip: PipSpec): void {
         const border = this.add
             .rectangle(seat.rect.x, seat.rect.y, seat.rect.w, seat.rect.h)
             .setOrigin(0, 0)
@@ -296,11 +331,24 @@ export class Court extends Scene {
         // carry the same fact in shape and in words.
         border.setAlpha(seat.state === 'eliminated' ? 0.5 : 1);
 
+        // Sized from the chip rather than pinned at 14px: a seat panel on a
+        // 1080p monitor is nearly twice the height of one on a phone, and a
+        // fixed size made the nickname shrink into it.
+        const nameH = Math.max(MIN_SEAT_NAME_PX, Math.round(seat.rect.h * SEAT_NAME_FRACTION));
         const name = this.add.text(seat.rect.x + 6, seat.rect.y + 6, seat.nickname, {
-            fontFamily: 'Inter, sans-serif',
-            fontSize: '14px',
+            fontFamily: FONT_UI,
+            fontSize: `${nameH}px`,
             color: '#f5f5f5'
         });
+
+        // The chip's own border is stroke-only, so the nickname and the discard
+        // values sit straight on the nebula. They get scrims — but sized to the
+        // text, not to the chip. A two-player table gives one opponent the full
+        // width of the screen, and a full-width scrim there is a black bar
+        // across the table rather than a legibility aid.
+        const nameScrim = this.add
+            .rectangle(seat.rect.x, seat.rect.y, name.width + 12, nameH + 12, TOKENS.colorBg, 0.6)
+            .setOrigin(0, 0);
 
         // UIX §6.2: the chip carries a card-back marker while the seat holds a
         // card. Its absence on an eliminated seat is information too.
@@ -315,19 +363,38 @@ export class Court extends Scene {
         this.table.add(this.tokenMedallions(seat.tokens, seat.rect.x + 6, seat.rect.y + 26));
 
         // Interface rule 7: every value, never a truncation. The pip geometry
-        // was sized for the worst case the engine can actually produce.
-        const pips = seat.discardValues
-            .map((value, index) => {
-                const perRow = Math.max(1, Math.floor(seat.rect.w / 18));
-                return this.add.text(
-                    seat.rect.x + 6 + (index % perRow) * 18,
-                    seat.rect.y + seat.rect.h - 34 + Math.floor(index / perRow) * 16,
-                    String(value),
-                    { fontFamily: 'Inter, sans-serif', fontSize: '12px', color: '#9ca3af' }
-                );
-            });
+        // was sized for the worst case the engine can actually produce — and
+        // now this actually uses it. It used to reinvent the packing here with
+        // its own 18px step and a hardcoded 12px, so `fitPips`'s search for a
+        // size that provably fits was computed, returned, and thrown away. The
+        // comment claimed a guarantee the code was not honouring.
+        const pipStep = pip.size + PIP_GAP_PX;
+        const pipBlockH = pipBlockHeight(pip);
+        const pipsTop = seat.rect.y + seat.rect.h - pipBlockH - 6;
 
-        this.table.add([border, name, ...pips]);
+        // Only as wide as the values it backs, and absent entirely when the
+        // seat has discarded nothing — an empty scrim is a bar over the art
+        // saying nothing.
+        const pipsAcross = Math.min(seat.discardValues.length, pip.perRow);
+        const pipScrims =
+            pipsAcross === 0
+                ? []
+                : [
+                      this.add
+                          .rectangle(seat.rect.x, pipsTop - 4, pipsAcross * pipStep + 8, pipBlockH + 10, TOKENS.colorBg, 0.6)
+                          .setOrigin(0, 0)
+                  ];
+
+        const pips = seat.discardValues.map((value, index) =>
+            this.add.text(
+                seat.rect.x + 6 + (index % pip.perRow) * pipStep,
+                pipsTop + Math.floor(index / pip.perRow) * pipStep,
+                String(value),
+                { fontFamily: FONT_UI, fontSize: `${pip.size}px`, color: '#9ca3af' }
+            )
+        );
+
+        this.table.add([nameScrim, ...pipScrims, border, name, ...pips]);
 
         // UIX §6.3: an eliminated seat's held card is revealed face-up atop
         // their pile. That reveal is core deduction data — the numeric pip
@@ -346,7 +413,7 @@ export class Court extends Scene {
                     seat.rect.x + seat.rect.w - 6 - REVEALED_H * CARD_ASPECT - 2,
                     seat.rect.y + seat.rect.h - 6,
                     String(cardCopyFor(seat.revealedCard).value),
-                    { fontFamily: 'Exo 2, sans-serif', fontSize: '15px', color: '#f5f5f5' }
+                    { fontFamily: FONT_DISPLAY, fontSize: '15px', color: '#f5f5f5' }
                 )
                 .setOrigin(1, 1);
             this.table.add(value);
@@ -378,7 +445,7 @@ export class Court extends Scene {
                 // deciding a guess, and a name alone makes them recall the
                 // number instead of read it.
                 `you know: ${cardLabel(seat.knownCard)}`,
-                { fontFamily: 'Inter, sans-serif', fontSize: '11px', color: hex(TOKENS.colorSeatProtected) }
+                { fontFamily: FONT_UI, fontSize: '11px', color: hex(TOKENS.colorSeatProtected) }
             );
             known.setOrigin(0, 0);
             this.table.add(known);
@@ -386,7 +453,7 @@ export class Court extends Scene {
 
         if (seat.caption !== null) {
             const caption = this.add.text(seat.rect.x + 6, seat.rect.y + seat.rect.h - 16, seat.caption, {
-                fontFamily: 'Inter, sans-serif',
+                fontFamily: FONT_UI,
                 fontSize: '11px',
                 color: hex(SEAT_COLOURS[seat.state])
             });
@@ -418,7 +485,7 @@ export class Court extends Scene {
 
         const value = this.add
             .text(rect.x + badge / 2, rect.y + badge / 2, String(copy.value), {
-                fontFamily: 'Exo 2, sans-serif',
+                fontFamily: FONT_DISPLAY,
                 fontSize: `${Math.round(badge * 0.68)}px`,
                 color: '#f5f5f5'
             })
@@ -431,7 +498,7 @@ export class Court extends Scene {
 
         const name = this.add
             .text(rect.x + rect.w / 2, rect.y + rect.h - nameH / 2, copy.displayName, {
-                fontFamily: 'Inter, sans-serif',
+                fontFamily: FONT_UI,
                 fontSize: `${Math.round(nameH * 0.52)}px`,
                 color: '#f5f5f5',
                 align: 'center'
@@ -462,7 +529,7 @@ export class Court extends Scene {
 
             const caption = this.add
                 .text(captionLeft + captionW / 2, rect.y + bandH / 2, overline, {
-                    fontFamily: 'Inter, sans-serif',
+                    fontFamily: FONT_UI,
                     fontSize: `${fontSize}px`,
                     color: hex(TOKENS.colorStateWaiting)
                 })
@@ -519,7 +586,7 @@ export class Court extends Scene {
             objects.push(
                 this.add
                     .text(x + MEDALLION + 3, y + MEDALLION / 2, plan.countLabel, {
-                        fontFamily: 'Inter, sans-serif',
+                        fontFamily: FONT_UI,
                         fontSize: '12px',
                         color: '#f5f5f5'
                     })
@@ -591,6 +658,21 @@ const MIN_BADGE = 22;
 
 /** Breathing room a card's text keeps from its own edges, both sides together. */
 const LABEL_PAD = 6;
+
+/**
+ * Floors and fractions for the table text that carries no card behind it.
+ *
+ * The turn banner and the seat chips were the only on-table text drawn against
+ * bare nebula — every other label has a plate, a scrim or a filled rect under
+ * it. They now do too, and the sizes below scale with the rect they sit in
+ * rather than being pinned to a phone's pixel count.
+ */
+const MIN_BANNER_PX = 20;
+const BANNER_PLATE_PAD = 14;
+const MIN_SEAT_NAME_PX = 14;
+const SEAT_NAME_FRACTION = 0.13;
+const MIN_OWN_PIP_PX = 13;
+const OWN_PIP_FRACTION = 0.4;
 
 /** The name strip along the card's bottom edge. */
 const NAME_FRACTION = 0.16;
