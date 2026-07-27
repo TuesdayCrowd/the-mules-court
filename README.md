@@ -314,20 +314,62 @@ The server writes `mules-court.sqlite` in its **working directory**, storing eac
 `{seed, actionLog}` so matches survive a restart. Start the process from a directory
 where that file belongs.
 
-`MULES_STATIC_ROOT` is currently the only environment variable read. Port (3000),
-database path, and the `publicBaseUrl` used to build invite links are compile-time
-defaults in `src/server/config.ts` — change them there, or put the process behind a
-reverse proxy. The client builds invite links from `location.origin` rather than from
-the server's value, so links work behind a proxy even though the server's own
-`joinUrl` field still says `localhost:3000`.
+Four environment variables configure a deployment. Everything else in
+`src/server/config.ts` is a design constant — the reveal window is five seconds on
+every machine because the design says so.
+
+| Variable                | Default                 | Notes                                            |
+| ----------------------- | ----------------------- | ------------------------------------------------ |
+| `MULES_PORT`            | `3000`                  | Also moves `MULES_PUBLIC_BASE_URL`'s default     |
+| `MULES_PUBLIC_BASE_URL` | `http://localhost:3000` | Prefix for the `joinUrl` the API returns          |
+| `MULES_DB_PATH`         | `mules-court.sqlite`    | Relative to the working directory                 |
+| `MULES_STATIC_ROOT`     | none                    | Directory of built client files, or unset for none |
+
+An unusable `MULES_PORT` refuses to start rather than falling back to 3000: a server
+listening somewhere other than where it was told is worse than one that does not come
+up. Behind a reverse proxy, set `MULES_PUBLIC_BASE_URL` to the public origin — though
+the client builds invite links from `location.origin` regardless, so links work either
+way.
 
 The bundle is not a static site. Serving `dist/` alone gets you a menu that cannot
 create a room.
 
+### As a single binary
+
+`bun build --compile` bundles the Bun runtime, the server and every client asset into
+one executable that runs with nothing installed and no `dist/` beside it:
+
+```bash
+bun run compile              # → ./mules-court, ~71 MB
+./mules-court                # http://localhost:3000
+MULES_PORT=8080 ./mules-court
+```
+
+Cross-compile with `bun run compile:linux-x64`, `compile:linux-arm64`,
+`compile:darwin-arm64`, `compile:darwin-x64` or `compile:windows-x64`; those land in
+`dist-bin/`. The size is Bun's runtime rather than the game, and is unavoidable with
+`--compile`.
+
+The binary still writes `mules-court.sqlite` to whatever directory it was launched
+from — so a copy double-clicked out of a downloads folder keeps its matches there.
+It prints the resolved path at startup, and `MULES_DB_PATH` moves it.
+
+An unsigned macOS binary is quarantined on download; open it once with right-click →
+**Open**, or clear the flag with `xattr -d com.apple.quarantine mules-court`.
+
+**Assets are compiled in from a generated manifest.** `bun run compile` rebuilds
+`dist/`, regenerates `src/server/embeddedAssets.generated.ts` and then compiles — in
+that order, because Bun resolves `with { type: 'file' }` imports at bundle time and
+the manifest has to name each file as source. The generated file is committed
+(`standalone.ts` imports it, so a clone without it fails `bunx tsc --noEmit`), and its
+content-hashed chunk names change whenever the client is rebuilt. Regenerate it rather
+than editing it.
+
 ## Status
 
 Version 1.0.0. The engine, the transport, the client, and the Phaser table are built
-and tested — 1363 tests across 77 files — and a match is playable end to end.
+and tested — 1445 tests across 81 files — and a match is playable end to end, from a
+checkout or from a single downloadable binary.
 
 Known limitations:
 
@@ -335,8 +377,9 @@ Known limitations:
   covers iOS Safari viewport behaviour and VoiceOver/TalkBack gesture navigation, neither
   of which an emulator or a test suite reproduces. The client is ready for the pass; it
   needs hardware and a person.
-- **Server tunables are compile-time.** Only `MULES_STATIC_ROOT` is read from the
-  environment; see [Self-hosting](#self-hosting).
+- **Binaries are unsigned.** macOS quarantines them on download; see
+  [As a single binary](#as-a-single-binary). Nothing builds them on a tag, either — the
+  `compile:*` scripts are run by hand.
 - **A non-host cannot end a match whose host vanished mid-round.**
 
 ### License

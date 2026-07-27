@@ -40,3 +40,14 @@ coverage/
 *.sqlite
 *.sqlite-shm
 *.sqlite-wal
+
+# Compiled distributables (`bun run compile`). ~61 MB native, ~100 MB
+# cross-compiled — Bun's runtime, not the game. The *manifest* they embed
+# (src/server/embeddedAssets.generated.ts) is generated but deliberately
+# committed: standalone.ts imports it, so a clone without it fails tsc.
+mules-court
+mules-court.exe
+dist-bin/
+
+# Interrupted `bun build --compile` leaves these behind
+.*.bun-build

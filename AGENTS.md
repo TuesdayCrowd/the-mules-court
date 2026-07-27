@@ -24,6 +24,7 @@ Requires [Bun](https://bun.sh).
 | `bun run dev:host`                          | Like `dev`, but reachable from other devices on the network               |
 | `bun run build`                             | Production build to `dist/`                                               |
 | `bun run dev-nolog` / `bun run build-nolog` | Same, but skip the `log.js` telemetry ping                                |
+| `bun run compile`                           | Single-file executable → `./mules-court` (see below)                      |
 | `bunx tsc --noEmit`                         | Type-check (see gotcha below — this is the only way to catch type errors) |
 
 ### Running in dev takes two processes
@@ -169,6 +170,53 @@ reads the store; `update(state)` is pushed by a single subscriber.
 (authoritative palette), `ui.css` (the two-layer shell plus component styling).
 The pointer-events discipline lives in `ui.css` and is tested against the real
 file, not a stub.
+
+### The single-file binary
+
+`bun run compile` produces `./mules-court` — Bun's runtime, the server and every
+client asset in one ~71 MB executable that runs from any directory with nothing
+installed. Cross-compile with `compile:linux-x64` and friends, which land in
+`dist-bin/`.
+
+Three things about it are load-bearing:
+
+**Static hosting is one policy over two lookups** (`src/server/staticAssets.ts`).
+`serveFrom` owns the rules — decode, refuse a `..` segment, exact hit, shell
+fallback for an extensionless path, 404 otherwise. `filesystemLookup` resolves
+against a directory and refuses traversal; `embeddedLookup` reads the compiled-in
+manifest. `index.ts` keeps the filesystem path and is what `serve` and every
+transport test exercise; `standalone.ts` is the same server with the other
+lookup. **Do not fork the policy.** Drift there shows up as a dead invite link
+from a downloaded binary, with nothing in this repo's test run to catch it — and
+it nearly did: collapsing "refused" and "not found" into one `null` made
+`/../../etc/passwd` fall through to the shell and answer **200**, because it has
+no extension and reads as a client route. `__tests__/static.test.ts` caught it,
+which is why that file must keep passing **unedited** through any change here.
+
+**`src/server/embeddedAssets.generated.ts` is generated but committed.** Bun
+resolves `with { type: 'file' }` at bundle time, so the file list cannot be a
+runtime glob — it must be source, emitted by `scripts/generateEmbeddedAssets.ts`
+from the tested pure module `embeddedManifest.ts`. It is committed because
+`standalone.ts` imports it and a clone without it fails `bunx tsc --noEmit`. It
+carries `// @ts-nocheck`, which is not laziness: `@types/bun` types `*.html` as
+`HTMLBundle` (right for its fullstack dev server, wrong for `type: 'file'`),
+`*.js` resolves to the real module, and `*.md` has no declaration at all. The
+opt-out is also what makes its references to an unbuilt `dist/` harmless. The
+annotated `export const EMBEDDED: ReadonlyMap<string, string>` keeps every call
+site checked. **Regenerate rather than edit**, and regenerate after any client
+build — the content-hashed chunk names move, and a stale manifest 404s the app's
+own JavaScript.
+
+**A `type: 'file'` import evaluates to a path, not to bytes** — an absolute
+filesystem path under `bun`, an embedded-VFS path inside a binary, and `Bun.file`
+takes both. So `bun src/server/standalone.ts` runs the binary's exact wiring with
+no compile step, which is what `__tests__/standalone.test.ts` drives.
+
+Four environment variables configure a deployment (`envOverrides` in
+`config.ts`): `MULES_PORT`, `MULES_PUBLIC_BASE_URL`, `MULES_DB_PATH`,
+`MULES_STATIC_ROOT`. `MULES_PORT` also moves the default base URL, since
+`joinUrl` is built from it — that closed deferred item **D3**. Everything else in
+`TransportConfig` is a design constant and stays one.
 
 ### Server (transport layer)
 
