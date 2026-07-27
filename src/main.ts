@@ -132,8 +132,20 @@ function boot(): void {
     });
 
     const actionSheet = createActionSheet({
-        // Returns false when the store refuses, and the sheet stays open.
-        onPlay: choice => store.playCard(choice),
+        onPlay: choice => {
+            if (store.playCard(choice)) return true;
+
+            // The sheet already disables Play while the socket is down, so
+            // reaching here means something rarer — a play still in flight. Say
+            // so rather than leaving the press unexplained; a refusal nobody can
+            // see is how the last several bugs stayed hidden.
+            toasts.show(
+                store.getState().connection === 'open'
+                    ? 'Still waiting on your last play.'
+                    : 'Not connected — trying to reach the court.'
+            );
+            return false;
+        },
         onCancel: () => {}
     });
 

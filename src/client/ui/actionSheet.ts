@@ -98,6 +98,19 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         readonly play: HTMLButtonElement;
     }
     let live: Live | null = null;
+    /**
+     * Whether the socket is up.
+     *
+     * A play cannot leave while it is not, and `store.playCard` refuses
+     * silently — so without this the player presses Play, the sheet sits there,
+     * and nothing explains why. Interface rule: show the reason.
+     */
+    let connected = true;
+
+    const offline = document.createElement('p');
+    offline.dataset.role = 'offline-note';
+    offline.className = 'field-error';
+    offline.textContent = 'Reconnecting — you can play as soon as the court answers.';
 
     /**
      * Tells the rest of the DOM layer that a sheet is up, and where.
@@ -153,7 +166,16 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
 
         const required = needs();
         live.play.disabled =
-            request?.playable === false || (required.target && target === null) || (required.guess && guess === null);
+            !connected ||
+            request?.playable === false ||
+            (required.target && target === null) ||
+            (required.guess && guess === null);
+
+        if (connected) {
+            offline.remove();
+        } else if (offline.parentElement === null) {
+            live.play.parentElement?.before(offline);
+        }
     }
 
     function targetSection(targets: Map<PlayerId, HTMLButtonElement>): HTMLElement {
@@ -345,6 +367,11 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
             // Anything but the table closes it; a sheet outliving its round
             // would offer a play that no longer exists.
             if (state.screen !== 'table' && request !== null) reset();
+
+            const up = state.connection === 'open';
+            if (up === connected) return;
+            connected = up;
+            refresh();
         },
 
         open(next) {

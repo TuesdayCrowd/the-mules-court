@@ -29,7 +29,8 @@ function harness(options: { acceptPlay?: boolean } = {}) {
         onCancel: () => cancelled.push(1)
     });
     sheet.mount(root);
-    sheet.update(makeState({ screen: 'table' }));
+    // A live table: the socket is up, which is when a sheet is normally opened.
+    sheet.update(makeState({ screen: 'table', connection: 'open' }));
 
     function openSheetFor(
         cardId: CardTypeId,
@@ -464,5 +465,61 @@ describe('a card that cannot be played right now', () => {
         const sheet = h.openSheetFor('shielded-mind', { targets: [] });
         expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(false);
         expect(sheet.querySelector('[data-role="not-playable"]')).toBeNull();
+    });
+});
+
+describe('while the socket is down', () => {
+    // store.playCard refuses silently when the socket is not open, so without
+    // this the player presses Play, the sheet sits there, and nothing explains
+    // why. It is the exact shape of the last three bugs.
+    const offline = (state = {}) => makeState({ screen: 'table', connection: 'reconnecting' as const, ...state });
+
+    it('disables Play rather than letting it be pressed into nothing', () => {
+        const h = harness();
+        h.sheet.update(offline());
+        const sheet = h.openSheetFor('shielded-mind', { targets: [] });
+
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(true);
+    });
+
+    it('says why', () => {
+        const h = harness();
+        h.sheet.update(offline());
+        const sheet = h.openSheetFor('shielded-mind', { targets: [] });
+
+        expect(sheet.querySelector('[data-role="offline-note"]')!.textContent).toContain('Reconnecting');
+    });
+
+    it('re-enables the moment the socket comes back, with the sheet still open', () => {
+        const h = harness();
+        h.sheet.update(offline());
+        const sheet = h.openSheetFor('shielded-mind', { targets: [] });
+
+        h.sheet.update(makeState({ screen: 'table', connection: 'open' }));
+
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(false);
+        expect(sheet.querySelector('[data-role="offline-note"]')).toBeNull();
+    });
+
+    it('disables an already-open sheet when the socket drops mid-decision', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+        click(sheet.querySelector('[data-target="p2"]'));
+        click(sheet.querySelector('[data-guess="5"]'));
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(false);
+
+        h.sheet.update(offline());
+
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(true);
+        // The choices survive: the drop is not the player's fault.
+        expect(sheet.querySelector('[data-target="p2"]')!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('emits nothing when Play is pressed anyway', () => {
+        const h = harness();
+        h.sheet.update(offline());
+        const sheet = h.openSheetFor('shielded-mind', { targets: [] });
+        click(sheet.querySelector('[data-action="play"]'));
+        expect(h.played).toEqual([]);
     });
 });
