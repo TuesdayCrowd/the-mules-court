@@ -1,5 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { CardTypeId, CardValue, RedactedView } from '../../game/engine';
+import { createMatch, view as engineView } from '../../game/engine';
 import { makeView } from '../store/__fixtures__/view';
 import type { ViewOverrides } from '../store/__fixtures__/view';
 import { TOKENS } from '../tokens/tokens';
@@ -320,6 +321,19 @@ describe('geometry comes from the spec, never from here', () => {
         expect(buildRenderPlan({ view, nicknames: {}, phase: 'active', paused: false, missingSeats: [] }, twoPlayer).removedCard)
             .toEqual({ rect: twoPlayer.removedCard, cardId: 'magnifico', faceDownCount: 0 });
         expect(plan(view).removedCard).toBeNull(); // SPEC reserved no panel
+    });
+
+    it("carries a real two-player round's face-down count end to end", () => {
+        // Through the actual engine rather than a hand-built view. The scene
+        // draws one card back per count, so a break in this wiring shows up as
+        // the wrong number of cards on the table and nothing else.
+        const view = engineView(createMatch(['p1', 'p2'], 'removed-panel-seed'), 'p1');
+        const twoPlayer = computeLayout({ w: 390, h: 844, opponentCount: 1, handCount: 1, showsRemovedCard: true, maxDiscards: 2 });
+
+        const built = buildRenderPlan({ view, nicknames: {}, phase: 'active', paused: false, missingSeats: [] }, twoPlayer);
+
+        expect(built.removedCard).not.toBeNull();
+        expect(built.removedCard!.faceDownCount).toBe(2); // one face up, two face down
     });
 
     it('carries the face-down count, so the scene need not restate the setup table', () => {
