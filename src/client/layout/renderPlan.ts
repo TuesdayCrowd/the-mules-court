@@ -121,6 +121,36 @@ export interface RenderInput {
 /** UIX §6.4: orange at three or fewer, dark red at empty. */
 const DECK_LOW_THRESHOLD = 3;
 
+/** UIX §6.2: medallions run to four, then collapse to a numeral. */
+export const MEDALLIONS_BEFORE_COLLAPSE = 4;
+
+export interface MedallionPlan {
+    /** How many medallion images to draw. Never more than the collapse threshold. */
+    readonly medallions: number;
+    /** `×7` when collapsed, null when every token has its own medallion. */
+    readonly countLabel: string | null;
+}
+
+/**
+ * How to show a devotion token count (UIX §6.2).
+ *
+ * "Tokens collapse; discards don't" — a count of identical items loses nothing
+ * as a numeral, which is exactly what buys discard values the right to never
+ * collapse.
+ *
+ * Pure and tested because the scene got this wrong in a way no glance would
+ * catch: it built four medallions, then discarded the array when it decided to
+ * collapse. The images were already on Phaser's display list by then, so they
+ * outlived every redraw — piling up at each old position on resize, and
+ * covering the very numeral that replaced them. Deciding here, before anything
+ * is constructed, is what makes that shape impossible.
+ */
+export function medallionPlan(tokens: number): MedallionPlan {
+    if (tokens <= 0) return { medallions: 0, countLabel: null };
+    if (tokens > MEDALLIONS_BEFORE_COLLAPSE) return { medallions: 1, countLabel: `×${tokens}` };
+    return { medallions: tokens, countLabel: null };
+}
+
 function deckPlan(view: RedactedView, rect: Rect): DeckPlan {
     if (view.deckCount === 0) return { rect, count: 0, colour: TOKENS.colorDeckEmpty, pulse: 'strong' };
     if (view.deckCount <= DECK_LOW_THRESHOLD) {
