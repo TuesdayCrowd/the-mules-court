@@ -9,7 +9,7 @@
 
 import { basename, join, resolve, sep } from 'node:path';
 import type { TransportConfig } from './config';
-import { makeConfig } from './config';
+import { envOverrides, makeConfig } from './config';
 import type { ConnectionState } from './dispatch';
 import { dispatchMessage } from './dispatch';
 import { MatchStore } from './persistence';
@@ -203,7 +203,10 @@ export function startServer(config: TransportConfig): RunningServer {
 }
 
 if (import.meta.main) {
-    // Hosting is opt-in, set by package.json's `serve` script — the only place
-    // that knows this repo builds to dist/, one line from the script producing it.
-    startServer(makeConfig({ staticRoot: Bun.env.MULES_STATIC_ROOT ?? null }));
+    // Hosting stays opt-in, set by package.json's `serve` script — the only
+    // place that knows this repo builds to dist/, one line from the script
+    // producing it. Every other tunable a deployment moves (port, database
+    // path, invite-link origin) now arrives through the same door; see
+    // `envOverrides`.
+    startServer(makeConfig(envOverrides(Bun.env)));
 }
