@@ -2,7 +2,7 @@
 
 > **Superseded in part by [`docs/plans/2026-07-23-uix-design.md`](docs/plans/2026-07-23-uix-design.md).** That document absorbs this one's interaction design (action panel, quick reference, seat states, palette, interface rules) and replaces its fixed 1024×768 layout system with a responsive DOM+canvas hybrid. Where the two disagree — layout metrics, the `Scale.FIT` assumption, the paused overlay's "after 10 min" figure — the design doc wins.
 
-Design reference for the game's interface. The DOM chrome described here **is** implemented, in `src/client/ui/`; the canvas table is not — `src/game/scenes/` is still the Phaser starter template.
+Design reference for the game's interface. Both halves are implemented: the DOM chrome in `src/client/ui/`, and the canvas table in `src/game/scenes/Court.ts`, laid out from a `LayoutSpec` computed by `src/client/layout/` and animated by `beats.ts`.
 
 This document describes appearance and interaction only. The rules live in `README.md`, the state model in `docs/plans/2026-07-22-engine-architecture-design.md`, and the client-server protocol in `docs/plans/2026-07-22-transport-design.md`.
 

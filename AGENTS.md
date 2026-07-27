@@ -184,7 +184,7 @@ file, not a stub.
 
 ### Asset organization (important convention)
 
-Portrait art lives in **character-slug directories** under `public/assets/`, one per card, each with four thematic variants `portrait_0.png`..`portrait_3.png`:
+Portrait art lives in **character-slug directories** under `public/assets/`, one per card. Four thematic variants `portrait_0.png`..`portrait_3.png` exist per character, but **only the chosen one sits under `public/assets/`** — Vite copies `public/` verbatim, so the other three live in `art/portraits/<slug>/`, tracked but never built. Choosing a different variant means moving the file into `public/assets/<slug>/` *and* editing `src/client/content/portraits.ts`; `portraits.test.ts` fails if only one of the two happens. The variants are:
 
 - `portrait_0` — base, `portrait_1` — alien/evolved, `portrait_2` — ethnic diversity, `portrait_3` — gender-diverse presentation (see `public/assets/PORTRAIT_PROMPTS.md` for the exact ComfyUI prompt behind every image and the per-character color scheme).
 
