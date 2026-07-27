@@ -7,9 +7,11 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [1.1.0] - 2026-07-27
 
-The game now ships as one downloadable file. `bun run compile` bundles the Bun
-runtime, the server and every client asset into a single executable that runs
-from any directory with nothing installed and no `dist/` beside it.
+The game can now be compiled to a single file. `bun run compile` bundles the Bun
+runtime, the server and every client asset into one executable that runs from any
+directory with nothing installed and no `dist/` beside it. No binaries are
+published — you build it from a checkout, and the `compile:*` scripts are run by
+hand.
 
 The rest of the release is legibility. Four canvas labels — the turn banner, the
 deck count, the value badge, the revealed-card label — had been rendering at
