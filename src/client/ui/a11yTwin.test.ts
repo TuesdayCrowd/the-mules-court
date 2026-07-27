@@ -4,6 +4,7 @@ import type { RedactedView } from '../../game/engine';
 import { computeLayout } from '../layout/tableLayout';
 import type { LayoutSpec } from '../layout/types';
 import { makeView } from '../store/__fixtures__/view';
+import type { ViewOverrides } from '../store/__fixtures__/view';
 import { loadRealStyles, makeState, makeTable } from './__fixtures__/dom';
 import { createA11yTwin } from './a11yTwin';
 
@@ -20,8 +21,11 @@ beforeEach(() => {
     loadRealStyles();
 });
 
-function viewWithSeats(overrides: Partial<RedactedView> = {}): RedactedView {
+function viewWithSeats(overrides: ViewOverrides = {}): RedactedView {
     const base = makeView(overrides);
+    // `own` is already merged by makeView; re-spreading the partial here would
+    // put its optional fields back and undo that.
+    const { own: _merged, ...rest } = overrides;
     return {
         ...base,
         players: [
@@ -44,7 +48,7 @@ function viewWithSeats(overrides: Partial<RedactedView> = {}): RedactedView {
                 discardValueTotal: 0
             }
         ],
-        ...overrides
+        ...rest
     };
 }
 

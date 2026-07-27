@@ -35,6 +35,7 @@ import { createSeatTokenStore } from './client/store/seatTokenStore';
 import { createSocket, socketUrl } from './client/store/socket';
 import type { WebSocketLike } from './client/store/socket';
 import { createStore } from './client/store/store';
+import { sheetTargetsFor } from './client/store/targets';
 import type { ClientState } from './client/store/types';
 import { createA11yTwin } from './client/ui/a11yTwin';
 import { createActionSheet } from './client/ui/actionSheet';
@@ -309,20 +310,16 @@ function boot(): void {
         return {};
     }
 
-    /** Assembled here, from the view. The sheet renders what it is handed and evaluates nothing. */
+    /** Assembled by `sheetTargetsFor`. The sheet renders what it is handed and evaluates nothing. */
     function openSheetFor(cardInstanceId: CardInstanceId): void {
         const table = store.getState().table;
         if (table === null) return;
 
-        const own = table.view.own.playerId;
-        const targets: SheetTarget[] = table.view.players
-            .filter(player => player.id !== own)
-            .map(player => ({
-                playerId: player.id as PlayerId,
-                nickname: table.nicknames[player.id] ?? player.id,
-                eligible: player.alive && !player.protected,
-                ...(!player.alive ? { reason: 'eliminated' as const } : player.protected ? { reason: 'protected' as const } : {})
-            }));
+        const targets: SheetTarget[] = sheetTargetsFor(
+            table.view,
+            cardInstanceId,
+            id => table.nicknames[id] ?? id
+        );
 
         actionSheet.open({
             cardId: cardTypeOf(cardInstanceId),

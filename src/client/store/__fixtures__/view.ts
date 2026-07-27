@@ -23,8 +23,20 @@ function seatOf(id: PlayerId, seat: number) {
     };
 }
 
+/**
+ * Overrides for `makeView`, with `own` merged field by field.
+ *
+ * `own` grows — it gained `legalTargets` when targeting moved onto the wire —
+ * and a test that only cares about `hand` should not have to restate the rest
+ * of it to keep compiling.
+ */
+export type ViewOverrides = Partial<Omit<RedactedView, 'own'>> & {
+    readonly own?: Partial<RedactedView['own']>;
+};
+
 /** A mid-round two-player view, seen from p1. */
-export function makeView(overrides: Partial<RedactedView> = {}): RedactedView {
+export function makeView(overrides: ViewOverrides = {}): RedactedView {
+    const { own, ...rest } = overrides;
     return {
         matchId: 'K7QX2',
         playerCount: 2,
@@ -36,11 +48,20 @@ export function makeView(overrides: Partial<RedactedView> = {}): RedactedView {
         currentPlayerId: 'p1',
         turnNumber: 1,
         publicLog: [],
-        own: { playerId: 'p1', hand: ['informant#1'], legalPlays: ['informant#1'] },
         revealed: [],
         roundResult: null,
         matchWinnerId: null,
-        ...overrides
+        ...rest,
+        // Merged rather than replaced, and `legalTargets` defaults to empty so a
+        // test that says nothing about targeting gets the inert answer instead
+        // of a stale one that contradicts the `legalPlays` it did set.
+        own: {
+            playerId: 'p1',
+            hand: ['informant#1'],
+            legalPlays: ['informant#1'],
+            legalTargets: {},
+            ...own
+        }
     };
 }
 

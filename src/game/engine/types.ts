@@ -334,6 +334,21 @@ export interface RedactedView {
         readonly hand: readonly CardInstanceId[];
         /** Populated only while this viewer holds the turn. */
         readonly legalPlays: readonly CardInstanceId[];
+        /**
+         * Who each legal play may be aimed at, keyed by the card being played.
+         *
+         * One entry per `legalPlays` member, empty object otherwise. This exists
+         * so a client never has to decide a targeting rule: whether a card may
+         * be played at its own player, and whether protection or elimination
+         * blocks a seat, are answers the engine already computes and used to
+         * keep to itself.
+         *
+         * An empty array is honestly ambiguous between "this card takes no
+         * target" and "it takes one but none is legal right now" — the two are
+         * separated by the card's own `requiresTarget`, which is a static
+         * property of the card rather than a fact about this round.
+         */
+        readonly legalTargets: Readonly<Record<CardInstanceId, readonly PlayerId[]>>;
     };
     /** This viewer's still-valid peeks, recomputed live on every call. */
     readonly revealed: ReadonlyArray<{ readonly subjectId: PlayerId; readonly cardTypeId: CardTypeId }>;

@@ -3,6 +3,7 @@ import axe from 'axe-core';
 import { beforeEach, describe, expect, it } from 'vitest';
 import type { PublicLogEntry, RedactedView } from '../../game/engine';
 import { makeView } from '../store/__fixtures__/view';
+import type { ViewOverrides } from '../store/__fixtures__/view';
 import { loadRealStyles, makeState, makeTable, makeUiRootElement } from './__fixtures__/dom';
 import { createSeatDossier } from './seatDossier';
 
@@ -11,8 +12,11 @@ beforeEach(() => {
 });
 
 /** p1 has played Informant then Ebling Mis; p2 has played Mayor Indbur. */
-function viewWithDiscards(overrides: Partial<RedactedView> = {}): RedactedView {
+function viewWithDiscards(overrides: ViewOverrides = {}): RedactedView {
     const base = makeView(overrides);
+    // `own` is already merged by makeView; re-spreading the partial here would
+    // put its optional fields back and undo that.
+    const { own: _merged, ...rest } = overrides;
     return {
         ...base,
         players: [
@@ -38,7 +42,7 @@ function viewWithDiscards(overrides: Partial<RedactedView> = {}): RedactedView {
                 discardValueTotal: 6
             }
         ],
-        ...overrides
+        ...rest
     };
 }
 

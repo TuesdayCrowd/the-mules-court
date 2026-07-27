@@ -1,6 +1,7 @@
 import { describe, expect, it } from 'vitest';
 import type { CardTypeId, CardValue, RedactedView } from '../../game/engine';
 import { makeView } from '../store/__fixtures__/view';
+import type { ViewOverrides } from '../store/__fixtures__/view';
 import { TOKENS } from '../tokens/tokens';
 import type { RenderInput } from './renderPlan';
 import { buildRenderPlan } from './renderPlan';
@@ -28,7 +29,7 @@ function seat(id: string, overrides: Partial<RedactedView['players'][number]> = 
     };
 }
 
-function fourSeats(overrides: Partial<RedactedView> = {}): RedactedView {
+function fourSeats(overrides: ViewOverrides = {}): RedactedView {
     return makeView({
         players: [seat('p1'), seat('p2'), seat('p3'), seat('p4')],
         currentPlayerId: 'p1',

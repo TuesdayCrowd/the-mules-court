@@ -38,6 +38,94 @@ describe('view — what a player sees of themselves', () => {
     });
 });
 
+describe('view — legal targets', () => {
+    /** p0 holds a Darell (self-targetable) and an Informant (not). */
+    const darellMatch = (overrides: Partial<MatchState['round']['players']> = {}): MatchState => {
+        const base = match();
+        return {
+            ...base,
+            round: {
+                ...base.round,
+                players: {
+                    ...base.round.players,
+                    p0: { ...base.round.players.p0, hand: ['toran-darell#0', 'informant#0'] },
+                    ...overrides
+                }
+            }
+        };
+    };
+
+    it('answers for every legal play, so the client never has to derive one', () => {
+        const own = view(darellMatch(), 'p0').own;
+        expect(Object.keys(own.legalTargets).sort()).toEqual([...own.legalPlays].sort());
+    });
+
+    it('includes the viewer for a card that may target its own player', () => {
+        // Value 5 is "choose any player". The client cannot know that without
+        // being told, and guessing it wrong is what stranded a turn.
+        expect(view(darellMatch(), 'p0').own.legalTargets['toran-darell#0']).toContain('p0');
+    });
+
+    it('excludes the viewer for a card that may not', () => {
+        expect(view(darellMatch(), 'p0').own.legalTargets['informant#0']).not.toContain('p0');
+    });
+
+    it('excludes a protected opponent but never a protected self', () => {
+        const guarded = darellMatch();
+        const state: MatchState = {
+            ...guarded,
+            round: {
+                ...guarded.round,
+                players: {
+                    ...guarded.round.players,
+                    p0: { ...guarded.round.players.p0, protected: true },
+                    p1: { ...guarded.round.players.p1, protected: true }
+                }
+            }
+        };
+
+        const targets = view(state, 'p0').own.legalTargets['toran-darell#0'];
+        expect(targets).toContain('p0'); // protection is against other players
+        expect(targets).not.toContain('p1');
+        expect(targets).toContain('p2');
+    });
+
+    it('excludes an eliminated player', () => {
+        const base = darellMatch();
+        const state: MatchState = {
+            ...base,
+            round: {
+                ...base.round,
+                players: { ...base.round.players, p2: { ...base.round.players.p2, alive: false } }
+            }
+        };
+        expect(view(state, 'p0').own.legalTargets['toran-darell#0']).not.toContain('p2');
+    });
+
+    it('is empty for a card that takes no target at all', () => {
+        const base = match();
+        const state: MatchState = {
+            ...base,
+            round: {
+                ...base.round,
+                players: { ...base.round.players, p0: { ...base.round.players.p0, hand: ['shielded-mind#0'] } }
+            }
+        };
+        expect(view(state, 'p0').own.legalTargets['shielded-mind#0']).toEqual([]);
+    });
+
+    it('offers nothing to a player who does not hold the turn', () => {
+        expect(view(darellMatch(), 'p1').own.legalTargets).toEqual({});
+    });
+
+    it('names only players, never a card', () => {
+        const serialized = JSON.stringify(view(darellMatch(), 'p0').own.legalTargets);
+        for (const id of ['mayor-indbur', 'bail-channis', 'mule']) {
+            expect(serialized).not.toContain(id);
+        }
+    });
+});
+
 describe('view — hidden information', () => {
     const hidden = ['mayor-indbur#0', 'bail-channis#0', 'mule#0', 'magnifico#0', 'first-speaker#0'];
 
