@@ -1,6 +1,7 @@
 import { AUTO, Game, Scale } from 'phaser';
 import { Boot } from './scenes/Boot';
 import { Court } from './scenes/Court';
+import { POINTER_POLICY } from './inputPolicy';
 import { Preloader } from './scenes/Preloader';
 
 /**
@@ -29,6 +30,9 @@ const config: Phaser.Types.Core.GameConfig = {
         width: '100%',
         height: '100%'
     },
+    // Phaser hears only what lands on its own canvas. See POINTER_POLICY:
+    // the default makes a tap on the DOM layer hit-test the table beneath it.
+    input: POINTER_POLICY,
     scene: [Boot, Preloader, Court]
 };
 
