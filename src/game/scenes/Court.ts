@@ -4,7 +4,7 @@ import type { RenderPlan, SeatPlan } from '../../client/layout/renderPlan';
 import { computeLayout } from '../../client/layout/tableLayout';
 import type { LayoutSpec, Rect } from '../../client/layout/types';
 import type { ClientState } from '../../client/store/types';
-import { cardCopyFor } from '../../client/content/cardCopy';
+import { cardCopyFor, cardLabel } from '../../client/content/cardCopy';
 import type { CardTypeId } from '../../game/engine';
 import { TOKENS } from '../../client/tokens/tokens';
 import type { BeatRunner } from './beats';
@@ -318,7 +318,12 @@ export class Court extends Scene {
             const known = this.add.text(
                 seat.rect.x + 6,
                 seat.rect.y + 26 + MEDALLION + 4,
-                `you know: ${cardCopyFor(seat.knownCard).displayName}`,
+                // Value first, like every other card label on the table. This
+                // marker is the standing record of a peek — it outlives the
+                // reveal — so it is the one a player actually reads back when
+                // deciding a guess, and a name alone makes them recall the
+                // number instead of read it.
+                `you know: ${cardLabel(seat.knownCard)}`,
                 { fontFamily: 'Inter, sans-serif', fontSize: '11px', color: hex(TOKENS.colorSeatProtected) }
             );
             known.setOrigin(0, 0);

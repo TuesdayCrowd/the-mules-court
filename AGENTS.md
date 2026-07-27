@@ -40,6 +40,22 @@ bun run dev          # :8080 — client, proxying /api and /ws to :3000
 dev, so the backend only answers `/api/rooms` and the socket upgrade. `bun run
 serve` is the production shape — one process serving the built `dist/` as well.
 
+**`dev:server` runs under `bun --watch`, and that is load-bearing.** The two
+processes share `src/game/engine/`: Vite hot-reloads the client the instant an
+engine file changes, while a plain `bun src/server/index.ts` keeps running the
+engine it booted with. The halves then disagree about the shape of a
+`RedactedView`, and the symptoms do not look like a version skew at all — one
+added field presented first as "cards stopped being clickable" (a `TypeError`
+in the only handler that opens the action sheet, silent because a throw in a
+Phaser pointer handler goes nowhere a player can see) and then as a *rule* being
+misreported, with an unprotected opponent announced as protected. Restarting
+the backend was the cure for both. `--watch` means it never needs diagnosing.
+
+A restart is safe mid-match by design: rooms persist `{seed, actionLog}` rather
+than a state snapshot and are rebuilt lazily by `roomRegistry`, while the client
+reconnects with backoff and `RESUME_SEAT`. `bun run serve` stays unwatched —
+it is the production shape.
+
 ### Testing on a phone
 
 `bun run dev:host` binds Vite to the network and prints the address to open.

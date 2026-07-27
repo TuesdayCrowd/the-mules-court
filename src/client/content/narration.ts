@@ -116,7 +116,16 @@ export function narrate(entry: PublicLogEntry, nameOf: NameOf): string {
  * game that names a living player's card, and it says plainly why it is allowed.
  */
 export function narratePeek(subjectName: string, cardId: CardTypeId): string {
-    return `Only you see this — ${subjectName} holds ${cardCopyFor(cardId).displayName}.`;
+    const copy = cardCopyFor(cardId);
+    // Value spelled out rather than `cardLabel`'s "7 · The First Speaker".
+    //
+    // This line is read aloud as well as shown: it is the toast channel, which
+    // is `aria-live`. The value-first label exists so a card FACE cannot be
+    // mistaken for another with similar art, a problem speech does not have —
+    // and "·" is punctuation a screen reader may swallow, which would leave the
+    // value running straight into the name. Same information, phrased for a
+    // medium that has no portrait to disambiguate.
+    return `Only you see this — ${subjectName} holds ${copy.displayName}, value ${copy.value}.`;
 }
 
 /** The same knowledge going stale: the card was played, traded, or redrawn. */
