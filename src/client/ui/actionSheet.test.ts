@@ -140,6 +140,30 @@ describe('targets', () => {
         click(sheet.querySelector('[data-action="play"]'));
         expect(h.played).toEqual([{ cardInstanceId: 'informant#1' }]);
     });
+
+    // The reported bug, end to end at the sheet. A Darell with every opponent
+    // shielded is NOT a fizzle: "choose any player" includes you. Handed a
+    // self target, the sheet must require a choice rather than offering a
+    // no-effect discard — and the play must carry the target, because a frame
+    // without one is refused with TARGET_REQUIRED and the turn never moves.
+    it('requires a choice when the viewer is the only legal target', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('toran-darell', {
+            targets: [
+                { playerId: 'p1', nickname: 'Ana (you)', eligible: true },
+                { playerId: 'p2', nickname: 'Bayta', eligible: false, reason: 'protected' }
+            ]
+        });
+
+        expect(sheet.textContent).not.toContain('This card will be discarded with no effect.');
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(true);
+
+        click(sheet.querySelector('[data-target="p1"]'));
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(false);
+
+        click(sheet.querySelector('[data-action="play"]'));
+        expect(h.played).toEqual([{ cardInstanceId: 'toran-darell#1', target: 'p1' }]);
+    });
 });
 
 describe('the guess grid', () => {
