@@ -172,7 +172,11 @@ All canvas, positioned by the `LayoutSpec` functions.
 
 Three opponent chips fit 390 px at ~120 px each; the layout functions prove it and Vitest holds them to it.
 
-**Landscape-narrow** (rotated phone, small tablet): opponents spread into a shallow arc across the top; the deck centers with real side margins; the hand compresses vertically but keeps full width.
+**Landscape-narrow** (rotated phone, small tablet): opponents spread into a shallow arc across the top; the deck centers with real side margins; the hand compresses vertically but ~~keeps full width~~ **is centred as one block**.
+
+> **Superseded, 2026-07-27.** The hand no longer spreads to both margins in any class. The idea was that a phone held in landscape has a thumb at each edge, so the two cards should sit under them. In practice it put the cards in opposite corners with the whole table between them, and the right-hand one under the quick-reference button. It was reported three times from three different viewports — a 4:3 monitor, a short wide window, and a landscape phone — before being removed rather than narrowed again. A player reads their hand as a pair, and a pair split across the width of the screen is not a pair. `handStarts` in `src/client/layout/tableLayout.ts` now centres at every size.
+>
+> The class boundaries themselves also moved: see the note on device-based classification in `topology.ts`. Aspect alone could not tell a rotated phone from a 4:3 desktop, which is what sent phone proportions to monitors in the first place.
 
 **Wide** (desktop, large tablet): the VISUAL_SHOWCASE compositions, fluidly scaled — generous seat panels with full portrait art, deck and removed-card panel side by side, large hand cards.
 
