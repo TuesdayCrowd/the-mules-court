@@ -2,6 +2,29 @@
 
 **The Mule's Court** is a 2-4 player card game of deduction, risk, and elimination set in Isaac Asimov's Foundation universe. Inspired by Love Letter, this game explores the tragic irony of the Mule's mind control: every player believes they act independently, but all have been emotionally converted.
 
+Play it in a browser, over the network, with 2-4 people. One player hosts, shares a
+link, and the rest join from any device — phone, tablet, or desktop.
+
+## Play it
+
+You need [Bun](https://bun.sh). Development takes two terminals, because the client
+and the game server are separate processes:
+
+```bash
+bun install
+
+bun run dev:server   # terminal 1 — :3000, the API and WebSocket half
+bun run dev          # terminal 2 — :8080, the client
+```
+
+Open `http://localhost:8080`, click **Host a game**, pick a nickname, and share the
+invite link the lobby shows you. Everyone who opens it lands on `/join/:matchId` and
+takes a seat. Start the match when 2-4 people are seated.
+
+To play across a room instead of across tabs, use `bun run dev:host` in terminal 2 —
+it binds to the network and prints an address other devices can open. See
+[Playing from a phone](#playing-from-a-phone).
+
 ## Game Rules
 
 ### Objective
@@ -36,9 +59,20 @@ On your turn:
 A round ends when:
 
 - Only one player remains (others eliminated) → That player wins
-- The deck runs out → Player with the highest card value wins (ties broken by discard pile total)
+- The deck runs out → Player with the highest card value wins
 
-The round winner earns 1 Devotion Token. Reset the round and continue until a player reaches the winning token count.
+When the deck runs out, ties break on the **total value of the discard pile**. Players
+still tied after that share the round, and each earns a token.
+
+The round winner earns 1 Devotion Token. Reset the round and continue until a player
+reaches the winning token count.
+
+### Sudden death
+
+If two or more players reach the token target on the same round, no one has won yet.
+The match enters **sudden death**: play continues, and the first player to win a round
+outright takes the match. Token totals no longer decide it. A shared round in sudden
+death settles nothing, and the tied players play on.
 
 ### Elimination
 
@@ -66,6 +100,11 @@ The deck contains 16 cards representing characters from the Foundation series:
 | **The First Speaker**    | 7     | 1     | If you have this with Mayor Indbur or either Darell, you must discard this card.        |
 | **The Mule**             | 8     | 1     | If you discard this card, you are eliminated from the round.                            |
 
+Eleven named characters, sixteen physical cards. Three values are shared by two
+different characters — Pritcher and Channis at 2, Mis and Magnifico at 3, the two
+Darells at 5 — and each keeps its own name and portrait while resolving through the
+same ability.
+
 ### Key Mechanics
 
 - **Protection**: Playing Shielded Mind grants immunity until your next turn
@@ -78,11 +117,29 @@ The deck contains 16 cards representing characters from the Foundation series:
 
 ### Tech Stack
 
-[Phaser](https://github.com/phaserjs/phaser) 4.2.1 · [Vite](https://github.com/vitejs/vite) 6 · [TypeScript](https://github.com/microsoft/TypeScript) 5.7 · [Bun](https://bun.sh) 1 (package manager and script runner)
+[Phaser](https://github.com/phaserjs/phaser) 4.2.1 · [Vite](https://github.com/vitejs/vite) 6 · [TypeScript](https://github.com/microsoft/TypeScript) 5.7 · [Bun](https://bun.sh) 1 (package manager, script runner, and the server's runtime)
 
-### Project Status
+### Architecture
 
-The game design is complete — the rules above are fully specified — and the art pipeline is finished, with portrait art for every character card (see [Assets](#assets)). None of that has reached code yet: `src/game/scenes/Game.ts` and `MainMenu.ts` are still the unmodified Phaser starter scenes (placeholder text, click-to-advance flow), and `src/` has no card data, deck logic, or game-state model. `PORTRAIT_PROMPTS.md` points to a planned `src/data/cards.ts` as the intended home for card definitions.
+Four layers, each testable without the one above it:
+
+| Layer                | Where               | What it is                                                                     |
+| -------------------- | ------------------- | ------------------------------------------------------------------------------ |
+| **Engine**           | `src/game/engine/`  | The rules, as pure functions. No I/O, no rendering, seeded RNG                 |
+| **Server**           | `src/server/`       | `Bun.serve` WebSocket transport that wraps the engine and owns match state     |
+| **Client (pure)**    | `src/client/`       | Layout, copy, palette, and state — no Phaser, no DOM                          |
+| **Client (surface)** | `src/client/ui/`, `src/game/scenes/` | The DOM chrome and the Phaser table                          |
+
+The interface holds no game state. The server pushes a `RedactedView` — one player's
+redacted picture of the match — and the client sends back a single `PLAY_CARD` message.
+Anything the interface appears to decide, it read from that view.
+
+Rooms persist `{seed, actionLog}` rather than a state snapshot, and rebuild by replaying
+actions through the engine. A server restart mid-match is therefore safe: clients
+reconnect with backoff and resume their seat.
+
+The full design documents live in `docs/plans/` — engine architecture, transport
+protocol, and the UI/UX design.
 
 ### Requirements
 
@@ -94,43 +151,193 @@ bun install
 
 ### Commands
 
-| Command               | What it does                                                                 |
-| --------------------- | ---------------------------------------------------------------------------- |
-| `bun run dev`         | Start the Vite dev server (`vite/config.dev.mjs`) on `http://localhost:8080` |
-| `bun run build`       | Produce a minified production build (`vite/config.prod.mjs`) into `dist/`    |
-| `bun run dev-nolog`   | Same as `dev`, without the `log.js` analytics ping                           |
-| `bun run build-nolog` | Same as `build`, without the `log.js` analytics ping                         |
+**Development takes two processes.** The client creates rooms over `POST /api/rooms` and
+plays the match over a WebSocket, so `bun run dev` on its own fails with `ECONNREFUSED` at
+the first click of *Host a game*. Run both halves, in two terminals:
 
-`log.js` sends one anonymous GET request per run (dev/build event, package name, Phaser version — no response read) to the template maintainer's usage-tracking endpoint, and fails silently if unreachable. Use the `-nolog` variants, or delete `log.js` and its two references in `package.json`, to skip it entirely.
+```bash
+bun run dev:server   # :3000 — the API and WebSocket half
+bun run dev          # :8080 — the client, proxying /api and /ws to :3000
+```
+
+Vite serves the client in development, so `dev:server` sets no `MULES_STATIC_ROOT` and
+answers only `/api/rooms` and the socket upgrade. `bun run serve` is the production shape:
+one process serving the built `dist/` as well.
+
+| Command               | What it does                                                                        |
+| --------------------- | ----------------------------------------------------------------------------------- |
+| `bun run dev`         | Vite dev server for the client on `http://localhost:8080` (`vite/config.dev.mjs`)    |
+| `bun run dev:server`  | The API and WebSocket server on `:3000`, under `bun --watch`                         |
+| `bun run dev:host`    | Like `dev`, but bound to the network so another device can reach it                  |
+| `bun run test`        | Every test — engine and client under Vitest, then server under `bun test`            |
+| `bun run test:engine` | Engine and client tests only                                                         |
+| `bun run test:server` | Server and transport tests only                                                      |
+| `bun run test:watch`  | Vitest in watch mode                                                                 |
+| `bun run build`       | Minified production build into `dist/` (`vite/config.prod.mjs`)                      |
+| `bun run serve`       | Serve the built `dist/` and the game server from one process                         |
+| `bun run dev-nolog`   | Same as `dev`, without the `log.js` analytics ping                                   |
+| `bun run build-nolog` | Same as `build`, without the `log.js` analytics ping                                 |
+
+Type-check with `bunx tsc --noEmit`. Neither `vite build` nor the dev server checks types —
+Vite transpiles without checking — so this is the only command that catches a type error.
+
+**`dev:server` runs under `bun --watch`, and that matters.** Both halves import
+`src/game/engine/`. Vite hot-reloads the client the moment an engine file changes, while an
+unwatched server keeps running the engine it booted with; the two then disagree about the
+shape of the data they exchange, and the symptoms look nothing like a version skew. `--watch`
+means it never has to be diagnosed.
+
+#### Playing from a phone
+
+`bun run dev:host` binds Vite to the network and prints the address to open. Only Vite needs
+it — the backend stays on `localhost`, because the proxy reaches it from the development
+machine rather than from the device. The invite link the lobby shows is built from
+`location.origin`, so it points at the address the device is actually using and can be handed
+to a second device.
+
+Anything served over a bare LAN address is a **non-secure context**, where `crypto.randomUUID`
+and `navigator.clipboard` do not exist. Both are guarded — `src/client/store/ids.ts` and
+`src/client/ui/clipboard.ts` prefer the real API and fall back — so hosting, joining, and the
+lobby's **Copy** button all work on a phone.
+
+#### About `log.js`
+
+`bun run dev` and `bun run build` first run `bun log.js <mode>`, which sends one anonymous
+GET request to the Phaser template maintainer's endpoint at `gryzor.co` — the event name,
+the package name, and the Phaser version. No personal or project data, and the response is
+never read.
+
+**It is not silent on failure.** `log.js` exits with status 1 when the request errors, and
+the scripts chain it with `&&`, so an unreachable host stops the command before Vite starts.
+Offline, behind a firewall, or on a plane, use the `-nolog` variants — or delete `log.js`
+and its two references in `package.json` to remove the ping entirely.
+
+### Testing
+
+```bash
+bun run test         # everything
+bunx tsc --noEmit    # types
+bun run build        # the production bundle still builds
+```
+
+Two runners, split by what each layer needs. Engine and client tests run under
+**Vitest**; server and transport tests run under **Bun's own test runner**, because
+Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun
+globals the transport depends on.
+
+There is no linter configured.
+
+Three gates fail for reasons worth knowing in advance:
+
+- **`src/client/__tests__/purity.test.ts`** — `layout/`, `content/`, `store/`, and
+  `tokens/` may not import Phaser, touch a DOM global, or import server runtime. It
+  reads raw file text, so a *comment* naming a banned global fails too.
+- **`src/client/__tests__/axe.test.ts`** — axe-core over every DOM surface.
+  `color-contrast` is the only disabled rule, because jsdom has no layout; contrast is
+  checked arithmetically in `src/client/tokens/contrast.test.ts` instead.
+- **`src/client/layout/discardCapacity.test.ts`** — drives thousands of real matches
+  through the engine to prove the layout reserves room for the deepest discard pile
+  that can actually occur (eight, not the seven the design assumed).
+
+### Accessibility
+
+The canvas table has an offscreen twin in the DOM (`#a11y-twin`): a per-seat status
+list plus focusable proxies for the viewer's own hand, so a screen reader gets the
+table without a WebGL context. Announcements go to a separate toast channel rather
+than a live region, so re-rendering a snapshot does not read every seat aloud again.
+
+Phone-landscape is in scope, so **nothing depends on hover**. Every DOM surface is
+covered by axe-core, and the palette is checked against WCAG contrast ratios
+arithmetically.
+
+Screen-reader gesture navigation on real hardware is the one thing the test suite
+cannot assert — see [Status](#status).
 
 ### Project Structure
 
-| Path               | Description                                                                           |
-| ------------------ | ------------------------------------------------------------------------------------- |
-| `index.html`       | Root HTML entry point loaded by Vite / the built game                                 |
-| `public/`          | Static assets copied as-is to the `dist` root at build time                           |
-| `public/assets/`   | Game art and media (character portraits, cards, UI panels, shaders)                   |
-| `public/style.css` | Global page/canvas CSS loaded by `index.html`                                         |
-| `src/main.ts`      | Top-level entry point that boots the Phaser game                                      |
-| `src/game/main.ts` | Phaser game config (renderer, scale, scene list)                                      |
-| `src/game/scenes/` | Scene classes: `Boot.ts` → `Preloader.ts` → `MainMenu.ts` → `Game.ts` → `GameOver.ts` |
+| Path                | Description                                                                    |
+| ------------------- | ------------------------------------------------------------------------------ |
+| `index.html`        | Root HTML entry point: the canvas container, the DOM layer, the a11y twin      |
+| `public/`           | Static assets copied as-is to the `dist` root at build time                    |
+| `public/assets/`    | Game art and media (character portraits, cards, UI panels, shaders)            |
+| `src/main.ts`       | Composition root — wires store, socket, DOM, and canvas together               |
+| `src/game/main.ts`  | Phaser game config (renderer, scale, scene list)                               |
+| `src/game/scenes/`  | `Boot.ts` → `Preloader.ts` → `Court.ts`, plus `beats.ts` for cinematic beats   |
+| `src/game/engine/`  | The rules as pure functions — setup, legality, effects, round flow, redaction  |
+| `src/server/`       | The WebSocket transport: rooms, seats, dispatch, persistence, rate limiting    |
+| `src/client/`       | Browser-independent client: `layout/`, `content/`, `store/`, `tokens/`         |
+| `src/client/ui/`    | One factory per DOM surface, each with `mount` / `update` / `destroy`          |
+| `src/client/styles/`| Self-hosted fonts, the authoritative palette, and the two-layer shell CSS      |
+| `docs/plans/`       | Design documents and implementation plans for each layer                       |
+
+`MainMenu`, `Game`, and `GameOver` — the Phaser starter's scenes — were deleted rather
+than replaced. The menu and game-over screens are DOM surfaces now
+(`src/client/ui/menuScreen.ts`, `overlays.ts`), and an empty scene behind each would be
+dead weight.
 
 ### Assets
 
-Portrait art lives under `public/assets/<character-slug>/` — one directory per card (`bail-channis/`, `bayta-darell/`, `ebling-mis/`, `first-speaker/`, `han-pritcher/`, `informant/`, `magnifico/`, `mayor-indbur/`, `mule/`, `shielded-mind/`, `toran-darell/`), each with four portrait variants, `portrait_0.png` through `portrait_3.png`. Card backs, card fronts, shader maps, and other shared UI art live in their own top-level `public/assets/` folders.
+Portrait art lives under `public/assets/<character-slug>/` — one directory per card (`bail-channis/`, `bayta-darell/`, `ebling-mis/`, `first-speaker/`, `han-pritcher/`, `informant/`, `magnifico/`, `mayor-indbur/`, `mule/`, `shielded-mind/`, `toran-darell/`). Card backs, card fronts, shader maps, and other shared UI art live in their own top-level `public/assets/` folders.
+
+Four thematic variants exist for every character, but **only the one the game
+uses ships**. Vite copies `public/` into the bundle verbatim, so the three
+unchosen variants live under `art/portraits/<character-slug>/` — tracked in the
+repository, never built. That keeps roughly 13 MB of unused art out of every
+player's download while leaving the curation pass (*UIX §12*) free to make a
+different choice later. `src/client/content/portraits.ts` names the current
+choice and explains how to change it.
+
+The slug does not always match the card's display name: Magnifico Giganticus is
+`magnifico/`, and The First Speaker is `first-speaker/`.
 
 - `public/assets/PORTRAIT_PROMPTS.md` documents the generation prompts and settings behind every portrait, and how each character's color scheme is meant to map onto its card definition.
-- `VISUAL_SHOWCASE.md` (repo root) is a design mockup of the intended in-game UI (player panels, phase indicators, deck states). It describes the target look; none of it is wired up in the scene code yet.
+- `VISUAL_SHOWCASE.md` (repo root) is the original interface mockup. Its interaction
+  design is implemented; its fixed 1024×768 layout system was superseded by the
+  responsive layout in `docs/plans/2026-07-23-uix-design.md`. Where the two disagree,
+  the design document wins.
 
-`screenshot.png` at the repo root is the unmodified Phaser starter splash, not a useful preview of the game; ignore or remove it until real gameplay screens exist.
+## Self-hosting
 
-### Building for Production
+Build the client, then run one process that serves both it and the game server:
 
 ```bash
-bun run build
+bun install
+bun run build        # → dist/
+bun run serve        # :3000, serving dist/ and the WebSocket
 ```
 
-This produces a static bundle in `dist/` (Vite's default output directory) that you can host on any static file server.
+`serve` is `MULES_STATIC_ROOT=dist bun src/server/index.ts`. The static root defaults
+to none, so hosting the client is an explicit opt-in — a server with no client to serve
+is a valid configuration, and it is what every test uses.
+
+The server writes `mules-court.sqlite` in its **working directory**, storing each room's
+`{seed, actionLog}` so matches survive a restart. Start the process from a directory
+where that file belongs.
+
+`MULES_STATIC_ROOT` is currently the only environment variable read. Port (3000),
+database path, and the `publicBaseUrl` used to build invite links are compile-time
+defaults in `src/server/config.ts` — change them there, or put the process behind a
+reverse proxy. The client builds invite links from `location.origin` rather than from
+the server's value, so links work behind a proxy even though the server's own
+`joinUrl` field still says `localhost:3000`.
+
+The bundle is not a static site. Serving `dist/` alone gets you a menu that cannot
+create a room.
+
+## Status
+
+Version 1.0.0. The engine, the transport, the client, and the Phaser table are built
+and tested — 1363 tests across 77 files — and a match is playable end to end.
+
+Known limitations:
+
+- **The real-device QA pass has not been run.** `docs/plans/2026-07-24-uix-qa-checklist.md`
+  covers iOS Safari viewport behaviour and VoiceOver/TalkBack gesture navigation, neither
+  of which an emulator or a test suite reproduces. The client is ready for the pass; it
+  needs hardware and a person.
+- **Server tunables are compile-time.** Only `MULES_STATIC_ROOT` is read from the
+  environment; see [Self-hosting](#self-hosting).
+- **A non-host cannot end a match whose host vanished mid-round.**
 
 ### License
 

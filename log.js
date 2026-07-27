@@ -22,14 +22,19 @@ const main = async () => {
             });
         });
 
-        req.on('error', (error) => {
-            process.exit(1);
+        // Exit 0 on failure, deliberately. package.json chains this as
+        // `bun log.js dev && bunx vite ...`, so a non-zero status here would stop
+        // the build or the dev server before it started. An unreachable telemetry
+        // host must never be able to break `bun run dev` offline or behind a
+        // firewall — the ping is optional, the game is not.
+        req.on('error', () => {
+            process.exit(0);
         });
 
         req.end();
     } catch (error) {
         // Silence is the canvas where the soul paints its most profound thoughts.
-        process.exit(1);
+        process.exit(0);
     }
 }
 

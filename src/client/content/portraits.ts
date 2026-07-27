@@ -2,10 +2,17 @@
  * Which artwork each character wears, and which card stock they are printed on
  * (UIX §12).
  *
- * Every character directory under `public/assets/` holds four thematic variants
- * (`portrait_0` … `portrait_3`, catalogued in `PORTRAIT_PROMPTS.md`). This file
- * is the **only** place in the client that names one, so a curation decision is
- * a one-line edit here and nothing downstream has to be found and changed.
+ * Four thematic variants exist per character (`portrait_0` … `portrait_3`,
+ * catalogued in `PORTRAIT_PROMPTS.md`). This file is the **only** place in the
+ * client that names one, so a curation decision is a one-line edit here and
+ * nothing downstream has to be found and changed.
+ *
+ * Only the *chosen* variant lives under `public/assets/<slug>/`, because Vite
+ * copies `public/` into the bundle verbatim — shipping all four would put
+ * ~13 MB of unused art in front of every player. The unchosen three live in
+ * `art/portraits/<slug>/`, tracked but never built. Choosing one is therefore
+ * two steps: move the file into `public/assets/<slug>/`, then edit the line
+ * below. `portraits.test.ts` fails loudly if the edit lands without the move.
  */
 
 import { CARD_CATALOG } from '../../game/engine';
@@ -48,8 +55,11 @@ export function portraitPath(id: CardTypeId): string {
  *
  * `card_front_3.png` is 512×720 — exactly the portrait dimensions, so art drops
  * in 1:1 with no crop window to define or maintain. `card_back_2.png` is
- * 768×1024, the same 0.75 aspect the layout gives every card;
- * `card_back_1.png` is square and would need cropping to sit in the same box.
+ * 768×1024, the same 0.75 aspect the layout gives every card; the square
+ * alternate would have needed cropping to sit in the same box.
+ *
+ * That measurement settled it, so the rejected stock was deleted rather than
+ * shipped — unlike the portrait variants, this was not a pending aesthetic call.
  */
 export const CARD_FRONT_ASSET = 'card-front/card_front_3.png';
 export const CARD_BACK_ASSET = 'card-back/card_back_2.png';
