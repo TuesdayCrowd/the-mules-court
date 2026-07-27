@@ -218,6 +218,42 @@ Four environment variables configure a deployment (`envOverrides` in
 `joinUrl` is built from it — that closed deferred item **D3**. Everything else in
 `TransportConfig` is a design constant and stays one.
 
+### Deployment (Azure App Service)
+
+The hosted deployment is the web app **`mules-court`**, and what it runs is the
+`compile:linux-x64` binary — not this source tree. Full operator guide:
+`docs/deploy/azure.md`; the launcher is `deploy/azure/startup.sh`; CI is
+`.github/workflows/deploy-azure.yml`, which runs the whole verification gate
+before it compiles anything.
+
+The stack is set to `Node - 24-lts`, and **that setting is a red herring** —
+`src/server/` is Bun-native and no `node` process is ever involved. On App
+Service Linux the stack picks a base image and a default startup command, and
+the startup command may be any executable, so the binary runs Bun on the Node
+stack. Do not "fix" this by porting the transport to Node: the port is real but
+small (only `index.ts`, `persistence.ts` and `staticAssets.ts` touch Bun), and
+its actual cost is permanent — `bun run serve`, the binary and all 255
+`bun test src/server` cases stay on Bun regardless, so a Node build would be a
+second runtime to keep correct forever, which is the drift this repo already
+spends `staticAssets.ts` preventing.
+
+Three constraints are not tuning knobs:
+
+- **One instance, forever.** `roomRegistry` holds rooms in process memory keyed
+  to one SQLite file. Scaling out puts two players in "the same" match on
+  different servers. Scale *up* freely; never *out*.
+- **The database goes in `/tmp`, never `/home`.** `/home` is an Azure Files SMB
+  share and SQLite over SMB corrupts. The cost — losing the file on restart —
+  is affordable precisely because rooms persist `{seed, actionLog}` and get
+  reaped within the hour.
+- **WebSockets are off by default on App Service.** Left off, `/` serves fine
+  and the game hangs on *Connecting* forever, which reads as a client bug.
+
+`startup.sh` derives every `MULES_*` variable from the platform's own `PORT`
+and `WEBSITE_HOSTNAME`, so a working deployment needs no app setting of its own.
+The `WEBSITE_HOSTNAME` line is load-bearing: without it `envOverrides`' D3
+behaviour advertises `http://localhost:8080` as the invite origin.
+
 ### Server (transport layer)
 
 `src/server/` is a `Bun.serve` WebSocket server that wraps the engine. One process holds rooms (`Map<matchId, Room>`) in memory; each room persists to `bun:sqlite`, storing `{seed, actionLog}` rather than a state snapshot, so recovery replays actions through `reduce()` instead of needing a migration-prone snapshot format. Run it with `bun run serve`. Full design (message protocol, seat identity, reconnection, the validation pipeline) lives in `docs/plans/2026-07-22-transport-design.md`; the code is `index.ts` (Bun.serve entrypoint), `protocol.ts` (message unions + type guards), `room.ts` (Room state machine), `roomRegistry.ts` (room map + reaper sweep), `seatTokens.ts` (minting/hashing/lookup), `dispatch.ts` (the validation pipeline), `persistence.ts` (sqlite store + replay), `rateLimiter.ts` (token buckets), `config.ts` (tunables), and `__tests__/`.

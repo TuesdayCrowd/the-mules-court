@@ -1,0 +1,81 @@
+# Builds the single-file Linux binary and ships it to Azure App Service.
+#
+# The artifact is `bun build --compile` output: Bun's runtime, the transport and
+# every client asset in one executable. App Service's `Node 24-lts` stack picks
+# the base image only — `deploy/azure/startup.sh` is what actually runs, so
+# nothing here depends on Node.
+#
+# See docs/deploy/azure.md for the one-time app configuration this assumes.
+name: Deploy to Azure
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+# One deploy at a time. The app holds rooms in process memory and a single
+# SQLite file, so overlapping deploys would race the same instance; cancelling
+# the older run is always the right answer.
+concurrency:
+  group: deploy-azure
+  cancel-in-progress: true
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+    environment: production
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned rather than `latest`: this bundles a runtime into the
+          # artifact, so the Bun version is part of what ships.
+          bun-version: 1.3.14
+
+      - run: bun install --frozen-lockfile
+
+      # The verification gate from AGENTS.md, in full. `bun run build` inside
+      # the compile step regenerates the embedded manifest, so the type check
+      # and both suites run first against what is committed.
+      - name: Test
+        run: bun run test
+
+      - name: Type-check
+        run: bunx tsc --noEmit
+
+      - name: Compile the Linux binary
+        run: bun run compile:linux-x64
+
+      # The manifest is generated but committed, and a stale one 404s the app's
+      # own JavaScript. If the build just moved a content-hashed chunk, the
+      # commit is out of date and the binary that boots is not the one the test
+      # run covered.
+      - name: Fail if the embedded manifest is stale
+        run: |
+          if ! git diff --quiet -- src/server/embeddedAssets.generated.ts; then
+            echo "::error::src/server/embeddedAssets.generated.ts is stale. Run 'bun run build' and commit the result."
+            git diff -- src/server/embeddedAssets.generated.ts
+            exit 1
+          fi
+
+      - name: Stage the deployment package
+        run: |
+          mkdir -p package
+          cp dist-bin/mules-court-linux-x64 package/mules-court
+          cp deploy/azure/startup.sh package/startup.sh
+          chmod +x package/mules-court package/startup.sh
+
+      # Zipped here rather than by the deploy action so the Unix permission
+      # bits above are recorded in the archive. startup.sh re-applies them
+      # anyway, because whether App Service's unzip honours them is not
+      # something to bet a deploy on.
+      - name: Zip
+        run: cd package && zip -qry ../app.zip .
+
+      - uses: azure/webapps-deploy@v3
+        with:
+          app-name: mules-court
+          publish-profile: ${{ secrets.AZURE_WEBAPP_PUBLISH_PROFILE }}
+          package: app.zip
