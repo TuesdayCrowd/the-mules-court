@@ -55,3 +55,22 @@ export const CARD_COPY: Readonly<Record<CardTypeId, CardCopy>> = Object.fromEntr
 export function cardCopyFor(id: CardTypeId): CardCopy {
     return CARD_COPY[id];
 }
+
+/**
+ * A card's label, value first — the baseline's rule, kept by UIX §7.2's sheet
+ * and §6.1's hand mock (`1|Informant`).
+ *
+ * Value first because value is what every rule in the game is written in:
+ * comparisons, guesses, and the showdown all read a number, and the character
+ * is flavour on top of it. It is also the only thing that separates two cards
+ * whose portraits look alike — The First Speaker (7) and the Informant (1) are
+ * close enough in the art that a face carrying no numeral has to be recognised
+ * rather than read, and a misread there loses a round.
+ *
+ * One formatter so the canvas and the action sheet can never disagree about
+ * what a card is called.
+ */
+export function cardLabel(id: CardTypeId): string {
+    const copy = CARD_COPY[id];
+    return `${copy.value} · ${copy.displayName}`;
+}

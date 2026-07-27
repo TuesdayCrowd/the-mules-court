@@ -15,7 +15,7 @@
 
 import { CARD_CATALOG, EFFECT_DEFS } from '../../game/engine';
 import type { CardInstanceId, CardTypeId, GuessValue, PlayerId } from '../../game/engine';
-import { cardCopyFor } from '../content/cardCopy';
+import { cardCopyFor, cardLabel } from '../content/cardCopy';
 import { QUICK_REFERENCE } from '../content/quickReference';
 import { classifyTopology } from '../layout/topology';
 import type { ClientState } from '../store/types';
@@ -323,7 +323,9 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
 
         const title = document.createElement('h2');
         title.id = TITLE_ID;
-        title.textContent = `${copy.value} · ${copy.displayName}`;
+        // One formatter, shared with the canvas card faces, so the sheet and
+        // the card a player tapped can never disagree about what it is.
+        title.textContent = cardLabel(request.cardId);
 
         const effectText = document.createElement('p');
         effectText.textContent = copy.effect;
