@@ -14,7 +14,7 @@
  * defined by its neighbours' edges, so it cannot collide with them.
  */
 
-import { classifyTopology } from './topology';
+import { classifyTopology, isHandheldLandscape } from './topology';
 import type { Topology } from './topology';
 import type { LayoutInput, LayoutSpec, PipSpec, Rect } from './types';
 
@@ -293,11 +293,14 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
     const handY = h - margin - cardH;
 
     // The spread is a reach affordance, not a composition choice: it puts both
-    // cards under the thumbs of a phone held in landscape. It rides on the
-    // class rather than on a height test of its own because `classifyTopology`
-    // now admits only short viewports to `landscape-narrow` — the two say the
-    // same thing, and saying it twice would invite them to drift apart.
-    const hand: Rect[] = handStarts(input.handCount, cardW, margin, contentW, handGapPx, p.spreadHand).map(x => ({
+    // cards under the thumbs of a phone held in landscape. The class alone is
+    // not enough to authorise it — `landscape-narrow` is decided by height, and
+    // a 1400×559 desktop window is short without being holdable. Both questions
+    // have to agree: this composition spreads, AND this viewport has edges a
+    // thumb can reach.
+    const spreadHand = p.spreadHand && isHandheldLandscape(w, h);
+
+    const hand: Rect[] = handStarts(input.handCount, cardW, margin, contentW, handGapPx, spreadHand).map(x => ({
         x,
         y: handY,
         w: cardW,

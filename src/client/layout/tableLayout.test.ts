@@ -252,11 +252,43 @@ describe('landscape-narrow composition', () => {
     });
 
     it('stays this class however wide the viewport, as long as it is short', () => {
-        // The spread and the tightened bands are for a phone on its side. Aspect
-        // does not decide that — a rotated phone is 2.16, deep in wide territory.
+        // The tightened bands are for a phone on its side. Aspect does not
+        // decide that — a rotated phone is 2.16, deep in wide territory.
         expect(computeLayout({ w: 2400, h: 400, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 }).topology).toBe(
             'landscape-narrow'
         );
+    });
+
+    // The bands belong to the whole class, but the hand spread does not: it is
+    // a thumb-reach affordance, and a short desktop window has no thumbs at its
+    // edges. At 1400×559 the spread put one card under the quick-reference
+    // button with 1100px of nothing between the two.
+    describe('on a short window too wide to hold', () => {
+        const SHORT_WINDOW = { w: 1400, h: 559 } as const;
+
+        function shortWindow(overrides: Partial<LayoutInput> = {}): LayoutSpec {
+            return computeLayout({ ...SHORT_WINDOW, opponentCount: 1, handCount: 2, showsRemovedCard: true, maxDiscards: 3, ...overrides });
+        }
+
+        it('is still landscape-narrow, because the bands still want a short screen', () => {
+            expect(shortWindow().topology).toBe('landscape-narrow');
+        });
+
+        it('centres the hand as a block rather than spreading it', () => {
+            const spec = shortWindow();
+            expect((spec.hand[0].x + right(last(spec.hand))) / 2).toBeCloseTo(SHORT_WINDOW.w / 2, 5);
+            expect(spec.hand[1].x - right(spec.hand[0])).toBeLessThan(spec.hand[0].w);
+        });
+
+        it('crosses the height boundary without the hand jumping', () => {
+            // Two pixels of height may change the composition. They may not
+            // teleport the cards from the centre to opposite corners.
+            const below = computeLayout({ w: 1400, h: 559, opponentCount: 1, handCount: 2, showsRemovedCard: true, maxDiscards: 3 });
+            const above = computeLayout({ w: 1400, h: 561, opponentCount: 1, handCount: 2, showsRemovedCard: true, maxDiscards: 3 });
+
+            const gapOf = (spec: LayoutSpec): number => spec.hand[1].x - right(spec.hand[0]);
+            expect(Math.abs(gapOf(below) - gapOf(above))).toBeLessThan(below.hand[0].w);
+        });
     });
 
     it('stacks the removed card below the deck, as portrait does', () => {

@@ -36,6 +36,9 @@ dist-ssr
 coverage/
 *.lcov
 
+# Screenshots from `bun run test:visual` — regenerated on every run
+visual/output/
+
 # Server database (DEFAULT_CONFIG.dbPath writes to the working directory)
 *.sqlite
 *.sqlite-shm
