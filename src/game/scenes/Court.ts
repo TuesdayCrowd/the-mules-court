@@ -161,12 +161,28 @@ export class Court extends Scene {
 
             // Back to front, so each sliver tucks behind the one to its left and
             // the face-up card sits on top of all of them.
+            //
+            // Each one needs an EDGE and its own height. Drawn without either,
+            // two backs of the same texture at the same vertical extent abut
+            // into a single continuous strip — the fan was there, and it read
+            // as one card, which is exactly how it was reported.
             for (let index = hidden; index >= 1; index--) {
+                // The further back, the shorter: a fan recedes.
+                const inset = SLIVER_INSET * index;
+                const right = faceRect.x + faceRect.w + sliverStep * index;
+                const top = panel.y + inset;
+                const height = Math.max(MIN_SLIVER_HEIGHT, panel.h - inset * 2);
+
                 const back = this.add
-                    .image(faceRect.x + faceRect.w + sliverStep * index, panel.y + SLIVER_INSET, TEXTURES.cardBack)
+                    .image(right, top, TEXTURES.cardBack)
                     .setOrigin(1, 0)
-                    .setDisplaySize(faceRect.w, panel.h - SLIVER_INSET * 2);
-                this.table.add(back);
+                    .setDisplaySize(faceRect.w, height);
+                const edge = this.add
+                    .rectangle(right, top, faceRect.w, height)
+                    .setOrigin(1, 0)
+                    .setStrokeStyle(1, TOKENS.colorSeatOther);
+
+                this.table.add([back, edge]);
             }
 
             const burn = this.add
@@ -558,8 +574,15 @@ const MIN_NAME_H = 16;
 const SLIVER_STEP_FRACTION = 0.14;
 const MIN_SLIVER_STEP = 5;
 
-/** Vertically inset, so the hidden cards read as sitting behind the face-up one. */
+/**
+ * Vertical inset per card of depth, so the hidden cards recede behind the
+ * face-up one instead of sharing its exact height. Multiplied by depth: without
+ * a per-card difference, two backs of the same texture read as one card.
+ */
 const SLIVER_INSET = 3;
+
+/** A floor, so a short panel cannot invert the receding inset into a negative. */
+const MIN_SLIVER_HEIGHT = 12;
 
 /** Long enough to ride out a toolbar collapse, short enough to feel immediate. */
 const RESIZE_DEBOUNCE_MS = 100;
