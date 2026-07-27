@@ -18,6 +18,7 @@
     "build": "bun log.js build && bunx --bun vite build --config vite/config.prod.mjs",
     "dev-nolog": "bunx vite --config vite/config.dev.mjs",
     "dev:server": "bun src/server/index.ts",
+    "dev:host": "bun log.js dev && bunx vite --config vite/config.dev.mjs --host",
     "build-nolog": "bunx --bun vite build --config vite/config.prod.mjs",
     "test": "bun run test:engine && bun run test:server",
     "test:engine": "bunx vitest run",

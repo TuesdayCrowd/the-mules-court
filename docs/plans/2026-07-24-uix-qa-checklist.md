@@ -17,6 +17,17 @@ Two reasons, and the first is the blocking one:
 
 Run this after Stage 6, on real devices, and record the results in place.
 
+**Serving it:** `bun run dev:server` in one terminal, `bun run dev:host` in
+another, then open the printed network address on the device.
+
+**Two things that are correct behaviour, not findings.** Everything served over
+`http://<lan-ip>` is a non-secure context, so the lobby's **Copy** button reports
+*"Could not copy"* — the API does not exist there, and the fallback is
+deliberate. Select the link and copy it by hand. Similarly, the cinematic beats
+(`beats.ts`) are not built: eliminations and the Mule will read as a state change
+rather than a moment, so skip every line below about announcements waiting on
+animations.
+
 ---
 
 ## iOS Safari

@@ -21,6 +21,7 @@ Requires [Bun](https://bun.sh).
 | `bun install`                               | Install dependencies                                                      |
 | `bun run dev`                               | Client dev server at `http://localhost:8080` — **needs `dev:server` too** |
 | `bun run dev:server`                        | The API and WebSocket half, on `:3000`. Run it in a second terminal        |
+| `bun run dev:host`                          | Like `dev`, but reachable from other devices on the network               |
 | `bun run build`                             | Production build to `dist/`                                               |
 | `bun run dev-nolog` / `bun run build-nolog` | Same, but skip the `log.js` telemetry ping                                |
 | `bunx tsc --noEmit`                         | Type-check (see gotcha below — this is the only way to catch type errors) |
@@ -38,6 +39,29 @@ bun run dev          # :8080 — client, proxying /api and /ws to :3000
 `dev:server` deliberately sets no `MULES_STATIC_ROOT`: Vite serves the client in
 dev, so the backend only answers `/api/rooms` and the socket upgrade. `bun run
 serve` is the production shape — one process serving the built `dist/` as well.
+
+### Testing on a phone
+
+`bun run dev:host` binds Vite to the network and prints the address to open.
+Only Vite needs it — the backend stays on `localhost`, because the proxy reaches
+it from the dev machine rather than from the device.
+
+**Everything served this way is a non-secure context**, and two browser APIs
+simply do not exist there:
+
+- `crypto.randomUUID` — used for `clientMsgId`. Guarded in
+  `src/client/store/ids.ts`, which prefers it and falls back when it is absent.
+  Calling it bare took the whole Play path down once already.
+- `navigator.clipboard` — the lobby's **Copy** button. Guarded in `main.ts`,
+  which supplies a rejecting stand-in so the lobby shows *"Could not copy —
+  select the link and copy it yourself."* **That message is correct behaviour on
+  a phone over http, not a bug.**
+
+The invite link the lobby displays is built from `location.origin`, so it points
+at the address the device is actually using and can be shared with a second
+device. The server's own `joinUrl` field still says `localhost:3000` (deferred
+item D3) — the client never reads it, but do not copy it out of a log and expect
+it to work.
 
 **The dev script does not use `--bun`, and that is load-bearing.** Vite's
 WebSocket proxy silently fails under Bun: `/api` proxies fine, the socket upgrade
