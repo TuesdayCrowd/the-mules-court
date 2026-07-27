@@ -167,12 +167,43 @@ describe('hand proxies', () => {
     });
 });
 
+describe('the removed card', () => {
+    it('reports the face-up removed card, which is public deduction data', () => {
+        // Two-player rounds remove one card FACE UP (README setup, step 3), and
+        // the canvas shows it. Leaving it out of the twin hid a fact from a
+        // screen reader that every sighted player could see — and it is a fact
+        // worth having, because it is one card the opponent provably lacks.
+        const ui = mounted(viewWithSeats({ setAsideFaceUp: 'shielded-mind' }));
+
+        const removed = ui.host.querySelector('[data-twin="removed"]')!;
+        expect(removed.textContent).toContain('Shielded Mind');
+        expect(removed.textContent).toContain('4');
+        expect(removed.textContent).toMatch(/removed from play/i);
+    });
+
+    it('says nothing at all when no card was removed face up', () => {
+        // Three and four player rounds remove nothing face up, and an element
+        // announcing "none" would be noise on every turn.
+        expect(mounted(viewWithSeats({ setAsideFaceUp: null })).host.querySelector('[data-twin="removed"]')).toBeNull();
+    });
+});
+
 describe('these are the only shadow elements', () => {
     it('holds exactly one element per seat plus one per hand card', () => {
         // UIX §11 names these the only shadow elements in the app. Asserting the
         // count is what stops a parallel DOM table growing here unnoticed.
         const ui = mounted(viewWithSeats({ own: { playerId: 'p1', hand: ['informant#1', 'mule#2'], legalPlays: [] } }));
         expect(ui.shadows()).toHaveLength(2 + 2);
+    });
+
+    it('adds exactly one more for a face-up removed card', () => {
+        const ui = mounted(
+            viewWithSeats({
+                setAsideFaceUp: 'shielded-mind',
+                own: { playerId: 'p1', hand: ['informant#1', 'mule#2'], legalPlays: [] }
+            })
+        );
+        expect(ui.shadows()).toHaveLength(2 + 2 + 1);
     });
 
     it('shrinks with the hand', () => {

@@ -145,7 +145,10 @@ export class Court extends Scene {
                 .setOrigin(0, 0)
                 .setDisplaySize(plan.removedCard.rect.w, plan.removedCard.rect.h);
             this.table.add(burn);
-            this.table.add(this.cardFaceLabel(plan.removedCard.cardId, plan.removedCard.rect));
+            // UIX §6.1's mock labels this panel, and it needs to: an unlabelled
+            // card beside the deck reads as a leak rather than as the face-up
+            // removal a two-player round always makes (README setup, step 3).
+            this.table.add(this.cardFaceLabel(plan.removedCard.cardId, plan.removedCard.rect, 'Removed from play'));
         }
 
         // UIX §6.1's "own tokens + discards" row. The viewer is filtered out of
@@ -349,7 +352,11 @@ export class Court extends Scene {
      * a light background is the failure this exists to prevent. The name goes
      * along the bottom on a scrim for the same reason.
      */
-    private cardFaceLabel(cardId: CardTypeId, rect: Rect): (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text)[] {
+    private cardFaceLabel(
+        cardId: CardTypeId,
+        rect: Rect,
+        overline?: string
+    ): (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text)[] {
         const copy = cardCopyFor(cardId);
         const badge = Math.max(MIN_BADGE, Math.round(Math.min(rect.w, rect.h) * BADGE_FRACTION));
 
@@ -384,7 +391,28 @@ export class Court extends Scene {
         // rule in the game is written in.
         if (name.width > rect.w - 6) name.setScale((rect.w - 6) / name.width);
 
-        return [scrim, name, plate, value];
+        const parts: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text)[] = [scrim, name];
+
+        // Drawn INSIDE the card rather than above it, so it cannot collide with
+        // the deck in either composition — portrait stacks the burn panel under
+        // the deck, wide sets it beside. It goes on before the badge, so the
+        // value sits over its left end rather than under it.
+        if (overline !== undefined) {
+            const bandH = Math.max(MIN_NAME_H, Math.round(rect.h * NAME_FRACTION));
+            parts.push(
+                this.add.rectangle(rect.x, rect.y, rect.w, bandH, TOKENS.colorBg, 0.72).setOrigin(0, 0),
+                this.add
+                    .text(rect.x + rect.w / 2, rect.y + bandH / 2, overline, {
+                        fontFamily: 'Inter, sans-serif',
+                        fontSize: `${Math.round(bandH * 0.46)}px`,
+                        color: hex(TOKENS.colorStateWaiting)
+                    })
+                    .setOrigin(0.5)
+            );
+        }
+
+        parts.push(plate, value);
+        return parts;
     }
 
     /**
