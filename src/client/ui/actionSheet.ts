@@ -33,6 +33,15 @@ export interface SheetRequest {
     readonly cardId: CardTypeId;
     readonly cardInstanceId: CardInstanceId;
     readonly targets: readonly SheetTarget[];
+    /**
+     * Whether the card can actually be played right now — `legalPlays` says so,
+     * this never works it out. Absent means yes.
+     *
+     * A card is still worth opening off-turn: reading what it does is the most
+     * ordinary thing a player wants, and refusing to open the sheet at all
+     * leaves them with no way to find out.
+     */
+    readonly playable?: boolean;
     /** Live viewport measurement. Never cached, never a device class. */
     readonly available: { readonly w: number; readonly h: number };
 }
@@ -44,7 +53,8 @@ export interface PlayChoice {
 }
 
 export interface ActionSheetDeps {
-    readonly onPlay: (choice: PlayChoice) => void;
+    /** Returns false when the play was refused; the sheet then stays open. */
+    readonly onPlay: (choice: PlayChoice) => boolean;
     readonly onCancel: () => void;
 }
 
@@ -142,7 +152,8 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         }
 
         const required = needs();
-        live.play.disabled = (required.target && target === null) || (required.guess && guess === null);
+        live.play.disabled =
+            request?.playable === false || (required.target && target === null) || (required.guess && guess === null);
     }
 
     function targetSection(targets: Map<PlayerId, HTMLButtonElement>): HTMLElement {
@@ -264,8 +275,11 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
                 ...(target !== null ? { target } : {}),
                 ...(guess !== null ? { guess } : {})
             };
-            reset();
-            deps.onPlay(choice);
+
+            // Ask first, close second. Closing regardless is what made every
+            // refusal — a socket mid-reconnect, a play already in flight —
+            // indistinguishable from the button doing nothing at all.
+            if (deps.onPlay(choice)) reset();
         });
 
         bar.append(cancel, play);
@@ -293,6 +307,14 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         effectText.textContent = copy.effect;
 
         sheet.append(title, effectText);
+
+        if (request.playable === false) {
+            // Show-reasons applies to the Play button as much as to a target.
+            const why = document.createElement('p');
+            why.dataset.role = 'not-playable';
+            why.textContent = 'Not your turn — this is what the card does.';
+            sheet.appendChild(why);
+        }
 
         const targets = new Map<PlayerId, HTMLButtonElement>();
         const guesses = new Map<number, HTMLButtonElement>();

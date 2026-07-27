@@ -25,6 +25,7 @@ import { announcementFor } from './client/content/announce';
 import { failureCopy } from './client/content/failureCopy';
 import { diffSnapshots } from './client/store/diff';
 import { createPresentationQueue } from './client/store/presentationQueue';
+import { browserIdMinter } from './client/store/ids';
 import { createRoomApi } from './client/store/roomApi';
 import { parseRoute } from './client/store/routes';
 import { createSeatTokenStore } from './client/store/seatTokenStore';
@@ -96,8 +97,10 @@ function boot(): void {
         tokens,
         send: msg => socket?.send(msg) ?? false,
         now: () => Date.now(),
-        // 36 characters, inside the protocol's 64-character cap on clientMsgId.
-        mintId: () => crypto.randomUUID()
+        // Never `crypto.randomUUID()` bare: it is secure-context only, so over
+        // http:// on a LAN address it is undefined and calling it threw inside
+        // the Play handler — which looked exactly like the button doing nothing.
+        mintId: browserIdMinter(typeof crypto === 'undefined' ? undefined : crypto)
     });
 
     if (matchId !== null) {
@@ -125,6 +128,7 @@ function boot(): void {
     });
 
     const actionSheet = createActionSheet({
+        // Returns false when the store refuses, and the sheet stays open.
         onPlay: choice => store.playCard(choice),
         onCancel: () => {}
     });
@@ -144,7 +148,12 @@ function boot(): void {
         createLobbyScreen({
             onStart: () => socket?.send({ type: 'START_MATCH', matchId: matchId as string }),
             onDissolve: () => socket?.send({ type: 'END_MATCH', matchId: matchId as string }),
-            clipboard: navigator.clipboard,
+            // Same secure-context trap as randomUUID: `navigator.clipboard`
+            // is undefined over plain http, and the lobby already has a
+            // graceful path for a refusal — so give it one to take.
+            clipboard: navigator.clipboard ?? {
+                writeText: () => Promise.reject(new Error('clipboard unavailable over http'))
+            },
             joinUrlFor: id => `${location.origin}/join/${id}`
         })
     );
@@ -215,6 +224,7 @@ function boot(): void {
             cardId: cardTypeOf(cardInstanceId),
             cardInstanceId,
             targets,
+            playable: table.view.own.legalPlays.includes(cardInstanceId),
             available: { w: window.innerWidth, h: window.innerHeight }
         });
     }

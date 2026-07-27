@@ -123,7 +123,7 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
     [
         'action sheet',
         root => {
-            const sheet = createActionSheet({ onPlay: noop, onCancel: noop });
+            const sheet = createActionSheet({ onPlay: () => true, onCancel: noop });
             sheet.mount(root);
             sheet.update(makeState({ screen: 'table', table: makeTable() }));
             sheet.open({

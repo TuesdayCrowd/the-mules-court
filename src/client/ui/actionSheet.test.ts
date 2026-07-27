@@ -16,13 +16,16 @@ const THREE_TARGETS: SheetTarget[] = [
     { playerId: 'p4', nickname: 'Bayta', eligible: false, reason: 'eliminated' }
 ];
 
-function harness() {
+function harness(options: { acceptPlay?: boolean } = {}) {
     const root = makeUiRootElement();
     const played: Array<{ cardInstanceId: string; target?: string; guess?: number }> = [];
     const cancelled: number[] = [];
 
     const sheet = createActionSheet({
-        onPlay: choice => played.push(choice),
+        onPlay: choice => {
+            played.push(choice);
+            return options.acceptPlay ?? true;
+        },
         onCancel: () => cancelled.push(1)
     });
     sheet.mount(root);
@@ -393,5 +396,73 @@ describe('sharing the bottom corner with the quick-reference tab', () => {
         click(sheet.querySelector('[data-action="cancel"]'));
 
         expect(ui.root.hasAttribute('data-sheet')).toBe(false);
+    });
+});
+
+describe('a play the store refuses', () => {
+    // Closing regardless is what made every refusal — a socket mid-reconnect, a
+    // play already in flight — look exactly like the button doing nothing.
+    it('keeps the sheet open so the press is visibly not lost', () => {
+        const h = harness({ acceptPlay: false });
+        const sheet = h.openSheetFor('shielded-mind', { targets: [] });
+
+        click(sheet.querySelector('[data-action="play"]'));
+
+        expect(h.played).toHaveLength(1);
+        expect(h.root.querySelector('[data-role="action-sheet"]')).not.toBeNull();
+    });
+
+    it('keeps the choices already made, so nothing has to be re-picked', () => {
+        const h = harness({ acceptPlay: false });
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+        click(sheet.querySelector('[data-target="p2"]'));
+        click(sheet.querySelector('[data-guess="5"]'));
+
+        click(sheet.querySelector('[data-action="play"]'));
+
+        expect(sheet.querySelector('[data-target="p2"]')!.getAttribute('aria-pressed')).toBe('true');
+        expect(sheet.querySelector('[data-guess="5"]')!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('lets the player press again', () => {
+        const h = harness({ acceptPlay: false });
+        const sheet = h.openSheetFor('shielded-mind', { targets: [] });
+        click(sheet.querySelector('[data-action="play"]'));
+        click(sheet.querySelector('[data-action="play"]'));
+        expect(h.played).toHaveLength(2);
+    });
+});
+
+describe('a card that cannot be played right now', () => {
+    it('still opens, because reading what a card does is an ordinary thing to want', () => {
+        const h = harness();
+        h.sheet.open({ cardId: 'mule', cardInstanceId: 'mule#1', targets: [], available: PHONE, playable: false });
+
+        const sheet = h.root.querySelector('[data-role="action-sheet"]') as HTMLElement;
+        expect(sheet).not.toBeNull();
+        expect(sheet.textContent).toContain(cardCopyFor('mule').effect);
+    });
+
+    it('disables Play and says why', () => {
+        const h = harness();
+        h.sheet.open({ cardId: 'mule', cardInstanceId: 'mule#1', targets: [], available: PHONE, playable: false });
+
+        const sheet = h.root.querySelector('[data-role="action-sheet"]') as HTMLElement;
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(true);
+        expect(sheet.querySelector('[data-role="not-playable"]')!.textContent).toContain('Not your turn');
+    });
+
+    it('emits nothing when Play is pressed anyway', () => {
+        const h = harness();
+        h.sheet.open({ cardId: 'mule', cardInstanceId: 'mule#1', targets: [], available: PHONE, playable: false });
+        click(h.root.querySelector('[data-action="play"]'));
+        expect(h.played).toEqual([]);
+    });
+
+    it('stays fully playable when the flag is absent', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('shielded-mind', { targets: [] });
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(false);
+        expect(sheet.querySelector('[data-role="not-playable"]')).toBeNull();
     });
 });

@@ -145,9 +145,18 @@ export class Court extends Scene {
                     .setOrigin(0, 0)
                     .setStrokeStyle(2, TOKENS.colorStateYourTurn);
                 this.table.add(border);
+            }
 
+            {
                 /**
-                 * A dedicated hit target, sized from the LayoutSpec.
+                 * A dedicated hit target on EVERY card, not only the playable
+                 * ones. Reading what a card does is the most ordinary thing a
+                 * player wants, and it is most wanted while waiting for someone
+                 * else's turn — which is exactly when `legalPlays` is empty. The
+                 * sheet opens read-only; it is `playable` that decides whether
+                 * Play is offered, and `legalPlays` that decides `playable`.
+                 *
+                 * Sized from the LayoutSpec.
                  *
                  * Deliberately not `face.setInteractive()`: that derives its hit
                  * area from the texture frame, so a card whose art failed to
