@@ -11,6 +11,8 @@
  * resolves in ≤ 300 ms.
  */
 
+import type { PresentationEvent } from './diff';
+
 export type BeatName = 'mule' | 'elimination' | 'peek' | 'play' | 'countdown-tick' | 'token-award' | 'victory';
 
 export type StepKind = 'fade' | 'banner' | 'desaturate' | 'flip' | 'ripple' | 'loom' | 'reveal' | 'shimmer' | 'burst' | 'tick';
@@ -81,4 +83,46 @@ export function motionPlan(request: MotionRequest): MotionPlan {
 /** Total wall time a beat will take, for budgeting the presentation queue. */
 export function beatDurationMs(plan: MotionPlan): number {
     return plan.steps.reduce((total, step) => total + step.durationMs, 0);
+}
+
+/**
+ * Which beat a presentation event deserves, if any.
+ *
+ * Exhaustive, with a `never` default, for the same reason `announcementFor` is:
+ * an event that computes a beat and then gets dropped is invisible, and that is
+ * exactly how the private peek shipped doing nothing at all.
+ *
+ * `null` is a real answer here. Most log entries are a toast and no more — the
+ * cinematic budget is spent on eliminations and the Mule (UIX §8), and spending
+ * it anywhere else is what makes those two stop feeling like anything.
+ */
+export function beatForEvent(event: PresentationEvent): BeatName | null {
+    switch (event.kind) {
+        case 'log':
+            if (event.entry.kind === 'PLAY') return 'play';
+            if (event.entry.kind === 'ELIMINATED') {
+                // Voluntary and forced discards are identical (UIX §8.3): the
+                // dread does not depend on who chose it.
+                return event.entry.cause === 'mule-voluntary' || event.entry.cause === 'mule-forced'
+                    ? 'mule'
+                    : 'elimination';
+            }
+            return null;
+
+        case 'peek-gained':
+            return 'peek';
+
+        // Losing a peek is information going stale, not an event with a moment.
+        case 'peek-lost':
+            return null;
+
+        // The round-over overlay is the beat, and it renders from state.
+        case 'round-over':
+            return null;
+
+        default: {
+            const exhaustive: never = event;
+            return exhaustive;
+        }
+    }
 }

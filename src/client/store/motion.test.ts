@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { BeatName } from './motion';
-import { beatDurationMs, motionPlan } from './motion';
+import { beatDurationMs, beatForEvent, motionPlan } from './motion';
 
 const ALL: BeatName[] = ['mule', 'elimination', 'peek', 'play', 'countdown-tick', 'token-award', 'victory'];
 
@@ -94,6 +94,46 @@ describe('the cinematic budget', () => {
 
     it('has a plan for every beat, so none falls through to nothing', () => {
         for (const beat of ALL) {
+            expect(motionPlan({ beat, reducedMotion: false }).steps.length, beat).toBeGreaterThan(0);
+        }
+    });
+});
+
+describe('beatForEvent', () => {
+    it('gives an ordinary play its quick beat', () => {
+        expect(beatForEvent({ kind: 'log', entry: { kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'informant' } })).toBe('play');
+    });
+
+    it.each(['guard', 'baron'] as const)('stages an elimination caused by %s', cause => {
+        expect(beatForEvent({ kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause } })).toBe('elimination');
+    });
+
+    it.each(['mule-voluntary', 'mule-forced'] as const)('gives the Mule its own beat when %s', cause => {
+        // UIX §8.3: identical either way — the dread does not depend on choice.
+        expect(beatForEvent({ kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause } })).toBe('mule');
+    });
+
+    it('reveals a peek', () => {
+        expect(beatForEvent({ kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' })).toBe('peek');
+    });
+
+    it('spends nothing on the events that are only information', () => {
+        // The budget is spent on eliminations and the Mule; spending it
+        // everywhere is what stops those two feeling like anything.
+        expect(beatForEvent({ kind: 'peek-lost', subjectId: 'p2' })).toBeNull();
+        expect(beatForEvent({ kind: 'round-over', result: { reason: 'deck-out', winnerIds: ['p1'] } })).toBeNull();
+        expect(beatForEvent({ kind: 'log', entry: { kind: 'PROTECTED', turn: 1, actorId: 'p1' } })).toBeNull();
+    });
+
+    it('returns a beat this file knows how to plan', () => {
+        const beats = [
+            { kind: 'log', entry: { kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'informant' } },
+            { kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause: 'mule-forced' } },
+            { kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' }
+        ] as const;
+
+        for (const event of beats) {
+            const beat = beatForEvent(event)!;
             expect(motionPlan({ beat, reducedMotion: false }).steps.length, beat).toBeGreaterThan(0);
         }
     });

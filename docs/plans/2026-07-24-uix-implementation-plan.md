@@ -1829,37 +1829,26 @@ but commit uix-client -m "feat(client): action sheet, quick reference, dossier, 
 
 **Goal:** Replace the starter scenes with one gameplay scene that renders `LayoutSpec` output and spends the cinematic budget exactly where the design puts it.
 **Success criteria:** `bun run build` succeeds; a real match is playable start to finish in a browser; reduced motion collapses every beat.
-**Status:** Tasks 28 and 29 Complete. Task 30 half done — the policy is written and tested, the beats are not implemented.
+**Status:** Complete. Tasks 28, 29 and 30 all landed; `beats.ts` exists and the presentation queue awaits it.
 
-> **What is left, and why it stopped here.** `motionPlan` (Step 1) is done: the
-> reduced-motion decision, the staging order, and the cinematic budget are all
-> pure and tested. What remains is Steps 2–4 — `beats.ts` itself, the shader-map
-> assignments, and the peek reveal.
+> **What is and is not verified.** The beats compile, the sequencing is real —
+> each step returns a promise the presentation queue awaits, so an announcement
+> cannot precede its animation — and the reduced-motion collapse is tested
+> against `motionPlan`. What no test here can assert is whether any of it *looks*
+> right; that is the device pass.
 >
-> That work is deliberately not attempted, for two reasons that compound:
+> Two deliberate simplifications, recorded rather than hidden. The victory burst
+> is a scaling, fading `sparkle_pattern` sheet rather than a `ParticleEmitter`:
+> one texture, one tween, nothing to tune, and the emitter can come later if it
+> earns its keep. The elimination desaturation is a grey wash into the dimmed
+> state `buildRenderPlan` already draws persistently, rather than a grayscale
+> `ColorMatrix` on the seat — the seat objects are destroyed and rebuilt by
+> `draw()` on every state update, so a filter attached to one would vanish
+> mid-beat.
 >
-> 1. **It is the one part of this project most likely to be wrong from memory.**
->    Phaser 4 replaced FX with Filters and pipelines with render nodes; the
->    project's own guidance says a recalled v3 idiom "will not compile", and the
->    displacement ripple and the victory particles are exactly where that bites.
->    Doing it properly means loading `/tweens`, `/filters-and-postfx` and
->    `/particles` first, as Task 30 instructs.
-> 2. **None of it can be verified here.** No browser automation is available in
->    this environment, so animation code could be compiled but never *seen*.
->    `bun run build` would catch a non-existent API; it would not catch a ripple
->    that plays over the wrong element or a beat that never resolves its promise
->    — and a beat that never resolves deadlocks the presentation queue, which is
->    a silent failure of interface rule 8.
->
-> **The seam is clean.** `beats.ts` has one job: turn a `MotionPlan` into a
-> `Promise<void>` per step, which the presentation queue already awaits. Nothing
-> else needs to change to accept it.
->
-> Also unverified for the same reason: the success criterion "a real match is
-> playable start to finish in a browser". What *was* verified is narrower and
-> stated as such in commit `kst` — the server serves the shell at both routes,
-> `POST /api/rooms` returns a usable `joinUrl`, and the bundle, fonts and
-> portraits all return 200.
+> That last point is why beats own a layer `draw()` never clears: a tween whose
+> target is destroyed resolves early, and an early promise silently breaks the
+> very sequencing rule the queue exists to keep.
 
 ### Task 28: Scene chain replacement
 

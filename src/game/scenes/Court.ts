@@ -6,6 +6,8 @@ import type { LayoutSpec } from '../../client/layout/types';
 import type { ClientState } from '../../client/store/types';
 import { cardCopyFor } from '../../client/content/cardCopy';
 import { TOKENS } from '../../client/tokens/tokens';
+import type { BeatRunner } from './beats';
+import { createBeatRunner } from './beats';
 import { TEXTURES } from './Preloader';
 
 /**
@@ -22,6 +24,16 @@ export class Court extends Scene {
     private background: Phaser.GameObjects.Image;
     /** Everything the plan draws. Cleared and rebuilt per render — see `draw`. */
     private table: Phaser.GameObjects.Container;
+    /**
+     * The beat layer, above the table and never cleared by `draw`.
+     *
+     * A beat animating a table object would have its target destroyed by the
+     * next state update mid-tween, which is both a visual glitch and a promise
+     * that resolves early — and an early promise breaks the sequencing rule the
+     * whole queue exists to keep.
+     */
+    private beatLayer: Phaser.GameObjects.Container;
+    private beats: BeatRunner;
     private spec: LayoutSpec | null = null;
     private latest: ClientState | null = null;
     private resizeHandle: number | null = null;
@@ -36,11 +48,16 @@ export class Court extends Scene {
         this.background = this.add.image(width / 2, height / 2, TEXTURES.playfield);
         this.fitBackground(width, height);
         this.table = this.add.container(0, 0);
+        this.beatLayer = this.add.container(0, 0);
+        this.beats = createBeatRunner(this, this.beatLayer, {
+            reducedMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
+        });
 
         this.scale.on('resize', this.onResize, this);
 
         // Scenes can restart; a listener that outlives one leaks into the next.
         this.events.once('shutdown', () => {
+            this.beats.destroy();
             this.scale.off('resize', this.onResize, this);
             if (this.resizeHandle !== null) window.clearTimeout(this.resizeHandle);
         });
@@ -229,6 +246,16 @@ export class Court extends Scene {
             });
             this.table.add(caption);
         }
+    }
+
+    /**
+     * Play a cinematic beat and resolve when it has finished (UIX §8.4).
+     *
+     * The presentation queue awaits this before releasing the announcement, so
+     * the accessible channel can never run ahead of the visible one.
+     */
+    playBeat(beat: Parameters<BeatRunner['run']>[0], context?: Parameters<BeatRunner['run']>[1]): Promise<void> {
+        return this.beats.run(beat, context);
     }
 
     /** The spec the table was last drawn from, for the accessibility twin's hand proxies. */

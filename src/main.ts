@@ -21,9 +21,12 @@ import './client/styles/ui.css';
 
 import type { CardInstanceId, PlayerId } from './game/engine';
 import { cardTypeOf } from './game/engine';
+import type { PresentationEvent } from './client/store/diff';
 import { announcementFor } from './client/content/announce';
+import { cardCopyFor } from './client/content/cardCopy';
 import { failureCopy } from './client/content/failureCopy';
 import { diffSnapshots } from './client/store/diff';
+import { beatForEvent } from './client/store/motion';
 import { createPresentationQueue } from './client/store/presentationQueue';
 import { browserIdMinter } from './client/store/ids';
 import { createRoomApi } from './client/store/roomApi';
@@ -205,6 +208,45 @@ function boot(): void {
         court.renderView(store.getState());
     });
 
+    /**
+     * Where a beat plays and what art it shows.
+     *
+     * Assembled here because it needs the live layout, which only the scene
+     * has; the beat itself takes a rect and a texture key and knows nothing
+     * about seats or cards.
+     */
+    function beatContext(event: PresentationEvent): Parameters<Court['playBeat']>[1] {
+        const table = store.getState().table;
+        const spec = court?.currentLayout() ?? null;
+        const nameOf = (id: PlayerId) => table?.nicknames[id] ?? id;
+
+        if (event.kind === 'peek-gained') {
+            return {
+                portraitKey: cardCopyFor(event.cardTypeId).portraitKey,
+                label: `Only you see this — ${nameOf(event.subjectId)}`
+            };
+        }
+
+        if (event.kind === 'log' && table !== null && spec !== null) {
+            // Bound to a local: narrowing `event.entry.kind` inside a compound
+            // condition does not survive repeated access to a union member.
+            const entry = event.entry;
+            if (entry.kind !== 'ELIMINATED') return {};
+
+            const opponents = table.view.players.filter(p => p.id !== table.view.own.playerId);
+            const index = opponents.findIndex(p => p.id === entry.playerId);
+            const rect = index >= 0 ? spec.opponents[index] : undefined;
+            const held = table.view.roundResult?.revealedHands?.[entry.playerId] ?? null;
+            return {
+                ...(rect === undefined ? {} : { rect }),
+                ...(held === null ? {} : { portraitKey: cardCopyFor(held).portraitKey }),
+                label: `${nameOf(entry.playerId)} is out`
+            };
+        }
+
+        return {};
+    }
+
     /** Assembled here, from the view. The sheet renders what it is handed and evaluates nothing. */
     function openSheetFor(cardInstanceId: CardInstanceId): void {
         const table = store.getState().table;
@@ -251,10 +293,21 @@ function boot(): void {
         if (after !== null && before !== after) {
             const nameOf = (id: PlayerId) => state.table?.nicknames[id] ?? id;
             for (const event of diffSnapshots(before, after)) {
-                // Exhaustive by construction — see content/announce.ts. Silence
-                // is allowed, but it has to be chosen rather than fallen into.
+                // Both halves are exhaustive by construction — announce.ts and
+                // beatForEvent. Silence is allowed, but it has to be chosen.
                 const line = announcementFor(event, nameOf);
-                if (line !== null) queue.enqueue({ announce: line });
+                const beat = beatForEvent(event);
+                if (line === null && beat === null) continue;
+
+                // The animation is the promise the queue awaits, which is what
+                // makes interface rule 8 real: the announcement is released
+                // only once the table has actually shown the thing.
+                queue.enqueue({
+                    ...(beat === null
+                        ? {}
+                        : { animate: () => court?.playBeat(beat, beatContext(event)) ?? Promise.resolve() }),
+                    ...(line === null ? {} : { announce: line })
+                });
             }
         }
 
