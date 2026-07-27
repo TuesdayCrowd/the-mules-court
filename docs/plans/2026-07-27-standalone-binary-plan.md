@@ -1,26 +1,32 @@
 # Standalone Binary Implementation Plan
 
-> **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
+> **Status: complete.** Executed 2026-07-27 and merged in
+> [#21](https://github.com/TuesdayCrowd/the-mules-court/pull/21) (the binary) and
+> [#23](https://github.com/TuesdayCrowd/the-mules-court/pull/23) (two follow-up
+> fixes). This document has been revised to match the code that shipped, so the
+> blocks below can be read as a record rather than a proposal — every one of them
+> compiles and passes as written. Where execution diverged from the original
+> plan, [What execution changed](#what-execution-changed) says how and why.
 
 **Goal:** Ship The Mule's Court as a single self-contained executable — server, client bundle and every asset in one file that runs from any directory with no `dist/`, no `bun install`, and no repo checkout.
 
-**Architecture:** `bun build --compile` already handles the server half; the client half is the interesting one. `serveStatic` reads the real filesystem under `MULES_STATIC_ROOT`, and a compiled binary has no `dist/` to point at. Rather than fork the routing rules, this plan splits static hosting into **policy** (decode → exact hit → SPA fallback → 404, shared) and **lookup** (filesystem *or* embedded map, swappable). A codegen step walks `dist/` and emits one `with { type: 'file' }` import per file plus a `Map<urlPath, embeddedPath>`; a second entrypoint, `standalone.ts`, wires that map into the same policy. `index.ts` is left byte-identical in behaviour, so `bun run serve` and all 13 existing static tests keep exercising the real filesystem.
+**Architecture:** `bun build --compile` already handles the server half; the client half is the interesting one. `serveStatic` reads the real filesystem under `MULES_STATIC_ROOT`, and a compiled binary has no `dist/` to point at. Rather than fork the routing rules, this splits static hosting into **policy** (decode → refuse a `..` segment → exact hit → SPA fallback → 404, shared) and **lookup** (filesystem *or* embedded map, swappable). A codegen step walks `dist/` and emits one `with { type: 'file' }` import per file plus a `Map<urlPath, embeddedPath>`; a second entrypoint, `standalone.ts`, wires that map into the same policy. `index.ts` keeps its behaviour, so `bun run serve` and all 23 pre-existing `static.test.ts` cases go on exercising the real filesystem — unedited.
 
-**Tech Stack:** Bun 1.3.14 (`--compile`, import attributes, `bun:sqlite`), TypeScript 5.7, Vite 6, `bun test`.
+**Tech Stack:** Bun 1.3.14 (`--compile`, `--bytecode`, import attributes, `bun:sqlite`), TypeScript 5.7, Vite 6, `bun test`.
 
 ---
 
 ## Why these shapes
 
-**Why a second entrypoint rather than a flag on the first.** `index.ts:145` branches on `config.staticRoot !== null`. Adding an `embedded` mode there would mean the production server carries a manifest of a `dist/` it may not have built, and every server test would boot code holding 70 MB of embedded imports. A separate entrypoint keeps the import graph honest: only the thing being compiled imports the compiled-in assets.
+**Why a second entrypoint rather than a flag on the first.** `index.ts` branches on `config.staticRoot !== null`. Adding an `embedded` mode there would mean the production server carries a manifest of a `dist/` it may not have built, and every server test would boot code holding the whole client. A separate entrypoint keeps the import graph honest: only the thing being compiled imports the compiled-in assets.
 
-**Why the policy is shared and the lookup is not.** Duplicating "extensionless paths fall back to `index.html`, a missing `.png` stays a 404" in two files guarantees they drift, and the drift would be invisible until someone reports a dead invite link from a downloaded binary. Only the *resolution* step genuinely differs — one resolves against a directory and must refuse traversal, the other does a `Map.get` that cannot escape anything.
+**Why the policy is shared and the lookup is not.** Duplicating "extensionless paths fall back to `index.html`, a missing `.png` stays a 404" in two files guarantees they drift, and the drift would be invisible until someone reported a dead invite link from a downloaded binary. Only the *resolution* step genuinely differs — one resolves against a directory and must refuse traversal, the other does a `Map.get` that cannot escape anything.
 
 **Why the manifest is generated and committed.** Bun resolves `with { type: 'file' }` at bundle time, so the import list cannot be a runtime glob — it must be code. And it must be *committed* code: `standalone.ts` imports it, so a fresh clone missing it fails `bunx tsc --noEmit`, which AGENTS.md names as the only type check this project has. The generated file carries `// @ts-nocheck`, which makes its references to a possibly-absent `dist/` harmless (verified: TS2307 is suppressed) while its explicit `export const EMBEDDED: ReadonlyMap<string, string>` annotation still types correctly at every call site.
 
-**Why `@ts-nocheck` at all.** Three of the seven extensions in `dist/` do not type-check as file imports. `vite/client` declares `*.png`, `*.css`, `*.woff2` and `*.txt` as `string` — fine. But `@types/bun` declares `*.html` as `HTMLBundle` (correct for Bun's fullstack dev server, wrong for `type: 'file'`), `*.js` resolves to the real JavaScript module, and `*.md` has no declaration at all. There is no ambient declaration that overrides those, so the generated file opts out of checking and the hand-written code around it stays fully checked.
+**Why `@ts-nocheck` at all.** Three of the seven extensions in `dist/` (`css html js md png txt woff2`) do not type-check as file imports. `vite/client` declares `*.png`, `*.css`, `*.woff2` and `*.txt` as `string` — fine. But `@types/bun` declares `*.html` as `HTMLBundle` (correct for Bun's fullstack dev server, wrong for `type: 'file'`), `*.js` resolves to the real JavaScript module, and `*.md` has no declaration at all. There is no ambient declaration that overrides those, so the generated file opts out of checking and the hand-written code around it stays fully checked.
 
-**Why env-configurable tunables are in scope.** A binary someone downloads has different needs from a repo script: port 3000 is hardcoded, `publicBaseUrl` is baked at `http://localhost:3000` (deferred item **D3** in the UIX plan), and the sqlite file lands wherever the binary was launched from. All three are one function in `config.ts`, and doing them here closes D3.
+**Why env-configurable tunables are in scope.** A binary someone downloads has different needs from a repo script: port 3000 was hardcoded, `publicBaseUrl` was baked at `http://localhost:3000` (deferred item **D3** in the UIX plan), and the sqlite file lands wherever the binary was launched from. All three are one function in `config.ts`, and doing them here closed D3.
 
 ---
 
@@ -33,6 +39,7 @@
 | 3 | Embedded-asset manifest (pure module + CLI) | 4–6 |
 | 4 | `standalone.ts` entrypoint and compile scripts | 7–9 |
 | 5 | End-to-end verification and docs | 10–11 |
+| 6 | Post-merge fixes (PR #23) | 12–13 |
 
 ---
 
@@ -46,7 +53,7 @@
 
 **Step 1: Write the failing tests**
 
-Append to `src/server/__tests__/config.test.ts`:
+Append to `src/server/__tests__/config.test.ts`, importing `envOverrides` alongside the existing `DEFAULT_CONFIG, makeConfig`:
 
 ```ts
 describe('envOverrides', () => {
@@ -87,54 +94,57 @@ describe('envOverrides', () => {
         );
     });
 
-    it.each([['zero', '0'], ['negative', '-1'], ['fractional', '80.5'], ['words', 'eighty'], ['blank', '']])(
-        'throws on a %s port rather than silently falling back to 3000',
-        (_name, value) => {
-            expect(() => envOverrides({ MULES_PORT: value })).toThrow(/MULES_PORT/);
-        }
-    );
+    it.each([
+        ['zero', '0'],
+        ['negative', '-1'],
+        ['fractional', '80.5'],
+        ['words', 'eighty'],
+        ['blank', ''],
+        ['out of range', '70000']
+    ])('throws on a %s port rather than silently falling back to 3000', (_name, value) => {
+        expect(() => envOverrides({ MULES_PORT: value })).toThrow(/MULES_PORT/);
+    });
 
     it('feeds makeConfig to produce a complete config', () => {
-        expect(makeConfig(envOverrides({ MULES_PORT: '8123' })).port).toBe(8123);
+        expect(makeConfig(envOverrides({ MULES_PORT: '8123' }))).toEqual({
+            ...DEFAULT_CONFIG,
+            port: 8123,
+            publicBaseUrl: 'http://localhost:8123'
+        });
     });
 });
 ```
-
-Import `envOverrides` alongside the existing imports on line 2.
 
 **Step 2: Run to verify it fails**
 
 ```bash
 bun test src/server/__tests__/config.test.ts
 ```
-Expected: FAIL — `envOverrides is not a function` / import error.
+Actual: `SyntaxError: Export named 'envOverrides' not found in module … config.ts`.
 
 **Step 3: Implement**
 
 Append to `src/server/config.ts`:
 
 ```ts
-/**
- * The subset of `TransportConfig` a deployment sets from the environment
- * (Design §5). Kept separate from `DEFAULT_CONFIG` because these four are the
- * only values that differ between "this repo's `serve` script" and "a binary
- * someone downloaded" — every other tunable is a design constant.
- *
- * Takes the environment as an argument rather than reading `Bun.env`, so tests
- * are pure and no test can leak a variable into the next one.
- */
 export function envOverrides(env: Record<string, string | undefined>): Partial<TransportConfig> {
-    const overrides: Partial<TransportConfig> = {};
+    // `Partial<T>` makes fields optional but keeps them `readonly`, and every
+    // field here is readonly by design — so the accumulator drops the modifier
+    // and the return type puts it back.
+    const overrides: { -readonly [K in keyof TransportConfig]?: TransportConfig[K] } = {};
 
     if (env.MULES_PORT !== undefined) {
+        // `Number('')` is 0 and `Number(' 80 ')` is 80, so the range check does
+        // the work an eager `parseInt` would have got wrong in both directions.
         const port = Number(env.MULES_PORT);
         if (!Number.isInteger(port) || port < 1 || port > 65535) {
             throw new Error(`MULES_PORT must be an integer from 1 to 65535, got ${JSON.stringify(env.MULES_PORT)}`);
         }
         overrides.port = port;
-        // D3: joinUrl is built from publicBaseUrl, so moving the port without
-        // saying anything about the URL must move the invite link too.
-        // Overwritten below if the deployment names a URL of its own.
+        // Deferred item D3: `joinUrl` is built from `publicBaseUrl`, so moving
+        // the port and saying nothing about the URL has to move the invite link
+        // too — otherwise every guest is sent to a port nothing is serving.
+        // Overwritten just below if the deployment names a URL of its own.
         overrides.publicBaseUrl = `http://localhost:${port}`;
     }
 
@@ -150,18 +160,16 @@ export function envOverrides(env: Record<string, string | undefined>): Partial<T
 }
 ```
 
+> The `-readonly` mapped type is not decoration. `Partial<TransportConfig>` keeps
+> every field read-only, so the plain version fails `tsc` with five TS2540s —
+> **after** `bun test` reported all 14 cases green. That gap is exactly the
+> gotcha AGENTS.md documents about Bun transpiling without type-checking.
+
 **Step 4: Run to verify it passes**
 
 ```bash
-bun test src/server/__tests__/config.test.ts
-```
-Expected: PASS.
-
-**Step 5: Commit**
-
-```bash
-but status -fv
-but commit server/standalone-binary -m "feat(server): read port, db path and base URL from the environment" --changes <ids>
+bun test src/server/__tests__/config.test.ts   # 14 pass
+bunx tsc --noEmit                              # silent
 ```
 
 ---
@@ -169,37 +177,29 @@ but commit server/standalone-binary -m "feat(server): read port, db path and bas
 ### Task 2: Wire the environment into the existing entrypoint
 
 **Files:**
-- Modify: `src/server/index.ts:205-209`
+- Modify: `src/server/index.ts` (the `import.meta.main` block and the `./config` import)
 
 **Step 1: Implement**
-
-Replace the `import.meta.main` block:
 
 ```ts
 if (import.meta.main) {
     // Hosting stays opt-in, set by package.json's `serve` script — the only
-    // place that knows this repo builds to dist/. Every other tunable a
-    // deployment moves (port, database path, invite-link origin) now comes from
-    // the same place; see `envOverrides`.
+    // place that knows this repo builds to dist/, one line from the script
+    // producing it. Every other tunable a deployment moves (port, database
+    // path, invite-link origin) now arrives through the same door; see
+    // `envOverrides`.
     startServer(makeConfig(envOverrides(Bun.env)));
 }
 ```
 
-Update the import on line 12 to `import { envOverrides, makeConfig } from './config';`.
+Change the import to `import { envOverrides, makeConfig } from './config';`.
 
 **Step 2: Verify nothing regressed**
 
 ```bash
-bun test src/server
-bunx tsc --noEmit
+bun test src/server && bunx tsc --noEmit
 ```
-Expected: PASS, no output from tsc. `MULES_STATIC_ROOT=dist` in the `serve` script still works — it now arrives via `envOverrides` instead of a bespoke read.
-
-**Step 3: Commit**
-
-```bash
-but commit server/standalone-binary -m "feat(server): apply environment overrides at the entrypoint" --changes <ids>
-```
+`MULES_STATIC_ROOT=dist` in the `serve` script still works — it now arrives via `envOverrides` instead of a bespoke read.
 
 ---
 
@@ -207,95 +207,13 @@ but commit server/standalone-binary -m "feat(server): apply environment override
 
 **Files:**
 - Create: `src/server/staticAssets.ts`
-- Modify: `src/server/index.ts` (delete the body of `serveStatic`, re-export)
-- Test: `src/server/__tests__/staticAssets.test.ts` (new); `src/server/__tests__/static.test.ts` (unchanged — it is the regression gate)
+- Modify: `src/server/index.ts` (`serveStatic` becomes a delegating wrapper)
+- Test: `src/server/__tests__/staticAssets.test.ts` (new), plus fixtures
+- **Regression gate:** `src/server/__tests__/static.test.ts` — 23 cases, must pass **unedited**
 
-The existing `static.test.ts` must keep passing **without edits**. That is the proof the refactor is behaviour-preserving.
+That gate is the point of the task, not a formality. See [What execution changed](#what-execution-changed).
 
-**Step 1: Write the failing tests**
-
-Create `src/server/__tests__/staticAssets.test.ts`:
-
-```ts
-/**
- * The static-hosting policy, independent of where the bytes come from.
- *
- * `static.test.ts` covers the filesystem lookup end to end and is left
- * untouched by the refactor that produced this file — it is the regression
- * gate. This suite covers the seam: that one policy drives two lookups
- * identically, and that the embedded lookup a compiled binary uses obeys the
- * same SPA-fallback and 404 rules as the directory one.
- */
-import { describe, expect, it } from 'bun:test';
-import { mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { embeddedLookup, filesystemLookup, serveFrom } from '../staticAssets';
-
-const EMBEDDED = new Map([
-    ['/index.html', join(import.meta.dir, 'fixtures', 'shell.html')],
-    ['/assets/card.png', join(import.meta.dir, 'fixtures', 'card.png')]
-]);
-
-describe('embeddedLookup', () => {
-    const lookup = embeddedLookup(EMBEDDED);
-
-    it('serves the shell at the root', async () => {
-        const res = await serveFrom(lookup, '/');
-        expect(res.status).toBe(200);
-        expect(await res.text()).toContain('court');
-    });
-
-    it('serves an embedded asset with its own bytes', async () => {
-        expect(await (await serveFrom(lookup, '/assets/card.png')).text()).toBe('PNGDATA');
-    });
-
-    it('falls back to the shell for an extensionless client route', async () => {
-        const res = await serveFrom(lookup, '/join/K7QX2');
-        expect(res.status).toBe(200);
-        expect(await res.text()).toContain('court');
-    });
-
-    it('404s a missing file that carries an extension', async () => {
-        expect((await serveFrom(lookup, '/assets/missing.png')).status).toBe(404);
-    });
-
-    it('404s a traversal, which a map lookup simply misses', async () => {
-        expect((await serveFrom(lookup, '/../../etc/passwd')).status).toBe(404);
-    });
-
-    it('404s a malformed percent-escape instead of throwing', async () => {
-        expect((await serveFrom(lookup, '/%ZZ')).status).toBe(404);
-    });
-
-    it('decodes a percent-encoded path so an asset with a space is reachable', async () => {
-        const lookupWithSpace = embeddedLookup(
-            new Map([['/a b.png', join(import.meta.dir, 'fixtures', 'card.png')]])
-        );
-        expect((await serveFrom(lookupWithSpace, '/a%20b.png')).status).toBe(200);
-    });
-});
-
-describe('filesystemLookup', () => {
-    it('serves the shell at the root of a directory whose own name contains a dot', async () => {
-        // The pre-refactor code tested for an extension on the *resolved* path,
-        // so a request for '/' resolved to the root directory itself and took
-        // its basename — meaning a root named 'mules.court' had an "extension"
-        // and the homepage 404ed. The policy now reads the request path, where
-        // '/' has no last segment and the fallback is unambiguous.
-        const parent = mkdtempSync(join(tmpdir(), 'mules-dotted-'));
-        const root = join(parent, 'mules.court');
-        mkdirSync(root, { recursive: true });
-        writeFileSync(join(root, 'index.html'), '<!doctype html><title>court</title>');
-
-        const res = await serveFrom(filesystemLookup(root), '/');
-        expect(res.status).toBe(200);
-        expect(await res.text()).toContain('court');
-    });
-});
-```
-
-Create the fixtures:
+**Step 1: Create the fixtures**
 
 ```bash
 mkdir -p src/server/__tests__/fixtures
@@ -303,45 +221,77 @@ printf '<!doctype html><title>court</title>' > src/server/__tests__/fixtures/she
 printf 'PNGDATA' > src/server/__tests__/fixtures/card.png
 ```
 
-**Step 2: Run to verify it fails**
+**Step 2: Write the failing tests**
 
-```bash
-bun test src/server/__tests__/staticAssets.test.ts
-```
-Expected: FAIL — cannot resolve `../staticAssets`.
-
-**Step 3: Implement**
-
-Create `src/server/staticAssets.ts`:
+`src/server/__tests__/staticAssets.test.ts` covers the seam — that one policy drives two lookups identically. Highlights (see the file for all 14 cases):
 
 ```ts
-/**
- * Static hosting, split so one set of rules can serve two sources of bytes.
- *
- * `serveFrom` owns the *policy* — decode, exact hit, SPA fallback for an
- * extensionless path, 404 for anything else (UIX §2.6). A `Lookup` owns
- * *resolution*, and only that differs between the two deployments: the
- * filesystem lookup resolves against a directory and must refuse traversal,
- * while the embedded lookup a compiled binary uses is a `Map.get` that cannot
- * escape anything by construction.
- *
- * Duplicating the policy per source is the failure this file exists to prevent:
- * the drift would surface as a dead invite link from a downloaded binary, with
- * nothing in the repo's own test run to catch it.
- */
-import { basename, join, resolve, sep } from 'node:path';
+const EMBEDDED = new Map([
+    ['/index.html', SHELL],
+    ['/assets/card.png', CARD]
+]);
+
+describe('embeddedLookup', () => {
+    const lookup = embeddedLookup(EMBEDDED);
+
+    it('serves the shell at the root', async () => {
+        expect(await (await serveFrom(lookup, '/')).text()).toContain('court');
+    });
+
+    it('infers the content type from the extension, with no MIME table of its own', async () => {
+        expect((await serveFrom(lookup, '/assets/card.png')).headers.get('content-type')).toContain('image/png');
+    });
+
+    it('falls back to the shell for an extensionless client route', async () => {
+        expect(await (await serveFrom(lookup, '/join/K7QX2')).text()).toContain('court');
+    });
+
+    it('404s an extensionless traversal instead of answering it with the app shell', async () => {
+        expect((await serveFrom(lookup, '/../../etc/passwd')).status).toBe(404);
+        expect((await serveFrom(lookup, '/join/../../../etc/shadow')).status).toBe(404);
+    });
+
+    it('serves a file whose name merely starts with dots', async () => {
+        // The refusal tests whole segments, not substrings: '..png' is a name.
+        const dotty = embeddedLookup(new Map([['/assets/..png', CARD]]));
+        expect((await serveFrom(dotty, '/assets/..png')).status).toBe(200);
+    });
+
+    it('404s an entry whose file has gone missing', async () => {
+        const stale = embeddedLookup(new Map([['/index.html', join(tmpdir(), 'mules-not-here.html')]]));
+        expect((await serveFrom(stale, '/index.html')).status).toBe(404);
+    });
+});
+
+describe('filesystemLookup', () => {
+    it('serves the shell at the root of a directory whose own name contains a dot', async () => {
+        // The pre-refactor policy tested for an extension on the *resolved*
+        // path. A request for '/' resolves to the root directory itself, so its
+        // basename was the directory's own name — meaning a root named
+        // 'mules.court' looked like it had an extension and the homepage 404ed.
+        // Every existing test used a dot-free temp directory, so nothing caught it.
+    });
+
+    it('404s an extensionless traversal rather than falling back to the shell', async () => {
+        // The same regression from the filesystem side, where the disclosure
+        // would be real.
+    });
+
+    it('still refuses a traversal at the lookup, as defence in depth', async () => {
+        const lookup = filesystemLookup(root);
+        expect(await lookup('/../mules-guard-evil/secret.txt')).toBeNull();
+    });
+});
+```
+
+**Step 3: Implement `src/server/staticAssets.ts`**
+
+```ts
+import { resolve, sep } from 'node:path';
 
 /** Resolves an already-decoded, in-root request path to a file, or null. */
 export type Lookup = (pathname: string) => Promise<Bun.BunFile | null>;
 
-/**
- * Serves `pathname` through `lookup`, applying the routing policy.
- *
- * The extension test reads the *request* path rather than a resolved one. A
- * path with no extension is a client route, so it gets the app shell and the
- * router sorts it out; a missing `.png` stays a 404, because pretending a
- * broken asset is the homepage hides the breakage.
- */
 export async function serveFrom(lookup: Lookup, pathname: string): Promise<Response> {
     let decoded: string;
     try {
@@ -351,34 +301,31 @@ export async function serveFrom(lookup: Lookup, pathname: string): Promise<Respo
         return new Response('Not Found', { status: 404 });
     }
 
+    // Refused here rather than in a lookup, because a lookup can only answer
+    // "no file", and "no file" is what triggers the shell fallback below. A
+    // traversal that reached that fallback would be answered with the app's
+    // homepage and a 200 — `/../../etc/passwd` has no extension, so it reads as
+    // a client route. Neither source has a legitimate parent-directory segment:
+    // one has no directory to leave, the other must never leave it.
+    if (decoded.split('/').includes('..')) {
+        return new Response('Not Found', { status: 404 });
+    }
+
     const hit = await lookup(decoded);
     if (hit !== null) return new Response(hit);
 
     const lastSegment = decoded.slice(decoded.lastIndexOf('/') + 1);
     if (!lastSegment.includes('.')) {
-        const shell = await lookup('/index.html');
+        const shell = await lookup(SHELL_PATH);
         if (shell !== null) return new Response(shell);
     }
 
     return new Response('Not Found', { status: 404 });
 }
 
-/**
- * Reads from a directory on disk, refusing any path that escapes it.
- *
- * The resolve-then-prefix-check is the whole security story: `resolve`
- * collapses every `..`, and a resolved path that no longer starts with the root
- * is refused before `Bun.file` ever opens it. Percent-encoded traversal is
- * covered because `serveFrom` decodes first and this resolves second — checking
- * a raw pathname would miss `%2e%2e`, and decoding after resolving would
- * reintroduce it.
- *
- * The `target !== base` arm matters: a request for `/` resolves to the root
- * itself, which is legitimate and does not carry the trailing separator the
- * prefix test looks for. Comparing against `base + sep` alone would refuse the
- * homepage; comparing against `base` alone would let `/../dist-evil` through on
- * a sibling directory whose name merely starts with the root's.
- */
+/** The app shell every client route falls back to. */
+export const SHELL_PATH = '/index.html';
+
 export function filesystemLookup(root: string): Lookup {
     const base = resolve(root);
 
@@ -388,77 +335,45 @@ export function filesystemLookup(root: string): Lookup {
 
         // `resolve` strips a trailing separator, so a request for '/' lands on
         // the directory itself. `Bun.file(dir).exists()` is false, which is the
-        // answer we want — the shell fallback in `serveFrom` handles it.
+        // answer we want — `serveFrom`'s shell fallback handles it from there.
         const file = Bun.file(target);
         return (await file.exists()) ? file : null;
     };
 }
 
-/**
- * Reads from the manifest `bun build --compile` embedded into the binary.
- *
- * The map's values are whatever `import … with { type: 'file' }` evaluated to:
- * an absolute filesystem path when run under `bun`, an opaque embedded-VFS path
- * inside a compiled binary. `Bun.file` accepts both, which is why
- * `standalone.ts` is runnable — and testable — without a 61 MB build step.
- *
- * No traversal guard: a `Map.get` for '/../../etc/passwd' misses, and there is
- * no directory to escape into.
- */
 export function embeddedLookup(embedded: ReadonlyMap<string, string>): Lookup {
     return async pathname => {
-        const key = pathname === '/' ? '/index.html' : pathname;
-        const target = embedded.get(key);
+        const target = embedded.get(pathname === '/' ? SHELL_PATH : pathname);
         if (target === undefined) return null;
 
+        // Not ceremonial: run uncompiled, these are real files that a rebuild
+        // can rename out from under a stale manifest.
         const file = Bun.file(target);
         return (await file.exists()) ? file : null;
     };
 }
-
-/** Shell path used by the generator and asserted by the manifest tests. */
-export const SHELL_PATH = '/index.html';
-
-// `basename` and `join` are re-exported nowhere; they are used by neither
-// function above. Remove the import if this comment survives review.
 ```
 
-> **Note for the implementer:** delete `basename, join` from that import — the
-> policy no longer needs them, and `noUnusedLocals` will fail the build if they
-> stay. The trailing comment is a reminder, not code to keep.
+The full doc comments in the shipped file carry the reasoning; they are not reproduced here.
 
-Then in `src/server/index.ts`, replace the whole `serveStatic` body (lines 27–78) with a delegating wrapper that keeps its exported signature, since `static.test.ts` imports it:
+**Step 4: Reduce `index.ts`'s `serveStatic` to a wrapper**
+
+It keeps its exported signature, because `static.test.ts` imports it:
 
 ```ts
-/**
- * Static hosting with an SPA fallback for `/join/:matchId` (UIX §2.6).
- *
- * The rules live in `staticAssets.ts`, shared with the standalone binary so the
- * two deployments cannot drift. Still exported here because driving the policy
- * through `fetch` cannot exercise the traversal guard: the URL parser collapses
- * `..` before the request leaves the client, so a test run that way would pass
- * against a function with no check in it at all.
- */
 export function serveStatic(root: string, pathname: string): Promise<Response> {
     return serveFrom(filesystemLookup(root), pathname);
 }
 ```
 
-Update `index.ts`'s imports: drop `basename, join, resolve, sep` from `node:path` (nothing else in the file uses them) and add `import { filesystemLookup, serveFrom } from './staticAssets';`.
+Drop `basename, join, resolve, sep` from `index.ts`'s `node:path` import — nothing else there uses them, and `noUnusedLocals` will fail the build otherwise — and add `import { filesystemLookup, serveFrom } from './staticAssets';`.
 
-**Step 4: Run to verify everything passes**
-
-```bash
-bun test src/server
-bunx tsc --noEmit
-```
-Expected: PASS, including all 13 pre-existing `static.test.ts` cases with no edits to that file.
-
-**Step 5: Commit**
+**Step 5: Run**
 
 ```bash
-but commit server/standalone-binary -m "refactor(server): share one static-hosting policy across two byte sources" --changes <ids>
+bun test src/server && bunx tsc --noEmit
 ```
+Expected: PASS, including all 23 pre-existing `static.test.ts` cases with no edits to that file.
 
 ---
 
@@ -472,155 +387,58 @@ The decision — which files to embed and what source text to emit — is pure a
 
 **Step 1: Write the failing tests**
 
-Create `src/server/__tests__/embeddedManifest.test.ts`:
+Driven from a fixture tree, so the suite is deterministic and passes on a clone that has never built. The tree deliberately contains two `.DS_Store` files.
 
 ```ts
-/**
- * The embedded-asset manifest generator.
- *
- * Tested against a fixture tree rather than the real `dist/`, so the suite is
- * deterministic and runs on a clone that has never built. One test at the
- * bottom does check the committed manifest against a real `dist/` — and skips
- * itself when there is none.
- */
-import { describe, expect, it } from 'bun:test';
-import { existsSync, mkdirSync, mkdtempSync, writeFileSync } from 'node:fs';
-import { tmpdir } from 'node:os';
-import { join } from 'node:path';
-import { collectAssetFiles, renderManifest } from '../embeddedManifest';
-
-function fixtureTree(): string {
-    const root = mkdtempSync(join(tmpdir(), 'mules-manifest-'));
-    mkdirSync(join(root, 'assets', 'mule'), { recursive: true });
-    mkdirSync(join(root, 'fonts'), { recursive: true });
-    writeFileSync(join(root, 'index.html'), '<!doctype html>');
-    writeFileSync(join(root, 'assets', 'app.js'), 'console.log(1)');
-    writeFileSync(join(root, 'assets', 'mule', 'portrait_0.png'), 'PNG');
-    writeFileSync(join(root, 'fonts', 'inter.woff2'), 'FONT');
-    writeFileSync(join(root, '.DS_Store'), 'JUNK');
-    writeFileSync(join(root, 'assets', '.DS_Store'), 'JUNK');
-    return root;
-}
-
 describe('collectAssetFiles', () => {
-    it('finds every file at every depth, as URL paths', () => {
-        expect(collectAssetFiles(fixtureTree())).toEqual([
-            '/assets/app.js',
-            '/assets/mule/portrait_0.png',
-            '/fonts/inter.woff2',
-            '/index.html'
-        ]);
+    it('finds every file at every depth, as URL paths', () => { … });
+
+    it('skips dotfiles at every depth, so .DS_Store is never baked into a binary', () => {
+        // public/ is copied into dist/ verbatim, and macOS has already put a
+        // .DS_Store in there once. A generator without this filter ships it.
     });
 
-    it('skips dotfiles, so .DS_Store is never baked into a binary', () => {
-        // `public/` is copied verbatim into `dist/`, and macOS has put a
-        // .DS_Store there before. A generator that embedded it would ship it.
-        expect(collectAssetFiles(fixtureTree()).some(p => p.includes('.DS_Store'))).toBe(false);
-    });
-
-    it('sorts, so a rebuild with unchanged files produces an unchanged manifest', () => {
-        const files = collectAssetFiles(fixtureTree());
-        expect(files).toEqual([...files].sort());
-    });
-
-    it('throws on a missing root rather than emitting an empty manifest', () => {
-        expect(() => collectAssetFiles(join(tmpdir(), 'mules-nope-does-not-exist'))).toThrow(/not found/i);
-    });
-
-    it('throws when the root holds no index.html, because the SPA fallback needs one', () => {
-        const bare = mkdtempSync(join(tmpdir(), 'mules-bare-'));
-        writeFileSync(join(bare, 'stray.txt'), 'x');
-        expect(() => collectAssetFiles(bare)).toThrow(/index\.html/);
-    });
+    it('sorts, so an unchanged dist/ regenerates an unchanged manifest', () => { … });
+    it('throws on a missing root rather than emitting an empty manifest', () => { … });
+    it('throws when the root holds no index.html, because the SPA fallback needs one', () => { … });
 });
 
 describe('renderManifest', () => {
-    const source = renderManifest(['/index.html', '/assets/app.js']);
-
-    it('emits one file import per asset, relative to src/server/', () => {
-        expect(source).toContain("import a0 from '../../dist/index.html' with { type: 'file' };");
-        expect(source).toContain("import a1 from '../../dist/assets/app.js' with { type: 'file' };");
-    });
-
-    it('maps every URL path to its imported binding', () => {
-        expect(source).toContain("['/index.html', a0]");
-        expect(source).toContain("['/assets/app.js', a1]");
-    });
-
-    it('annotates the export so consumers type-check even though the file does not', () => {
-        expect(source).toContain('export const EMBEDDED: ReadonlyMap<string, string>');
-    });
-
-    it('opts out of type-checking, because three of the extensions have no usable declaration', () => {
-        // @types/bun types *.html as HTMLBundle, *.js resolves to the real
-        // module, *.md has no declaration at all. Checking generated glue buys
-        // nothing; the annotated export keeps every call site checked.
-        expect(source.split('\n')[0]).toBe('// @ts-nocheck');
-    });
-
-    it('says it is generated, so nobody edits it by hand', () => {
-        expect(source).toMatch(/GENERATED/);
-        expect(source).toMatch(/bun run compile/);
-    });
-
-    it('is deterministic', () => {
-        expect(renderManifest(['/index.html'])).toBe(renderManifest(['/index.html']));
+    it('emits one file import per asset, resolved from src/server/', () => { … });
+    it('maps every URL path to its imported binding', () => { … });
+    it('annotates the export, so consumers type-check even though the file does not', () => { … });
+    it('opts out of type-checking on its first line', () => { … });
+    it('says it is generated and how to regenerate it', () => { … });
+    it('is deterministic', () => { … });
+    it('renders a usable module for an empty file list', () => {
+        expect(renderManifest([])).toContain('new Map([]);');
     });
 });
 
 describe('the committed manifest', () => {
-    it.skipIf(!existsSync(join(import.meta.dir, '..', '..', '..', 'dist', 'index.html')))(
-        'covers every file in the current dist/',
-        async () => {
-            // Skipped on a clone that has never built — dist/ is gitignored.
-            // When it does run it is the gate that catches a stale manifest:
-            // a rebuild that renamed a hashed chunk leaves the binary serving
-            // a 404 for the app's own JavaScript.
-            const { EMBEDDED } = await import('../embeddedAssets.generated');
-            const root = join(import.meta.dir, '..', '..', '..', 'dist');
-            expect([...EMBEDDED.keys()].sort()).toEqual(collectAssetFiles(root));
-        }
-    );
+    it.skipIf(!existsSync(join(DIST, 'index.html')))('covers every file in the current dist/', async () => {
+        // Skipped on a clone that has never built — dist/ is gitignored. When
+        // it does run it is the gate against a stale manifest: a rebuild that
+        // renames a hashed chunk otherwise leaves the binary 404ing the app's
+        // own JavaScript, and the app never boots.
+        const { EMBEDDED } = await import('../embeddedAssets.generated');
+        expect([...EMBEDDED.keys()].sort()).toEqual(collectAssetFiles(DIST));
+    });
 });
 ```
 
-**Step 2: Run to verify it fails**
-
-```bash
-bun test src/server/__tests__/embeddedManifest.test.ts
-```
-Expected: FAIL — cannot resolve `../embeddedManifest`.
-
-**Step 3: Implement**
-
-Create `src/server/embeddedManifest.ts`:
+**Step 2: Implement `src/server/embeddedManifest.ts`**
 
 ```ts
-/**
- * Decides what a compiled binary embeds, and writes the source that embeds it.
- *
- * Bun resolves `with { type: 'file' }` at bundle time, so the import list cannot
- * be a runtime glob over `dist/` — it has to be code, and code that is generated
- * is code worth testing. Both functions here are pure enough to drive from a
- * fixture tree; `scripts/generateEmbeddedAssets.ts` adds only the file write.
- */
 import { existsSync, readdirSync, statSync } from 'node:fs';
 import { join, posix } from 'node:path';
 
-/** Where the generated module lives, relative to `dist/`. */
+/** Where the generated module sits relative to `dist/`, as an import prefix. */
 const IMPORT_PREFIX = '../../dist';
 
-/**
- * Every file under `root`, as sorted URL paths ('/assets/app.js').
- *
- * Dotfiles are skipped at every depth. `public/` is copied into `dist/`
- * verbatim, and macOS has already put a `.DS_Store` in there once — a generator
- * without this filter would bake it into the binary.
- *
- * Sorted so an unchanged `dist/` regenerates an unchanged manifest: the file is
- * committed, and a generator whose output depended on directory-read order
- * would show a diff on every build.
- */
+/** The app shell; a manifest without one has nothing for a client route. */
+const SHELL = '/index.html';
+
 export function collectAssetFiles(root: string): string[] {
     if (!existsSync(root)) {
         throw new Error(`Asset root not found: ${root} — run \`bun run build\` first.`);
@@ -642,57 +460,44 @@ export function collectAssetFiles(root: string): string[] {
     walk(root, '/');
     files.sort();
 
-    if (!files.includes('/index.html')) {
-        throw new Error(`Asset root ${root} has no index.html — the SPA fallback would have nothing to serve.`);
+    if (!files.includes(SHELL)) {
+        // An empty or shell-less manifest compiles fine and 404s everything: a
+        // binary that starts, serves nothing, and explains nothing.
+        throw new Error(`Asset root ${root} has no ${SHELL} — the SPA fallback would have nothing to serve.`);
     }
 
     return files;
 }
 
-/** Renders the generated module's source text for `files`. */
 export function renderManifest(files: string[]): string {
     const imports = files
         .map((file, i) => `import a${i} from '${IMPORT_PREFIX}${file}' with { type: 'file' };`)
         .join('\n');
 
-    const entries = files.map((file, i) => `    ['${file}', a${i}]`).join(',\n');
+    const entries = files.length === 0 ? '' : `\n${files.map((file, i) => `    ['${file}', a${i}]`).join(',\n')}\n`;
 
     return `// @ts-nocheck
 /**
  * GENERATED — do not edit. Run \`bun run compile\` to regenerate.
- *
- * One \`type: 'file'\` import per file in dist/, plus the URL-path map
- * \`embeddedLookup\` reads. Each import evaluates to a *path* string: an absolute
- * filesystem path under \`bun\`, an embedded-VFS path inside a compiled binary.
- * \`Bun.file\` accepts both.
- *
- * The file opts out of type-checking because three of dist/'s extensions have no
- * usable declaration for a file import — @types/bun types *.html as HTMLBundle,
- * *.js resolves to the real module, *.md has none at all. That also makes the
- * references below harmless on a clone whose dist/ has never been built. The
- * annotated export keeps every call site fully checked.
+ * … (header explaining the path-not-bytes semantics and the @ts-nocheck) …
  */
 ${imports}
 
-export const EMBEDDED: ReadonlyMap<string, string> = new Map([
-${entries}
-]);
+export const EMBEDDED: ReadonlyMap<string, string> = new Map([${entries}]);
 `;
 }
 ```
 
-**Step 4: Run to verify it passes**
+`posix.join` builds the URL key while native `join` walks the filesystem — that is what keeps the manifest free of backslashes when generated on Windows.
+
+Note what is **not** filtered: the markdown and text files Vite copies from `public/` are embedded too. Dropping them would be a silent cap on what the binary serves, and `dist/` is the deliverable — if a file should not ship, it should not be in `public/`.
+
+**Step 3: Run**
 
 ```bash
 bun test src/server/__tests__/embeddedManifest.test.ts
 ```
-Expected: PASS, with the `committed manifest` case **skipped** (the generated file does not exist yet).
-
-**Step 5: Commit**
-
-```bash
-but commit server/standalone-binary -m "feat(server): decide and render the embedded-asset manifest" --changes <ids>
-```
+Expected: 12 pass, and the `committed manifest` case **failing** until Task 5 generates the file. (It skips only when `dist/` itself is absent.)
 
 ---
 
@@ -701,15 +506,13 @@ but commit server/standalone-binary -m "feat(server): decide and render the embe
 **Files:**
 - Create: `scripts/generateEmbeddedAssets.ts`
 
-**Step 1: Implement**
-
 ```ts
 /**
  * Regenerates `src/server/embeddedAssets.generated.ts` from `dist/`.
  *
  * Thin by design: every decision lives in `src/server/embeddedManifest.ts`,
  * which is tested against a fixture tree. This file adds a read of the real
- * directory and one write, and is reviewed by reading.
+ * directory and one write, and is meant to be reviewed by reading.
  */
 import { writeFileSync } from 'node:fs';
 import { join } from 'node:path';
@@ -722,36 +525,23 @@ const outPath = join(repoRoot, 'src', 'server', 'embeddedAssets.generated.ts');
 const files = collectAssetFiles(distRoot);
 writeFileSync(outPath, renderManifest(files));
 
-console.log(`Embedded ${files.length} files from dist/ into ${outPath}`);
+console.log(`Embedded ${files.length} files from dist/ → src/server/embeddedAssets.generated.ts`);
 ```
 
-**Step 2: Run it**
+**Run it:**
 
 ```bash
-bun run build
-bun scripts/generateEmbeddedAssets.ts
+bun run build && bun run generate:assets
 ```
-Expected: `Embedded 30 files from dist/ into …/embeddedAssets.generated.ts` (the count tracks whatever `dist/` currently holds).
+Actual: `Embedded 30 files from dist/ → src/server/embeddedAssets.generated.ts` — the count tracks whatever `dist/` holds.
 
-**Step 3: Verify the manifest test now runs instead of skipping**
-
-```bash
-bun test src/server/__tests__/embeddedManifest.test.ts
-bunx tsc --noEmit
-```
-Expected: PASS with no skip, and tsc silent.
-
-**Step 4: Commit — including the generated file**
-
-```bash
-but commit server/standalone-binary -m "feat(server): generate the embedded-asset manifest from dist/" --changes <ids>
-```
+Then `bun test src/server/__tests__/embeddedManifest.test.ts` is 13/13 and `bunx tsc --noEmit` is silent. **Commit the generated file.**
 
 ---
 
 ### Task 6: (folded into Task 3)
 
-`embeddedLookup` ships with the policy split, and its tests are in
+`embeddedLookup` shipped with the policy split and its tests live in
 `staticAssets.test.ts`. Kept as a numbered placeholder so later task numbers
 match the commit history.
 
@@ -761,29 +551,42 @@ match the commit history.
 
 **Files:**
 - Create: `src/server/standalone.ts`
+- Modify: `src/server/index.ts` (`startServer` takes an optional static handler)
 
 Differences from `index.ts`'s `main` block, all of which exist because someone
-downloaded this rather than checking it out:
+downloaded this rather than checking it out: static bytes come from the manifest;
+a banner names the URL, the resolved database path and the asset count; and
+`SIGINT`/`SIGTERM` close sqlite before exiting.
 
-- static bytes come from the manifest, not a directory;
-- a startup banner names the URL, the database path and how to stop it;
-- `SIGINT`/`SIGTERM` close sqlite before exiting, so Ctrl-C is not a hard kill.
-
-**Step 1: Implement**
+**Step 1: Make `startServer` accept a static handler**
 
 ```ts
 /**
- * Entrypoint for the single-file distributable (`bun run compile`).
- *
- * `index.ts` is the repo's server and stays exactly as it is: it reads
- * `dist/` off the filesystem, which is right for `bun run serve` and for the
- * transport tests. This file is the same server with its client bytes compiled
- * in, so the binary runs from any directory with no dist/ beside it.
- *
- * Only the *lookup* differs — the routing rules are the ones in
- * `staticAssets.ts`, shared, so a dead invite link cannot appear in the binary
- * without appearing in the repo's own test run first.
+ * Answers a request for a static path. `standalone.ts` passes one backed by the
+ * compiled-in manifest; everything else leaves it null and gets `config
+ * .staticRoot`, or no hosting at all.
  */
+export type StaticHandler = (pathname: string) => Promise<Response>;
+
+export function startServer(config: TransportConfig, serveAsset: StaticHandler | null = null): RunningServer {
+```
+
+and in `fetch`:
+
+```ts
+            // An explicit handler wins over a directory: a binary carries its
+            // client inside itself and never sets `staticRoot`, so the two are
+            // alternatives rather than layers.
+            if (serveAsset !== null) return serveAsset(url.pathname);
+            if (config.staticRoot !== null) return serveStatic(config.staticRoot, url.pathname);
+```
+
+The default keeps every existing call site unchanged.
+
+**Step 2: Implement `src/server/standalone.ts`**
+
+```ts
+import { resolve } from 'node:path';
 import { envOverrides, makeConfig } from './config';
 import { EMBEDDED } from './embeddedAssets.generated';
 import { startServer } from './index';
@@ -791,79 +594,48 @@ import { embeddedLookup, serveFrom } from './staticAssets';
 
 const config = makeConfig(envOverrides(Bun.env));
 const lookup = embeddedLookup(EMBEDDED);
-
 const running = startServer(config, pathname => serveFrom(lookup, pathname));
 
-// The database is created relative to the working directory, so say where it
-// went. A binary launched by double-click from a downloads folder writes there,
-// and silently, that is the kind of thing someone finds a week later.
+// Say where the database went. It is created relative to the working directory,
+// so a binary launched by double-click from a downloads folder writes there —
+// silently, which is the kind of thing someone finds a week later.
+const database = config.dbPath === ':memory:' ? 'in memory (nothing written)' : resolve(config.dbPath);
+
 console.log(
     [
-        `The Mule's Court — v${process.env.MULES_VERSION ?? '1.0.0'}`,
+        ``,
+        `  The Mule's Court`,
         ``,
         `  Playing at   ${config.publicBaseUrl}`,
-        `  Database     ${config.dbPath === ':memory:' ? 'in memory (nothing written)' : Bun.pathToFileURL(config.dbPath).pathname}`,
+        `  Database     ${database}`,
         `  Assets       ${EMBEDDED.size} files compiled in`,
         ``,
-        `  Set MULES_PORT, MULES_DB_PATH or MULES_PUBLIC_BASE_URL to change any of this.`,
+        `  MULES_PORT, MULES_DB_PATH and MULES_PUBLIC_BASE_URL change any of the above.`,
         `  Press Ctrl-C to stop.`,
         ``
     ].join('\n')
 );
 
-// A hard kill leaves sqlite's WAL behind. `stop()` closes the store and
-// force-closes every live socket, which is what the transport's own teardown
-// path already expects.
+// A hard kill leaves sqlite's write-ahead log behind. `stop()` closes the store
+// and force-closes every live socket, which is the teardown path the transport
+// tests already exercise.
 for (const signal of ['SIGINT', 'SIGTERM'] as const) {
     process.on(signal, () => {
-        console.log('\nStopping…');
+        console.log('\n  Stopping…');
         running.stop();
         process.exit(0);
     });
 }
 ```
 
-**Step 2: Make `startServer` accept a static handler**
-
-`src/server/index.ts` — add an optional second parameter, defaulting to the
-filesystem behaviour so no existing call site changes:
-
-```ts
-export function startServer(
-    config: TransportConfig,
-    serveAsset: ((pathname: string) => Promise<Response>) | null = null
-): RunningServer {
-```
-
-and replace the static branch in `fetch`:
-
-```ts
-            if (serveAsset !== null) return serveAsset(url.pathname);
-            if (config.staticRoot !== null) return serveStatic(config.staticRoot, url.pathname);
-```
-
-An explicit handler wins over `staticRoot`; a binary sets the first and never
-the second.
-
 **Step 3: Verify it runs uncompiled**
 
 ```bash
-MULES_PORT=39119 bun src/server/standalone.ts &
-sleep 1
-curl -s -o /dev/null -w '%{http_code} %{content_type}\n' http://localhost:39119/
-curl -s -o /dev/null -w '%{http_code} %{content_type}\n' http://localhost:39119/favicon.png
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:39119/join/K7QX2
-curl -s -o /dev/null -w '%{http_code}\n' http://localhost:39119/assets/missing.png
-curl -s -X POST -o /dev/null -w '%{http_code}\n' http://localhost:39119/api/rooms
-kill %1
+MULES_PORT=39119 MULES_DB_PATH=:memory: bun src/server/standalone.ts &
 ```
-Expected: `200 text/html`, `200 image/png`, `200`, `404`, `201`.
-
-**Step 4: Commit**
-
-```bash
-but commit server/standalone-binary -m "feat(server): standalone entrypoint serving compiled-in client assets" --changes <ids>
-```
+Actual: banner printed with `Playing at http://localhost:39119` — D3 visibly closed —
+then `/` → `200 text/html`, `/favicon.png` → `200 image/png`, `/join/K7QX2` → `200`,
+`/assets/missing.png` → `404`, `POST /api/rooms` → `201`.
 
 ---
 
@@ -872,203 +644,279 @@ but commit server/standalone-binary -m "feat(server): standalone entrypoint serv
 **Files:**
 - Test: `src/server/__tests__/standalone.test.ts`
 
-Booting `standalone.ts` from a test would bind a port and install signal
-handlers, so the test drives the same wiring instead: `startServer` with an
-embedded handler.
+Booting `standalone.ts` from a test would bind a port and install signal handlers,
+so the test drives the same wiring: `startServer` with an embedded handler and no
+`staticRoot`. Unlike `static.test.ts`, it runs against the **real committed
+manifest**, so it fails if a rebuild renamed a hashed chunk and nobody regenerated.
 
-**Step 1: Write the test**
+**Nothing here may name a file in the manifest** — see Task 13, which is where
+that rule came from.
 
 ```ts
 /**
- * The wiring a compiled binary uses: `startServer` with an embedded asset
- * handler and no `staticRoot`. `standalone.ts` itself is a console banner and
- * two signal handlers over exactly this.
+ * Any manifest entry with the given extension.
+ *
+ * The manifest is regenerated from dist/ on every build, so nothing here may
+ * name one of its files: the hashed chunks move, and the rest are only whatever
+ * `public/` happened to hold that day. `/index.html` is the one exception, and
+ * it is a contract rather than content: `collectAssetFiles` refuses to emit a
+ * manifest without it.
  */
-import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
-import { makeConfig } from '../config';
-import { EMBEDDED } from '../embeddedAssets.generated';
-import { startServer } from '../index';
-import type { RunningServer } from '../index';
-import { embeddedLookup, serveFrom } from '../staticAssets';
+function anyAssetEndingIn(extension: string): string {
+    const hit = [...EMBEDDED.keys()].find(path => path.endsWith(extension));
+    if (hit === undefined) throw new Error(`No ${extension} file in the manifest to probe with`);
+    return hit;
+}
 
-describe('standalone wiring', () => {
-    let running: RunningServer;
-    let base: string;
+it('serves every asset the shell references, which is what proves the client can boot', async () => {
+    // Derived from the shell rather than named here — and the stronger claim:
+    // not "a JavaScript file is reachable" but "every URL the app requests to
+    // boot is served by the binary".
+    const shell = await (await fetch(`${base}/`)).text();
+    const referenced = [...shell.matchAll(/(?:src|href)="(\/[^"]+)"/g)].map(match => match[1]);
+    expect(referenced.length).toBeGreaterThan(0);
 
-    beforeAll(() => {
-        const lookup = embeddedLookup(EMBEDDED);
-        running = startServer(makeConfig({ port: 0, dbPath: ':memory:' }), p => serveFrom(lookup, p));
-        base = `http://localhost:${running.server.port}`;
-    });
+    const served = await Promise.all(
+        referenced.map(async path => `${path} → ${(await fetch(`${base}${path}`)).status}`)
+    );
+    expect(served).toEqual(referenced.map(path => `${path} → 200`));
+});
 
-    afterAll(() => running.stop());
-
-    it('serves the real app shell with no staticRoot configured', async () => {
-        const res = await fetch(`${base}/`);
-        expect(res.status).toBe(200);
-        expect(res.headers.get('content-type')).toContain('text/html');
-        expect(await res.text()).toContain('<div id="game-container">');
-    });
-
-    it('serves a compiled-in asset with the right content type', async () => {
-        const res = await fetch(`${base}/favicon.png`);
-        expect(res.status).toBe(200);
-        expect(res.headers.get('content-type')).toContain('image/png');
-    });
-
-    it('falls back to the shell on an invite route', async () => {
-        expect((await fetch(`${base}/join/K7QX2`)).status).toBe(200);
-    });
-
-    it('404s a missing asset rather than pretending it is the homepage', async () => {
-        expect((await fetch(`${base}/assets/missing.png`)).status).toBe(404);
-    });
-
-    it('404s an unknown API path', async () => {
-        expect((await fetch(`${base}/api/nope`)).status).toBe(404);
-    });
-
-    it('still creates a room', async () => {
-        expect((await fetch(`${base}/api/rooms`, { method: 'POST' })).status).toBe(201);
-    });
+it('404s a missing asset rather than pretending it is the homepage', async () => {
+    // Checked rather than assumed: the whole point of the case is that the path
+    // is absent from the manifest, and the manifest is regenerated from dist/.
+    const absent = '/assets/definitely-not-in-the-manifest.png';
+    expect(EMBEDDED.has(absent)).toBe(false);
+    expect((await fetch(`${base}${absent}`)).status).toBe(404);
 });
 ```
 
-**Step 2: Run**
-
-```bash
-bun test src/server
-```
-Expected: PASS. (This suite is only meaningful with a built `dist/`; it fails
-loudly rather than skipping, because by this point `bun run compile` is the
-documented way to produce the binary and it always builds first.)
-
-**Step 3: Commit**
-
-```bash
-but commit server/standalone-binary -m "test(server): cover the compiled binary's asset wiring" --changes <ids>
-```
+Plus: the shell serves with `text/html`, `anyAssetEndingIn('.png')` returns
+`image/png`, an invite route falls back to the shell, an unknown `/api/` path
+404s, `POST /api/rooms` returns 201 with `hostSeat: 'p1'`, and a WebSocket still
+upgrades. Eight cases.
 
 ---
 
 ### Task 9: Compile scripts
 
 **Files:**
-- Modify: `package.json`
-
-**Step 1: Add the scripts**
+- Modify: `package.json`, `.gitignore`
 
 ```json
-"compile": "bun run build && bun scripts/generateEmbeddedAssets.ts && bun build --compile --bytecode --outfile mules-court src/server/standalone.ts",
-"compile:linux-x64": "bun run build && bun scripts/generateEmbeddedAssets.ts && bun build --compile --target=bun-linux-x64 --outfile dist-bin/mules-court-linux-x64 src/server/standalone.ts",
-"compile:linux-arm64": "bun run build && bun scripts/generateEmbeddedAssets.ts && bun build --compile --target=bun-linux-arm64 --outfile dist-bin/mules-court-linux-arm64 src/server/standalone.ts",
-"compile:darwin-arm64": "bun run build && bun scripts/generateEmbeddedAssets.ts && bun build --compile --target=bun-darwin-arm64 --outfile dist-bin/mules-court-darwin-arm64 src/server/standalone.ts",
-"compile:windows-x64": "bun run build && bun scripts/generateEmbeddedAssets.ts && bun build --compile --target=bun-windows-x64 --outfile dist-bin/mules-court-windows-x64.exe src/server/standalone.ts"
+"build": "bun log.js build && bunx --bun vite build --config vite/config.prod.mjs && bun run generate:assets",
+"build-nolog": "bunx --bun vite build --config vite/config.prod.mjs && bun run generate:assets",
+"generate:assets": "bun scripts/generateEmbeddedAssets.ts",
+"compile": "bun run build && bun build --compile --bytecode --outfile mules-court src/server/standalone.ts",
+"compile:darwin-arm64": "bun run build && bun build --compile --target=bun-darwin-arm64 --outfile dist-bin/mules-court-darwin-arm64 src/server/standalone.ts",
+"compile:darwin-x64":   "bun run build && bun build --compile --target=bun-darwin-x64   --outfile dist-bin/mules-court-darwin-x64   src/server/standalone.ts",
+"compile:linux-x64":    "bun run build && bun build --compile --target=bun-linux-x64    --outfile dist-bin/mules-court-linux-x64    src/server/standalone.ts",
+"compile:linux-arm64":  "bun run build && bun build --compile --target=bun-linux-arm64  --outfile dist-bin/mules-court-linux-arm64  src/server/standalone.ts",
+"compile:windows-x64":  "bun run build && bun build --compile --target=bun-windows-x64  --outfile dist-bin/mules-court-windows-x64.exe src/server/standalone.ts"
 ```
 
-`--bytecode` is only on the native build: it is a startup optimisation and Bun
-does not apply it to every cross-target. Drop it from `compile` if it errors on
-your Bun version.
+`build` ends with `generate:assets` — see Task 12 for why that is not optional.
+That is also why no `compile:*` script regenerates: `build` already did.
 
-**Step 2: Add `dist-bin/` and the binary to `.gitignore`**
+`--bytecode` is verified working on the native target with Bun 1.3.14. It trims
+startup, not size.
+
+`.gitignore` additions:
 
 ```
-# Compiled distributables (bun build --compile)
-dist-bin/
+# Compiled distributables (`bun run compile`). ~71 MB native, ~100 MB
+# cross-compiled — Bun's runtime, not the game. The *manifest* they embed
+# (src/server/embeddedAssets.generated.ts) is generated but deliberately
+# committed: standalone.ts imports it, so a clone without it fails tsc.
 mules-court
 mules-court.exe
+dist-bin/
+
+# Interrupted `bun build --compile` leaves these behind
+.*.bun-build
 ```
 
-**Step 3: Build and verify from an empty directory**
-
-```bash
-bun run compile
-ls -lh mules-court
-mkdir -p /tmp/mules-empty && cd /tmp/mules-empty
-MULES_PORT=39121 <repo>/mules-court &
-sleep 1
-curl -s -o /dev/null -w '%{http_code} %{content_type}\n' http://localhost:39121/
-curl -s http://localhost:39121/assets/index-*.js | wc -c   # compare to dist/
-kill %1
-```
-
-**Step 4: Commit**
-
-```bash
-but commit server/standalone-binary -m "build: compile the game into a single distributable binary" --changes <ids>
-```
+**On Windows.** `bun run compile` there produces `mules-court.exe`: Bun appends
+`.exe` whenever the target is Windows, even though `--outfile` says
+`mules-court`. Verified by cross-compiling with `--target=bun-windows-x64` and an
+extensionless `--outfile`, which wrote `mules-court.exe`, a PE32+ console
+executable. (Verified that way, not on Windows hardware — a native compile
+resolves the host as the target and takes the same naming path.) Both names are
+gitignored. Two further Windows hazards do not apply: `bun run` executes
+package.json scripts through Bun's own cross-platform shell, so the `&&` chains
+and `serve`'s `MULES_STATIC_ROOT=dist …` prefix work there.
 
 ---
 
 ### Task 10: Full verification gate
 
 ```bash
-bun run test        # engine (Vitest) + server (bun test)
+bun run test        # engine + client (Vitest), then server (bun test)
 bunx tsc --noEmit   # the only type check this project has
-bun run build       # production bundle still builds
-bun run compile     # and still compiles
+bun run build
+bun run compile
 ```
+
+Result: the whole Vitest suite plus **255 `bun test` cases across 18 files**, 0
+failures; `tsc` silent; a 71 MB binary. This work added three of those server
+files — `staticAssets` (14), `embeddedManifest` (13), `standalone` (8) — while
+`static.test.ts` stayed at its pre-existing 23, unedited. The Vitest total is
+deliberately not quoted: other workstreams move it, and a number here would go
+stale without anything being wrong.
 
 Also verify the type gate survives a clone that has never built:
 
 ```bash
 mv dist /tmp/dist-parked && bunx tsc --noEmit; mv /tmp/dist-parked dist
 ```
-Expected: silent. This is what `@ts-nocheck` on the generated file buys.
+Actual: silent. This is what `@ts-nocheck` on the generated file buys.
+
+**And the acceptance test the rest of the gate cannot give you** — copy the
+binary into an empty directory and run it there:
+
+| Probe | Result |
+| --- | --- |
+| `/`, `/join/K7QX2` | `200 text/html` |
+| bundle, CSS, font, portrait, favicon | `200`, correct type per extension |
+| Byte counts vs `dist/` | identical, for the bundle and a portrait |
+| `/assets/nope.png`, `/api/nope` | `404` |
+| `POST /api/rooms` | `201`, real matchId + seat token |
+| `joinUrl` under `MULES_PORT=39123` | `http://localhost:39123/join/…` |
+| Files written to the launch directory | `mules-court.sqlite` only |
+| SIGINT | clean stop, no `-wal`/`-shm` left |
 
 ---
 
 ### Task 11: Documentation
 
-**Files:**
-- Modify: `AGENTS.md` (setup-commands table, a short "Distributable binary" section)
-- Modify: `README.md` (how to run the downloaded binary)
-- Modify: `docs/plans/2026-07-24-uix-implementation-plan.md` (mark D3 closed)
+- `AGENTS.md` — `compile` in the setup table, and a **The single-file binary** section covering the three load-bearing facts (one policy over two lookups; the manifest is generated-but-committed and why `@ts-nocheck`; a `type: 'file'` import is a path, not bytes).
+- `README.md` — the four environment variables as a table, an **As a single binary** subsection, and a corrected Status block.
+- `docs/plans/2026-07-24-uix-implementation-plan.md` — **D3 marked closed**, with the reason it became urgent: the default is baked into a binary handed to someone who did not compile it.
 
-Cover: the four env variables and their defaults; that the database is written
-relative to the working directory; that the manifest is generated and committed
-and must be regenerated whenever `dist/` changes; and the ~61 MB (macOS ARM) /
-~100 MB (Linux) size, which is Bun's runtime rather than the game.
+---
+
+### Task 12: Make `build` regenerate the manifest — PR #23
+
+**Files:** `package.json`
+
+The manifest names content-hashed chunks, so any client rebuild invalidates it.
+Only `bun run compile` regenerated, which meant a bare `bun run build` left the
+committed manifest naming files that no longer exist — and the next `bun run
+test` failed on Task 4's coverage gate, for a reason unrelated to whatever the
+person was working on.
+
+Not hypothetical. It happened within fifteen minutes of #21 merging: the
+visual-harness workstream rebuilt `dist/`, and a later compile died with
+`Could not resolve "../../dist/assets/index-BClNheiK.js"`. The gate did its job;
+the trigger was someone else's ordinary build.
+
+The manifest is a function of `dist/`, so whatever produces `dist/` now produces
+it: `build` and `build-nolog` end with `generate:assets`, and the five
+`compile:*` scripts drop the now-redundant step. Verified: a bare `bun run build`
+leaves the gate green at 13/13.
+
+---
+
+### Task 13: Stop the tests hardcoding manifest contents — PR #23
+
+**Files:** `src/server/__tests__/standalone.test.ts`
+
+The manifest's contents are ephemeral, so a test may not name them.
+`standalone.test.ts` named two: `/assets/index-` (Vite's chunk-naming
+convention) and `/favicon.png` (a `public/` file). Either would fail on a rename
+that broke nothing — the wrong signal from the file guarding the binary's wiring.
+
+Every probe is derived now; see Task 8 for the shape. `/index.html` stays named
+because it is a contract, not content.
+
+Verified by mutation rather than by passing: dropping the stylesheet's map entry
+from the manifest fails exactly the boot test, with
+
+```
+-   "/assets/index-B6TlxzVp.css → 200",
++   "/assets/index-B6TlxzVp.css → 404",
+```
+
+and it passes again when restored.
 
 ---
 
 ## What execution changed
 
-Recorded because the tasks above are what was *planned*, and a future reader
-comparing them to the code deserves the difference rather than a puzzle.
+Recorded because the tasks above were revised to match the code, and a reader
+comparing them to the original commits deserves the difference rather than a
+puzzle.
 
-**Traversal became a policy rule, not a lookup concern (Task 3).** The plan's
+**Traversal became a policy rule, not a lookup concern (Task 3).** The original
 `serveFrom` let a lookup answer only "file" or `null`, and `null` is what
 triggers the shell fallback — so `/../../etc/passwd` was refused by
 `filesystemLookup`, fell through to the fallback, and came back **200** with the
 homepage, because `passwd` has no extension and reads as a client route. Three
-existing `static.test.ts` cases failed immediately. `serveFrom` now refuses any
-decoded path with a `..` segment before it looks anything up, which fixes both
-sources at once and closes the same hole on the embedded side, which had no
-guard at all. The `resolve`-and-prefix check stays as defence in depth. This is
-the whole reason the plan insisted `static.test.ts` pass unedited.
+`static.test.ts` cases failed immediately. `serveFrom` now refuses any decoded
+path with a `..` segment before it looks anything up, which fixes both sources at
+once and closes the same hole on the embedded side, which had no guard at all.
+The `resolve`-and-prefix check stays as defence in depth. **This is the whole
+reason the plan insisted `static.test.ts` pass unedited** — adjusting those three
+assertions to match the new behaviour would have shipped the hole.
 
 **`envOverrides` needed a mutable accumulator (Task 1).** `Partial<T>` makes
-fields optional but keeps them `readonly`, and every field of `TransportConfig`
-is `readonly`. The accumulator uses a `-readonly` mapped type and the return
-type puts the modifier back. `bun test` passed while `tsc` failed, which is the
-gotcha AGENTS.md documents about Bun transpiling without checking.
+fields optional but keeps them `readonly`. `bun test` passed while `tsc` failed
+with five TS2540s, which is the gotcha AGENTS.md documents.
 
-**Task 6 was folded into Task 3** as planned, and `SHELL_PATH` ended up used by
-`serveFrom` and `embeddedLookup` rather than by the generator.
+**The `static.test.ts` case count was wrong throughout.** The original plan,
+several commit messages and PR #21 all said "13 existing static tests". The file
+has **23**, and always did. Corrected here; the claim it supported — that the
+file passes unedited — was and is true.
 
-**`renderManifest` special-cases the empty list**, so it emits `new Map([])`
-rather than a map literal with a blank line in it.
+**Two follow-ups landed after #21 merged**, as Tasks 12 and 13: `build` now
+regenerates the manifest, and the standalone tests no longer name manifest
+contents.
+
+**Sizes were quoted from a pre-embedding spike.** "~61 MB" described the server
+binary *before* the client was compiled in, and it reached three shipped source
+comments and `.gitignore` before being corrected. Measured values are in
+[Deferred](#deferred).
+
+**Windows output naming was an open question, now answered** — see Task 9.
+
+**Smaller deviations.** Task 6 folded into Task 3 as planned, and `SHELL_PATH`
+ended up used by `serveFrom` and `embeddedLookup` rather than by the generator.
+`renderManifest` special-cases the empty list so it emits `new Map([])` rather
+than a literal with a blank line in it. `standalone.ts` resolves the database
+path with `node:path`'s `resolve` rather than `Bun.pathToFileURL`, and its banner
+carries no version string — there is no single source for one to read.
+
+---
 
 ## Deferred
 
-**Size.** ~61 MB native, ~100 MB cross-compiled. Unavoidable with `--compile`;
+**Size.** Measured with Bun 1.3.14, this `dist/` (30 files), `ls -lh`:
+
+| Target | Size |
+| --- | --- |
+| macOS ARM native, `--bytecode` | 71 MB |
+| `bun-linux-arm64` | 99 MB |
+| `bun-linux-x64` | 100 MB |
+| `bun-windows-x64` | 104 MB |
+
+That is Bun's runtime, not the game, and unavoidable with `--compile`.
 `--bytecode` trims startup, not size.
 
 **Signing and notarisation.** An unsigned macOS binary is quarantined on
 download and needs a right-click → Open, or `xattr -d com.apple.quarantine`.
 Real distribution wants a Developer ID and a notarised zip; out of scope here.
 
-**Multi-target CI.** The `compile:*` scripts exist but nothing runs them on a
-tag. A release workflow that builds four targets and attaches them to a GitHub
+**Multi-target CI.** The five `compile:*` scripts exist but nothing runs them on
+a tag. A release workflow that builds them and attaches the results to a GitHub
 release is the natural follow-up.
+
+**Whether the manifest should be committed as a stub.** Its contents are
+ephemeral — the file exists so `standalone.ts` type-checks on a clone that has
+never built, and any build overwrites it — so the committed values are arbitrary
+and churn whenever someone commits after a build. A stub (empty map, no imports,
+still type-checks) would remove the churn at the cost of a committed file that is
+never accurate, and would change what a fresh clone's `bun test` sees before its
+first build. Raised on PR #23; not decided.
+
+**Only `bun-darwin-arm64` and the host have been run.** The Linux and Windows
+binaries in the size table were compiled and inspected, not executed.

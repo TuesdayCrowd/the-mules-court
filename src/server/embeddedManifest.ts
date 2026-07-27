@@ -82,7 +82,7 @@ export function renderManifest(files: string[]): string {
  * \`embeddedLookup\` reads. Each import evaluates to a *path* string: an absolute
  * filesystem path under \`bun\`, an opaque embedded-VFS path inside a compiled
  * binary. \`Bun.file\` accepts both, which is why \`standalone.ts\` runs and tests
- * without a 61 MB build step.
+ * without a 71 MB build step.
  *
  * Type-checking is off because three of dist/'s extensions have no usable
  * declaration for a file import — @types/bun types *.html as HTMLBundle, *.js

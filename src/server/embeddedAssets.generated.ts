@@ -6,7 +6,7 @@
  * `embeddedLookup` reads. Each import evaluates to a *path* string: an absolute
  * filesystem path under `bun`, an opaque embedded-VFS path inside a compiled
  * binary. `Bun.file` accepts both, which is why `standalone.ts` runs and tests
- * without a 61 MB build step.
+ * without a 71 MB build step.
  *
  * Type-checking is off because three of dist/'s extensions have no usable
  * declaration for a file import — @types/bun types *.html as HTMLBundle, *.js
@@ -24,7 +24,7 @@ import a5 from '../../dist/assets/ebling-mis/portrait_0.png' with { type: 'file'
 import a6 from '../../dist/assets/first-speaker/portrait_0.png' with { type: 'file' };
 import a7 from '../../dist/assets/han-pritcher/portrait_0.png' with { type: 'file' };
 import a8 from '../../dist/assets/index-B6TlxzVp.css' with { type: 'file' };
-import a9 from '../../dist/assets/index-BrDKc1xA.js' with { type: 'file' };
+import a9 from '../../dist/assets/index-BRF9IZS9.js' with { type: 'file' };
 import a10 from '../../dist/assets/informant/portrait_0.png' with { type: 'file' };
 import a11 from '../../dist/assets/magnifico/portrait_0.png' with { type: 'file' };
 import a12 from '../../dist/assets/mayor-indbur/portrait_0.png' with { type: 'file' };
@@ -56,7 +56,7 @@ export const EMBEDDED: ReadonlyMap<string, string> = new Map([
     ['/assets/first-speaker/portrait_0.png', a6],
     ['/assets/han-pritcher/portrait_0.png', a7],
     ['/assets/index-B6TlxzVp.css', a8],
-    ['/assets/index-BrDKc1xA.js', a9],
+    ['/assets/index-BRF9IZS9.js', a9],
     ['/assets/informant/portrait_0.png', a10],
     ['/assets/magnifico/portrait_0.png', a11],
     ['/assets/mayor-indbur/portrait_0.png', a12],
