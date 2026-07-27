@@ -197,6 +197,21 @@ export class Court extends Scene {
 
         this.table.add([border, name, ...pips]);
 
+        // The peek marker (UIX §8.1). Only this viewer sees it, and it persists
+        // until the engine stops considering the peek valid — `revealed[]` is
+        // recomputed per call, so a card played, traded or redrawn simply stops
+        // appearing here. The client mirrors that and decides nothing.
+        if (seat.knownCard !== null) {
+            const known = this.add.text(
+                seat.rect.x + seat.rect.w - 6,
+                seat.rect.y + 6,
+                `you know: ${cardCopyFor(seat.knownCard).displayName}`,
+                { fontFamily: 'Inter, sans-serif', fontSize: '11px', color: hex(TOKENS.colorSeatProtected) }
+            );
+            known.setOrigin(1, 0);
+            this.table.add(known);
+        }
+
         if (seat.caption !== null) {
             const caption = this.add.text(seat.rect.x + 6, seat.rect.y + seat.rect.h - 16, seat.caption, {
                 fontFamily: 'Inter, sans-serif',

@@ -21,7 +21,7 @@ import './client/styles/ui.css';
 
 import type { CardInstanceId, PlayerId } from './game/engine';
 import { cardTypeOf } from './game/engine';
-import { narrate } from './client/content/narration';
+import { announcementFor } from './client/content/announce';
 import { failureCopy } from './client/content/failureCopy';
 import { diffSnapshots } from './client/store/diff';
 import { createPresentationQueue } from './client/store/presentationQueue';
@@ -241,7 +241,10 @@ function boot(): void {
         if (after !== null && before !== after) {
             const nameOf = (id: PlayerId) => state.table?.nicknames[id] ?? id;
             for (const event of diffSnapshots(before, after)) {
-                if (event.kind === 'log') queue.enqueue({ announce: narrate(event.entry, nameOf) });
+                // Exhaustive by construction — see content/announce.ts. Silence
+                // is allowed, but it has to be chosen rather than fallen into.
+                const line = announcementFor(event, nameOf);
+                if (line !== null) queue.enqueue({ announce: line });
             }
         }
 

@@ -1,4 +1,4 @@
-import type { PlayerId, PublicLogEntry } from '../../game/engine';
+import type { CardTypeId, PlayerId, PublicLogEntry } from '../../game/engine';
 import { cardCopyFor } from './cardCopy';
 
 /** Resolves a seat id to the nickname the transport supplied. */
@@ -104,4 +104,22 @@ export function narrate(entry: PublicLogEntry, nameOf: NameOf): string {
             return exhaustive;
         }
     }
+}
+
+/**
+ * A private peek, for the aria-live channel and the toast beside it (UIX §8.1).
+ *
+ * Separate from `narrate` on purpose: that function turns a `PublicLogEntry`
+ * into a line every player hears, and a peek is the opposite of public. The
+ * engine keeps peeks out of `publicLog` entirely and surfaces them only through
+ * `view.revealed`, which is redacted per viewer — so this is the one line in the
+ * game that names a living player's card, and it says plainly why it is allowed.
+ */
+export function narratePeek(subjectName: string, cardId: CardTypeId): string {
+    return `Only you see this — ${subjectName} holds ${cardCopyFor(cardId).displayName}.`;
+}
+
+/** The same knowledge going stale: the card was played, traded, or redrawn. */
+export function narratePeekLost(subjectName: string): string {
+    return `You no longer know what ${subjectName} holds.`;
 }

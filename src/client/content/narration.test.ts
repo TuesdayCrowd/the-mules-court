@@ -1,6 +1,6 @@
 import { describe, expect, it } from 'vitest';
 import type { PublicLogEntry } from '../../game/engine';
-import { narrate } from './narration';
+import { narrate, narratePeek, narratePeekLost } from './narration';
 
 const nameOf = (id: string) => ({ p1: 'Ana', p2: 'Bayta', p3: 'Toran', p4: 'Mis' })[id] ?? id;
 
@@ -96,5 +96,30 @@ describe('narrate', () => {
             expect(line, entry.kind).not.toMatch(/\bp[1-4]\b/);
             expect(line.endsWith('.'), `${entry.kind} ends in a full stop`).toBe(true);
         }
+    });
+});
+
+describe('narratePeek', () => {
+    it('names the card, because that is the whole point of the peek', () => {
+        expect(narratePeek('Bayta', 'mayor-indbur')).toBe('Only you see this — Bayta holds Mayor Indbur.');
+    });
+
+    it('says the knowledge is private, so it is never mistaken for a public result', () => {
+        // This is the one line in the game that names a living player's card.
+        // The engine keeps peeks out of publicLog entirely, and the copy has to
+        // carry that distinction because the toast channel is shared.
+        expect(narratePeek('Ana', 'mule')).toContain('Only you see this');
+    });
+
+    it('uses the catalog display name rather than the slug', () => {
+        expect(narratePeek('Ana', 'first-speaker')).toContain('The First Speaker');
+    });
+
+    it('names no card when the knowledge goes stale', () => {
+        // A lost peek means the card left their hand; naming it would leak what
+        // they no longer hold and imply it is still there.
+        const line = narratePeekLost('Toran');
+        expect(line).toContain('Toran');
+        expect(line).not.toMatch(/Mule|Informant|Darell|Speaker/);
     });
 });
