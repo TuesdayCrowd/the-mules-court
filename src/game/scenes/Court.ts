@@ -1,5 +1,5 @@
 import { Scene } from 'phaser';
-import { buildRenderPlan } from '../../client/layout/renderPlan';
+import { buildRenderPlan, medallionPlan } from '../../client/layout/renderPlan';
 import type { RenderPlan, SeatPlan } from '../../client/layout/renderPlan';
 import { computeLayout } from '../../client/layout/tableLayout';
 import type { LayoutSpec, Rect } from '../../client/layout/types';
@@ -468,12 +468,15 @@ export class Court extends Scene {
      * multiplier — the rule that lets discard values stay uncollapsed forever.
      */
     private tokenMedallions(tokens: number, x: number, y: number): Phaser.GameObjects.GameObject[] {
-        if (tokens <= 0) return [];
-
-        const drawn = Math.min(tokens, MEDALLIONS_BEFORE_COLLAPSE);
+        // `medallionPlan` decides; this only draws what it was told to. Nothing
+        // here may be constructed and then dropped: `this.add.*` puts an object
+        // on the scene's display list immediately, and `draw()` destroys only
+        // what the table container holds — so an abandoned object survives
+        // every redraw AND renders above the container that replaced it.
+        const plan = medallionPlan(tokens);
         const objects: Phaser.GameObjects.GameObject[] = [];
 
-        for (let index = 0; index < drawn; index++) {
+        for (let index = 0; index < plan.medallions; index++) {
             objects.push(
                 this.add
                     .image(x + index * (MEDALLION + 2), y, TEXTURES.devotionToken)
@@ -482,12 +485,10 @@ export class Court extends Scene {
             );
         }
 
-        if (tokens > MEDALLIONS_BEFORE_COLLAPSE) {
-            objects.length = 0;
+        if (plan.countLabel !== null) {
             objects.push(
-                this.add.image(x, y, TEXTURES.devotionToken).setOrigin(0, 0).setDisplaySize(MEDALLION, MEDALLION),
                 this.add
-                    .text(x + MEDALLION + 3, y + MEDALLION / 2, `×${tokens}`, {
+                    .text(x + MEDALLION + 3, y + MEDALLION / 2, plan.countLabel, {
                         fontFamily: 'Inter, sans-serif',
                         fontSize: '12px',
                         color: '#f5f5f5'
@@ -553,9 +554,6 @@ const REVEALED_H = 30;
 /** One devotion medallion, and the width the own-status row reserves for them. */
 const MEDALLION = 12;
 const MEDALLION_SPAN = MEDALLION * 4 + 12;
-
-/** UIX §6.2: medallions wrap at four, then collapse to a numeral. */
-const MEDALLIONS_BEFORE_COLLAPSE = 4;
 
 /** The value badge, as a fraction of the card's short edge, with a legible floor. */
 const BADGE_FRACTION = 0.28;

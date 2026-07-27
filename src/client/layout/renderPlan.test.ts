@@ -5,7 +5,7 @@ import { makeView } from '../store/__fixtures__/view';
 import type { ViewOverrides } from '../store/__fixtures__/view';
 import { TOKENS } from '../tokens/tokens';
 import type { RenderInput } from './renderPlan';
-import { buildRenderPlan } from './renderPlan';
+import { MEDALLIONS_BEFORE_COLLAPSE, buildRenderPlan, medallionPlan } from './renderPlan';
 import { computeLayout } from './tableLayout';
 
 const SPEC = computeLayout({
@@ -205,6 +205,40 @@ describe("the viewer's own status", () => {
         const seats = plan(fourSeats({ revealed: [{ subjectId: 'p3', cardTypeId: 'mule' }] })).seats;
         expect(seats.find(s => s.playerId === 'p3')!.knownCard).toBe('mule');
         expect(seats.find(s => s.playerId === 'p2')!.knownCard).toBeNull();
+    });
+});
+
+describe('devotion medallions', () => {
+    it('gives every token its own medallion up to four', () => {
+        for (const tokens of [1, 2, 3, 4]) {
+            expect(medallionPlan(tokens)).toEqual({ medallions: tokens, countLabel: null });
+        }
+    });
+
+    it('collapses to one medallion and a numeral past four', () => {
+        // A 2-player match needs 7 to win, so this is the state a winner ends
+        // in — and it was the state that showed four medallions and no count.
+        expect(medallionPlan(7)).toEqual({ medallions: 1, countLabel: '×7' });
+        expect(medallionPlan(5)).toEqual({ medallions: 1, countLabel: '×5' });
+    });
+
+    it('draws nothing at zero', () => {
+        expect(medallionPlan(0)).toEqual({ medallions: 0, countLabel: null });
+    });
+
+    it('never asks for more medallions than it collapses at', () => {
+        // The scene draws one image per `medallions`. If this ever exceeded the
+        // threshold the chip would overflow rather than collapse.
+        for (let tokens = 0; tokens <= 12; tokens++) {
+            expect(medallionPlan(tokens).medallions).toBeLessThanOrEqual(MEDALLIONS_BEFORE_COLLAPSE);
+        }
+    });
+
+    it('always states the real total when it collapses', () => {
+        // The numeral is the whole point of collapsing: nothing may be lost.
+        for (let tokens = MEDALLIONS_BEFORE_COLLAPSE + 1; tokens <= 12; tokens++) {
+            expect(medallionPlan(tokens).countLabel).toBe(`×${tokens}`);
+        }
     });
 });
 
