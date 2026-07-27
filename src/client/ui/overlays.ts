@@ -31,6 +31,15 @@ export interface OverlaysDeps {
      */
     readonly canEndMatch: () => boolean;
     readonly onEndMatch: () => void;
+    /**
+     * Leave a finished match (UIX §9.2's "Back to menu").
+     *
+     * Injected rather than done here: the menu lives at `/`, and reaching it is
+     * a navigation, which is `main.ts`'s to own along with every other ambient
+     * dependency. Without it a finished match is a dead end — nothing else in
+     * the client ever moves `screen` back to `menu`.
+     */
+    readonly onBackToMenu: () => void;
 }
 
 const TITLE_ID = 'overlay-title';
@@ -50,11 +59,21 @@ export function createOverlays(deps: OverlaysDeps): Surface {
 
     let showing: OverlayKind = null;
     let tick: unknown = null;
+    /** Where focus was before the first overlay of a run took it. */
+    let returnFocusTo: HTMLElement | null = null;
 
     function stopTicking(): void {
         if (tick === null) return;
         deps.timers.clearTimeout(tick);
         tick = null;
+    }
+
+    function restoreFocus(): void {
+        const target = returnFocusTo;
+        returnFocusTo = null;
+        // `isConnected` because the table redraws constantly: the element that
+        // had focus may simply not be in the document any more.
+        if (target !== null && target.isConnected) target.focus();
     }
 
     function which(state: ClientState): OverlayKind {
@@ -116,7 +135,7 @@ export function createOverlays(deps: OverlaysDeps): Surface {
             // One line, no celebration chrome: nobody won this.
             const line = document.createElement('p');
             line.textContent = 'The match was abandoned.';
-            return [line];
+            return [line, backToMenuButton()];
         }
 
         const winnerId = state.ended?.winnerSeat ?? view.matchWinnerId;
@@ -134,7 +153,16 @@ export function createOverlays(deps: OverlaysDeps): Surface {
             list.appendChild(item);
         }
 
-        return [headline, list];
+        return [headline, list, backToMenuButton()];
+    }
+
+    function backToMenuButton(): HTMLElement {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.action = 'back-to-menu';
+        button.textContent = 'Back to menu';
+        button.addEventListener('click', () => deps.onBackToMenu());
+        return button;
     }
 
     function pausedBody(table: TableSnapshot): HTMLElement[] {
@@ -187,6 +215,10 @@ export function createOverlays(deps: OverlaysDeps): Surface {
             if (showing !== null) {
                 showing = null;
                 container.replaceChildren();
+                // Focus was taken on the way in, so it has to be given back on
+                // the way out — otherwise it falls to <body> and a keyboard or
+                // screen-reader user restarts from the top of the document.
+                restoreFocus();
             }
             return;
         }
@@ -225,7 +257,15 @@ export function createOverlays(deps: OverlaysDeps): Surface {
 
         // Focus once, on the transition into an overlay. Re-taking it on every
         // snapshot would drag a screen reader back to the title mid-sentence.
-        if (fresh) dialog.focus();
+        if (fresh) {
+            // Only on the way in from nothing: overlay-to-overlay keeps the
+            // element that was focused before the first one opened.
+            if (showing === null) {
+                const active = document.activeElement;
+                returnFocusTo = active instanceof HTMLElement && active !== document.body ? active : null;
+            }
+            dialog.focus();
+        }
         showing = kind;
     }
 

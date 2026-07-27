@@ -117,19 +117,57 @@ describe('beatForEvent', () => {
         expect(beatForEvent({ kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' })).toBe('peek');
     });
 
+    it('shimmers the devotion token onto the round winner', () => {
+        // UIX §9.1, and the only thing rainbow_gradient is assigned to (§8.5).
+        expect(beatForEvent({ kind: 'round-over', result: { reason: 'deck-out', winnerIds: ['p1'] } })).toBe('token-award');
+    });
+
+    it('bursts on the match ending', () => {
+        // UIX §9.2, and the only thing sparkle_pattern is assigned to (§8.5).
+        expect(beatForEvent({ kind: 'match-over', winnerId: 'p1' })).toBe('victory');
+    });
+
     it('spends nothing on the events that are only information', () => {
         // The budget is spent on eliminations and the Mule; spending it
         // everywhere is what stops those two feeling like anything.
         expect(beatForEvent({ kind: 'peek-lost', subjectId: 'p2' })).toBeNull();
-        expect(beatForEvent({ kind: 'round-over', result: { reason: 'deck-out', winnerIds: ['p1'] } })).toBeNull();
         expect(beatForEvent({ kind: 'log', entry: { kind: 'PROTECTED', turn: 1, actorId: 'p1' } })).toBeNull();
+    });
+
+    it('leaves no beat in the table that nothing can ever select', () => {
+        // The shimmer and the burst were both implemented, both assigned a
+        // shader map by UIX §8.5, and both unreachable: `beatForEvent` was the
+        // only selector and it never returned either name.
+        const selectable = new Set(
+            (
+                [
+                    { kind: 'log', entry: { kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'informant' } },
+                    { kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause: 'guard' } },
+                    { kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause: 'mule-forced' } },
+                    { kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' },
+                    { kind: 'round-over', result: { reason: 'deck-out', winnerIds: ['p1'] } },
+                    { kind: 'match-over', winnerId: 'p1' }
+                ] as const
+            )
+                .map(event => beatForEvent(event))
+                .filter((beat): beat is NonNullable<typeof beat> => beat !== null)
+        );
+
+        // `countdown-tick` is the one exception: it is driven by the countdown
+        // itself rather than by a diffed event, and it plans to a no-op step.
+        for (const beat of ALL) {
+            if (beat === 'countdown-tick') continue;
+            expect(selectable.has(beat), `${beat} is planned but unreachable`).toBe(true);
+        }
     });
 
     it('returns a beat this file knows how to plan', () => {
         const beats = [
             { kind: 'log', entry: { kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'informant' } },
             { kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause: 'mule-forced' } },
-            { kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' }
+            { kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' },
+            { kind: 'round-over', result: { reason: 'deck-out', winnerIds: ['p1'] } },
+            { kind: 'match-over', winnerId: 'p1' }
         ] as const;
 
         for (const event of beats) {

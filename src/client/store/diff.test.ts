@@ -206,6 +206,24 @@ describe('diffSnapshots on the round result', () => {
     });
 });
 
+describe('diffSnapshots on the match result', () => {
+    it('yields match-over when a winner appears where there was none', () => {
+        const prev = makeView({ matchWinnerId: null });
+        const next = makeView({ matchWinnerId: 'p2' });
+
+        expect(diffSnapshots(prev, next)).toContainEqual({ kind: 'match-over', winnerId: 'p2' });
+    });
+
+    it('yields it once, not on every heartbeat that re-sends the same winner', () => {
+        // `ended` holds until the players leave, and each resync repeats it.
+        expect(diffSnapshots(makeView({ matchWinnerId: 'p2' }), makeView({ matchWinnerId: 'p2' }))).toEqual([]);
+    });
+
+    it('yields nothing while a match is still running', () => {
+        expect(diffSnapshots(makeView({ matchWinnerId: null }), makeView({ matchWinnerId: null }))).toEqual([]);
+    });
+});
+
 describe('diffSnapshots ordering', () => {
     it('runs log entries, then peeks lost, then peeks gained, then the round result', () => {
         const prev = makeView({

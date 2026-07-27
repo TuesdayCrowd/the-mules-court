@@ -38,8 +38,32 @@ export interface SeatPlan {
      * here; interface rule 4 allows only `revealed[]` and the showdown.
      */
     readonly revealedCard: CardTypeId | null;
+    /**
+     * Whether to draw the card-back marker (UIX §6.2).
+     *
+     * Derived from `alive`, because the redacted view deliberately carries no
+     * hand size for another seat — and it must not, since that is deduction
+     * data the engine redacts on purpose. `eliminate()` empties the hand, so
+     * alive and holding coincide everywhere except the four-player empty-deck
+     * Prince fallback, where a living player can legitimately hold nothing.
+     */
+    readonly holdsCard: boolean;
     /** This viewer's own peek on that seat, if the engine still considers it valid. */
     readonly knownCard: CardTypeId | null;
+}
+
+/**
+ * The viewer's own standing (UIX §6.1's "own tokens + discards" row).
+ *
+ * The viewer is filtered out of `seats`, so this is the only place their own
+ * token count and discard pile reach the table at all.
+ */
+export interface OwnStatusPlan {
+    readonly rect: Rect;
+    readonly tokens: number;
+    /** Interface rule 7 applies here exactly as it does to a seat chip. */
+    readonly discardValues: readonly number[];
+    readonly discardTotal: number;
 }
 
 export interface HandCardPlan {
@@ -68,6 +92,7 @@ export interface BannerPlan {
 
 export interface RenderPlan {
     readonly seats: readonly SeatPlan[];
+    readonly own: OwnStatusPlan;
     readonly hand: readonly HandCardPlan[];
     readonly deck: DeckPlan;
     readonly banner: BannerPlan;
@@ -137,6 +162,30 @@ function dimCaption(view: RedactedView): string | null {
     return `must play ${cardCopyFor(cardTypeOf(view.own.legalPlays[0])).displayName}`;
 }
 
+/**
+ * The card shown face-up on a seat, from the two sources interface rule 4 allows.
+ *
+ * These are genuinely different disclosures and neither substitutes for the
+ * other. An eliminated seat's card is already **on their pile** — `eliminate()`
+ * pushes the whole hand there — so the top entry is the reveal, and it is
+ * available the moment the elimination lands. `revealedHands` is the deck-out
+ * showdown, where survivors are still *holding* their card and no pile carries
+ * it. Reading only the latter, as this once did, left every real elimination
+ * revealing nothing at all, because `revealedHands` is populated on deck-out
+ * alone (`engine/types.ts`) and a deck-out eliminates nobody.
+ */
+function revealedCardFor(
+    seat: RedactedView['players'][number],
+    phase: RenderInput['phase'],
+    showdown: Readonly<Record<PlayerId, CardTypeId | null>> | undefined
+): CardTypeId | null {
+    if (!seat.alive) {
+        const pile = seat.discardPile;
+        return pile.length === 0 ? null : pile[pile.length - 1].cardId;
+    }
+    return phase === 'round_over' ? (showdown?.[seat.id] ?? null) : null;
+}
+
 export function buildRenderPlan(input: RenderInput, spec: LayoutSpec): RenderPlan {
     const { view } = input;
     const nameOf = (id: PlayerId): string => input.nicknames[id] ?? id;
@@ -156,12 +205,19 @@ export function buildRenderPlan(input: RenderInput, spec: LayoutSpec): RenderPla
             tokens: seat.tokens,
             discardValues: seat.discardPile.map(entry => entry.value),
             discardTotal: seat.discardValueTotal,
-            // Eliminated seats reveal what they held; the showdown reveals
-            // everyone's. Both are the engine's disclosures, not the client's.
-            revealedCard: !seat.alive || input.phase === 'round_over' ? (showdown?.[seat.id] ?? null) : null,
+            revealedCard: revealedCardFor(seat, input.phase, showdown),
+            holdsCard: seat.alive,
             knownCard: peeks.get(seat.id) ?? null
         };
     });
+
+    const self = view.players.find(player => player.id === view.own.playerId);
+    const own: OwnStatusPlan = {
+        rect: spec.ownStatus,
+        tokens: self?.tokens ?? 0,
+        discardValues: self?.discardPile.map(entry => entry.value) ?? [],
+        discardTotal: self?.discardValueTotal ?? 0
+    };
 
     const caption = dimCaption(view);
     const hand: HandCardPlan[] = view.own.hand.slice(0, spec.hand.length).map((instanceId, index) => {
@@ -180,6 +236,7 @@ export function buildRenderPlan(input: RenderInput, spec: LayoutSpec): RenderPla
 
     return {
         seats,
+        own,
         hand,
         deck: deckPlan(view, spec.deck),
         banner: bannerFor(input, spec.banner, nameOf),

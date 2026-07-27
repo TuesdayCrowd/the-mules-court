@@ -116,9 +116,16 @@ export function beatForEvent(event: PresentationEvent): BeatName | null {
         case 'peek-lost':
             return null;
 
-        // The round-over overlay is the beat, and it renders from state.
+        // The overlay carries the *result*; the shimmer carries the award.
+        // UIX §9.1: "a medallion pip drifts onto the winner's seat with the
+        // rainbow shimmer" — which is the only thing `rainbow_gradient` is
+        // assigned to (UIX §8.5), and it played nowhere until this returned it.
         case 'round-over':
-            return null;
+            return 'token-award';
+
+        // UIX §9.2's sparkle burst, and the other half of §8.5's assignment.
+        case 'match-over':
+            return 'victory';
 
         default: {
             const exhaustive: never = event;

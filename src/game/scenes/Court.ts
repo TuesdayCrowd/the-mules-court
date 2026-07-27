@@ -146,6 +146,37 @@ export class Court extends Scene {
             this.table.add(burn);
         }
 
+        // UIX §6.1's "own tokens + discards" row. The viewer is filtered out of
+        // `seats`, so without this the one player who cannot see their own
+        // standing is the player whose standing it is.
+        {
+            const own = plan.own;
+            this.table.add(this.tokenMedallions(own.tokens, own.rect.x, own.rect.y + own.rect.h / 2 - MEDALLION / 2));
+
+            const pipsLeft = own.rect.x + MEDALLION_SPAN;
+            const ownPips = own.discardValues.map((value, index) =>
+                this.add
+                    .text(pipsLeft + index * 18, own.rect.y + own.rect.h / 2, String(value), {
+                        fontFamily: 'Inter, sans-serif',
+                        fontSize: '13px',
+                        color: '#9ca3af'
+                    })
+                    .setOrigin(0, 0.5)
+            );
+            this.table.add(ownPips);
+
+            if (own.discardValues.length > 0) {
+                const total = this.add
+                    .text(own.rect.x + own.rect.w, own.rect.y + own.rect.h / 2, `= ${own.discardTotal}`, {
+                        fontFamily: 'Inter, sans-serif',
+                        fontSize: '13px',
+                        color: '#9ca3af'
+                    })
+                    .setOrigin(1, 0.5);
+                this.table.add(total);
+            }
+        }
+
         for (const card of plan.hand) {
             const face = this.add
                 .image(card.rect.x, card.rect.y, cardCopyFor(card.cardId).portraitKey)
@@ -208,6 +239,18 @@ export class Court extends Scene {
             color: '#f5f5f5'
         });
 
+        // UIX §6.2: the chip carries a card-back marker while the seat holds a
+        // card. Its absence on an eliminated seat is information too.
+        if (seat.holdsCard) {
+            const back = this.add
+                .image(seat.rect.x + seat.rect.w - 6, seat.rect.y + 6, TEXTURES.cardBack)
+                .setOrigin(1, 0)
+                .setDisplaySize(CARD_BACK_H * CARD_ASPECT, CARD_BACK_H);
+            this.table.add(back);
+        }
+
+        this.table.add(this.tokenMedallions(seat.tokens, seat.rect.x + 6, seat.rect.y + 26));
+
         // Interface rule 7: every value, never a truncation. The pip geometry
         // was sized for the worst case the engine can actually produce.
         const pips = seat.discardValues
@@ -223,18 +266,41 @@ export class Court extends Scene {
 
         this.table.add([border, name, ...pips]);
 
+        // UIX §6.3: an eliminated seat's held card is revealed face-up atop
+        // their pile. That reveal is core deduction data — the numeric pip
+        // already carries the value, and this carries the face.
+        if (seat.revealedCard !== null) {
+            const revealed = this.add
+                .image(seat.rect.x + seat.rect.w - 6, seat.rect.y + seat.rect.h - 6, cardCopyFor(seat.revealedCard).portraitKey)
+                .setOrigin(1, 1)
+                .setDisplaySize(REVEALED_H * CARD_ASPECT, REVEALED_H);
+            this.table.add(revealed);
+        }
+
+        // UIX §6.2: tapping a chip opens the seat dossier. A dedicated hit
+        // rectangle for the same reason the hand cards use one — a texture-
+        // derived hit area disagrees with where the chip actually is.
+        const hit = this.add
+            .rectangle(seat.rect.x, seat.rect.y, seat.rect.w, seat.rect.h, 0x000000, 0)
+            .setOrigin(0, 0)
+            .setInteractive({ useHandCursor: true });
+        hit.on('pointerdown', () => this.events.emit(SEAT_SELECTED, seat.playerId));
+        this.table.add(hit);
+
         // The peek marker (UIX §8.1). Only this viewer sees it, and it persists
         // until the engine stops considering the peek valid — `revealed[]` is
         // recomputed per call, so a card played, traded or redrawn simply stops
         // appearing here. The client mirrors that and decides nothing.
         if (seat.knownCard !== null) {
+            // Below the medallion row rather than beside the nickname: the
+            // top-right corner now belongs to the card-back marker.
             const known = this.add.text(
-                seat.rect.x + seat.rect.w - 6,
-                seat.rect.y + 6,
+                seat.rect.x + 6,
+                seat.rect.y + 26 + MEDALLION + 4,
                 `you know: ${cardCopyFor(seat.knownCard).displayName}`,
                 { fontFamily: 'Inter, sans-serif', fontSize: '11px', color: hex(TOKENS.colorSeatProtected) }
             );
-            known.setOrigin(1, 0);
+            known.setOrigin(0, 0);
             this.table.add(known);
         }
 
@@ -246,6 +312,45 @@ export class Court extends Scene {
             });
             this.table.add(caption);
         }
+    }
+
+    /**
+     * Devotion tokens as medallions (UIX §6.2).
+     *
+     * "Tokens collapse; discards don't." A count of identical items loses
+     * nothing as a numeral, so past four this becomes one medallion and a
+     * multiplier — the rule that lets discard values stay uncollapsed forever.
+     */
+    private tokenMedallions(tokens: number, x: number, y: number): Phaser.GameObjects.GameObject[] {
+        if (tokens <= 0) return [];
+
+        const drawn = Math.min(tokens, MEDALLIONS_BEFORE_COLLAPSE);
+        const objects: Phaser.GameObjects.GameObject[] = [];
+
+        for (let index = 0; index < drawn; index++) {
+            objects.push(
+                this.add
+                    .image(x + index * (MEDALLION + 2), y, TEXTURES.devotionToken)
+                    .setOrigin(0, 0)
+                    .setDisplaySize(MEDALLION, MEDALLION)
+            );
+        }
+
+        if (tokens > MEDALLIONS_BEFORE_COLLAPSE) {
+            objects.length = 0;
+            objects.push(
+                this.add.image(x, y, TEXTURES.devotionToken).setOrigin(0, 0).setDisplaySize(MEDALLION, MEDALLION),
+                this.add
+                    .text(x + MEDALLION + 3, y + MEDALLION / 2, `×${tokens}`, {
+                        fontFamily: 'Inter, sans-serif',
+                        fontSize: '12px',
+                        color: '#f5f5f5'
+                    })
+                    .setOrigin(0, 0.5)
+            );
+        }
+
+        return objects;
     }
 
     /**
@@ -288,6 +393,23 @@ export class Court extends Scene {
 
 /** Emitted on the scene when a playable card is raised. `main.ts` opens the sheet. */
 export const CARD_SELECTED = 'card-selected';
+
+/** Emitted when a seat chip is tapped. `main.ts` opens the dossier (UIX §6.2). */
+export const SEAT_SELECTED = 'seat-selected';
+
+/** Card art is 512×720 (`portraits.ts`), and every card drawn here keeps that ratio. */
+const CARD_ASPECT = 512 / 720;
+
+/** The card-back marker on a seat chip, and the face-up reveal on an eliminated one. */
+const CARD_BACK_H = 26;
+const REVEALED_H = 30;
+
+/** One devotion medallion, and the width the own-status row reserves for them. */
+const MEDALLION = 12;
+const MEDALLION_SPAN = MEDALLION * 4 + 12;
+
+/** UIX §6.2: medallions wrap at four, then collapse to a numeral. */
+const MEDALLIONS_BEFORE_COLLAPSE = 4;
 
 /** Long enough to ride out a toolbar collapse, short enough to feel immediate. */
 const RESIZE_DEBOUNCE_MS = 100;

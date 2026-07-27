@@ -23,13 +23,15 @@ function mounted(options: { isHost?: boolean; canEndMatch?: boolean } = {}) {
     const root = makeUiRootElement();
     const clock = fakeTimers();
     const ended: number[] = [];
+    const leftToMenu: number[] = [];
 
     const overlays = createOverlays({
         timers: clock.timers,
         now: () => nowValue,
         isHost: () => options.isHost ?? false,
         canEndMatch: () => options.canEndMatch ?? false,
-        onEndMatch: () => ended.push(1)
+        onEndMatch: () => ended.push(1),
+        onBackToMenu: () => leftToMenu.push(1)
     });
     overlays.mount(root);
 
@@ -42,6 +44,7 @@ function mounted(options: { isHost?: boolean; canEndMatch?: boolean } = {}) {
         overlays,
         clock,
         ended,
+        leftToMenu,
         setNow: (value: number) => (nowValue = value),
         dialog: () => q<HTMLElement>('[role="dialog"]'),
         kind: () => q<HTMLElement>('[data-role="overlay"]')?.dataset.overlay ?? null,
@@ -221,6 +224,31 @@ describe('match over', () => {
         expect(ui.text()).toContain('abandoned');
         expect(ui.root.querySelectorAll('[data-role="tally"]')).toHaveLength(0);
     });
+
+    it('offers Back to menu, because a finished match is otherwise a dead end', () => {
+        const ui = mounted();
+        ui.show({ table: won(), ended: { reason: 'won', winnerSeat: 'p1' } });
+
+        const button = ui.root.querySelector('[data-action="back-to-menu"]') as HTMLButtonElement;
+        expect(button.textContent).toBe('Back to menu');
+
+        button.click();
+        expect(ui.leftToMenu).toHaveLength(1);
+    });
+
+    it('offers Back to menu on an abandoned match too', () => {
+        const ui = mounted();
+        ui.show({ table: won(), ended: { reason: 'abandoned' } });
+
+        (ui.root.querySelector('[data-action="back-to-menu"]') as HTMLButtonElement).click();
+        expect(ui.leftToMenu).toHaveLength(1);
+    });
+
+    it('offers it on no other overlay', () => {
+        const ui = mounted();
+        ui.show({ table: makeTable({ paused: true, missingSeats: ['p2'] }) });
+        expect(ui.root.querySelector('[data-action="back-to-menu"]')).toBeNull();
+    });
 });
 
 describe('paused', () => {
@@ -313,6 +341,19 @@ describe('every overlay', () => {
         ui.show(state);
 
         expect(document.activeElement).not.toBe(ui.dialog());
+    });
+
+    it.each(CASES)('%s returns focus where it found it when it closes', (_kind, state) => {
+        const ui = mounted();
+        const opener = document.createElement('button');
+        document.body.appendChild(opener);
+        opener.focus();
+
+        ui.show(state);
+        expect(document.activeElement).toBe(ui.dialog());
+
+        ui.show({ table: makeTable() }); // no overlay applies any more
+        expect(document.activeElement).toBe(opener);
     });
 
     it.each(CASES)('%s has no axe violations', async (_kind, state) => {

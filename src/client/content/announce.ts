@@ -32,6 +32,12 @@ export function announcementFor(event: PresentationEvent, nameOf: NameOf): strin
         case 'round-over':
             return null;
 
+        // Chosen silence for the same reason: the match-over overlay states the
+        // winner, the target, and the final tallies, and it is an `aria-live`
+        // dialog in its own right.
+        case 'match-over':
+            return null;
+
         default: {
             const exhaustive: never = event;
             return exhaustive;

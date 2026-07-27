@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { RedactedView } from '../../game/engine';
+import type { CardTypeId, CardValue, RedactedView } from '../../game/engine';
 import { makeView } from '../store/__fixtures__/view';
 import { TOKENS } from '../tokens/tokens';
 import type { RenderInput } from './renderPlan';
@@ -22,7 +22,7 @@ function seat(id: string, overrides: Partial<RedactedView['players'][number]> = 
         tokens: 0,
         alive: true,
         protected: false,
-        discardPile: [] as ReadonlyArray<{ cardId: 'informant'; value: 1 }>,
+        discardPile: [] as ReadonlyArray<{ readonly cardId: CardTypeId; readonly value: CardValue }>,
         discardValueTotal: 0,
         ...overrides
     };
@@ -72,15 +72,92 @@ describe('seats', () => {
     });
 
     it("reveals an eliminated seat's held card atop their discard pile", () => {
-        const view = fourSeats({ roundResult: { reason: 'deck-out', winnerIds: ['p1'], revealedHands: { p2: 'mule' } } });
-        const seats = plan({ ...view, players: [view.players[0], seat('p2', { alive: false }), view.players[2], view.players[3]] }).seats;
+        // The case that actually happens mid-round, with no `roundResult` at
+        // all. `eliminate()` pushes whatever they held onto their own pile
+        // (engine/discard.ts), so the TOP of that pile is the reveal — and
+        // `revealedHands` is populated on deck-out only, so reading it here
+        // would leave every real elimination showing nothing.
+        const view = fourSeats();
+        const seats = plan({
+            ...view,
+            players: [
+                view.players[0],
+                seat('p2', {
+                    alive: false,
+                    discardPile: [
+                        { cardId: 'informant', value: 1 },
+                        { cardId: 'mule', value: 8 }
+                    ],
+                    discardValueTotal: 9
+                }),
+                view.players[2],
+                view.players[3]
+            ]
+        }).seats;
 
         expect(seats[0].state).toBe('eliminated');
         expect(seats[0].revealedCard).toBe('mule');
     });
 
+    it('reveals the showdown hand at round over, which no discard pile carries', () => {
+        // A deck-out survivor still HOLDS their card, so it is not on their
+        // pile. `revealedHands` is the only legal source (interface rule 4).
+        const view = fourSeats({ roundResult: { reason: 'deck-out', winnerIds: ['p1'], revealedHands: { p2: 'mule' } } });
+        expect(plan(view, { phase: 'round_over' }).seats[0].revealedCard).toBe('mule');
+    });
+
     it('reveals nothing for a living seat', () => {
         expect(plan(fourSeats()).seats.every(s => s.revealedCard === null)).toBe(true);
+    });
+
+    it('marks a living seat as holding a card, and an eliminated one as holding none', () => {
+        const view = fourSeats();
+        const seats = plan({
+            ...view,
+            players: [view.players[0], seat('p2', { alive: false }), view.players[2], view.players[3]]
+        }).seats;
+
+        expect(seats[0].holdsCard).toBe(false); // UIX §6.2's card-back marker
+        expect(seats[1].holdsCard).toBe(true);
+    });
+
+    it('carries each seat\'s devotion token count', () => {
+        const view = fourSeats();
+        const seats = plan({
+            ...view,
+            players: [view.players[0], seat('p2', { tokens: 3 }), view.players[2], view.players[3]]
+        }).seats;
+        expect(seats[0].tokens).toBe(3);
+    });
+});
+
+describe("the viewer's own status", () => {
+    it("carries the viewer's own tokens and every discard value, at the spec's rect", () => {
+        // UIX §6.1 puts "own tokens + discards" above the hand. The viewer is
+        // filtered out of `seats`, so without this the one player who cannot
+        // see their own standing is the player whose standing it is.
+        const view = fourSeats();
+        const built = plan({
+            ...view,
+            players: [
+                seat('p1', {
+                    tokens: 2,
+                    discardPile: [
+                        { cardId: 'informant', value: 1 },
+                        { cardId: 'magnifico', value: 3 }
+                    ],
+                    discardValueTotal: 4
+                }),
+                view.players[1],
+                view.players[2],
+                view.players[3]
+            ]
+        });
+
+        expect(built.own.rect).toBe(SPEC.ownStatus);
+        expect(built.own.tokens).toBe(2);
+        expect(built.own.discardValues).toEqual([1, 3]);
+        expect(built.own.discardTotal).toBe(4);
     });
 
     it('marks a missing seat disconnected without removing their cards', () => {

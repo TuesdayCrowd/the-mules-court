@@ -19,7 +19,7 @@ import './client/styles/fonts.css';
 import './client/styles/tokens.css';
 import './client/styles/ui.css';
 
-import type { CardInstanceId, PlayerId } from './game/engine';
+import type { CardInstanceId, CardTypeId, PlayerId, RedactedView } from './game/engine';
 import { cardTypeOf } from './game/engine';
 import type { PresentationEvent } from './client/store/diff';
 import { announcementFor } from './client/content/announce';
@@ -51,7 +51,7 @@ import { createSeatDossier } from './client/ui/seatDossier';
 import { REAL_TIMERS } from './client/ui/surface';
 import { createToasts } from './client/ui/toasts';
 import { createUiRoot } from './client/ui/uiRoot';
-import { CARD_SELECTED } from './game/scenes/Court';
+import { CARD_SELECTED, SEAT_SELECTED } from './game/scenes/Court';
 import type { Court } from './game/scenes/Court';
 import StartGame from './game/main';
 
@@ -84,6 +84,17 @@ function browserSocket(url: string): WebSocketLike {
     };
 
     return like;
+}
+
+/**
+ * The card showing on top of a seat's discard pile, if any.
+ *
+ * `eliminate()` pushes the whole hand there before it logs the elimination, so
+ * for a seat that has just gone out this is what they held.
+ */
+function topOfPile(seat: RedactedView['players'][number] | undefined): CardTypeId | null {
+    const pile = seat?.discardPile ?? [];
+    return pile.length === 0 ? null : pile[pile.length - 1].cardId;
 }
 
 function boot(): void {
@@ -184,7 +195,12 @@ function boot(): void {
             // D4: the client is never told when activeGraceMs has elapsed, so
             // this stays false until the server sends the answer.
             canEndMatch: () => false,
-            onEndMatch: () => socket?.send({ type: 'END_MATCH', matchId: matchId as string })
+            onEndMatch: () => socket?.send({ type: 'END_MATCH', matchId: matchId as string }),
+            // A whole navigation rather than a state change: the seat, the
+            // socket and the stored token all belong to this match, and the
+            // menu is a different route (UIX §2.6). Reloading at `/` is the
+            // honest way to leave, and matches what the fatal screen does.
+            onBackToMenu: () => location.assign('/')
         })
     );
     uiRoot.add(createQuickReference());
@@ -221,6 +237,10 @@ function boot(): void {
         // Tapping a card on the canvas and activating its accessibility proxy
         // are the same intent, so both land here.
         court.events.on(CARD_SELECTED, (id: CardInstanceId) => openSheetFor(id));
+        // UIX §6.2. The dossier is supplementary detail — every value it holds
+        // is already legible on the chip — but it is the only place the pile
+        // appears in play order with card names, and the match log with it.
+        court.events.on(SEAT_SELECTED, (id: PlayerId) => seatDossier.open(id));
         court.renderView(store.getState());
     });
 
@@ -243,6 +263,19 @@ function boot(): void {
             };
         }
 
+        // UIX §9.1: the medallion drifts onto the winner's seat. The viewer's
+        // own award lands on the own-status row, which is where their tokens
+        // actually are — a shimmer over an empty rect would say nothing.
+        if (event.kind === 'round-over' && table !== null && spec !== null) {
+            const winner = event.result.winnerIds[0];
+            if (winner === undefined) return {};
+            if (winner === table.view.own.playerId) return { rect: spec.ownStatus };
+
+            const opponents = table.view.players.filter(p => p.id !== table.view.own.playerId);
+            const index = opponents.findIndex(p => p.id === winner);
+            return index >= 0 ? { rect: spec.opponents[index] } : {};
+        }
+
         if (event.kind === 'log' && table !== null && spec !== null) {
             // Bound to a local: narrowing `event.entry.kind` inside a compound
             // condition does not survive repeated access to a union member.
@@ -252,10 +285,23 @@ function boot(): void {
             const opponents = table.view.players.filter(p => p.id !== table.view.own.playerId);
             const index = opponents.findIndex(p => p.id === entry.playerId);
             const rect = index >= 0 ? spec.opponents[index] : undefined;
-            const held = table.view.roundResult?.revealedHands?.[entry.playerId] ?? null;
+
+            // The flip IS the information (UIX §8.2), so it has to have a card.
+            // `revealedHands` cannot supply one: it is populated on deck-out
+            // alone, and a deck-out eliminates nobody — so reading it here gave
+            // every elimination beat an undefined portrait and `flip()` returned
+            // without drawing. The card is on the victim's own discard pile,
+            // pushed there by `eliminate()` before this entry was ever logged.
+            const held = topOfPile(table.view.players.find(p => p.id === entry.playerId));
+
+            // The Mule's loom is the one beat whose face is a rule rather than
+            // a lookup: `cause` already says which card did this.
+            const mule = entry.cause === 'mule-voluntary' || entry.cause === 'mule-forced';
+            const portraitKey = mule ? cardCopyFor('mule').portraitKey : held === null ? undefined : cardCopyFor(held).portraitKey;
+
             return {
                 ...(rect === undefined ? {} : { rect }),
-                ...(held === null ? {} : { portraitKey: cardCopyFor(held).portraitKey }),
+                ...(portraitKey === undefined ? {} : { portraitKey }),
                 label: `${nameOf(entry.playerId)} is out`
             };
         }

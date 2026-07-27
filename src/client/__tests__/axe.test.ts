@@ -173,7 +173,8 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
                 now: () => 1_000_000,
                 isHost: () => false,
                 canEndMatch: () => false,
-                onEndMatch: noop
+                onEndMatch: noop,
+                onBackToMenu: noop
             });
             drive(
                 overlays,
@@ -193,7 +194,8 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
                 now: () => 1_000_000,
                 isHost: () => true,
                 canEndMatch: () => true,
-                onEndMatch: noop
+                onEndMatch: noop,
+                onBackToMenu: noop
             });
             drive(
                 overlays,
@@ -214,7 +216,8 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
                 now: () => 1_000_000,
                 isHost: () => true,
                 canEndMatch: () => false,
-                onEndMatch: noop
+                onEndMatch: noop,
+                onBackToMenu: noop
             });
             drive(overlays, root, makeState({ screen: 'table', table: makeTable({ paused: true, missingSeats: ['p2'] }) }));
         }
