@@ -315,15 +315,14 @@ function boot(): void {
         const table = store.getState().table;
         if (table === null) return;
 
-        const cardId = cardTypeOf(cardInstanceId);
         const targets: SheetTarget[] = sheetTargetsFor(
             table.view,
-            cardId,
+            cardInstanceId,
             id => table.nicknames[id] ?? id
         );
 
         actionSheet.open({
-            cardId,
+            cardId: cardTypeOf(cardInstanceId),
             cardInstanceId,
             targets,
             playable: table.view.own.legalPlays.includes(cardInstanceId),

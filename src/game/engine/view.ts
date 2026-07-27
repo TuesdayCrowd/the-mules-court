@@ -1,6 +1,25 @@
-import type { MatchState, PlayerId, RedactedView } from './types';
-import { cardTypeOf } from './cardCatalog';
-import { computeLegalPlays } from './legality';
+import type { CardInstanceId, MatchState, PlayerId, RedactedView, RoundState } from './types';
+import { CARD_CATALOG, cardTypeOf } from './cardCatalog';
+import { EFFECT_DEFS } from './effectRegistry';
+import { computeLegalPlays, computeLegalTargets } from './legality';
+
+/**
+ * Who each of this player's legal plays may be aimed at.
+ *
+ * Computed here rather than left to the client, because targeting is a rule and
+ * rules belong to the engine. A client deriving it has to restate both halves of
+ * `computeLegalTargets` — alive-and-unprotected for an opponent, `canTargetSelf`
+ * for the actor — and one of them was restated wrong: the viewer was excluded
+ * unconditionally, so a Darell could never be played at its own player.
+ */
+function legalTargetsFor(round: RoundState, actorId: PlayerId): Record<CardInstanceId, readonly PlayerId[]> {
+    const targets: Record<CardInstanceId, readonly PlayerId[]> = {};
+    for (const instanceId of computeLegalPlays(round, actorId)) {
+        const effectDef = EFFECT_DEFS[CARD_CATALOG[cardTypeOf(instanceId)].effectType];
+        targets[instanceId] = computeLegalTargets(round, actorId, effectDef);
+    }
+    return targets;
+}
 
 /**
  * The only function whose output may ever reach a client.
@@ -52,7 +71,8 @@ export function view(match: MatchState, viewerId: PlayerId): RedactedView {
         own: {
             playerId: viewerId,
             hand: viewer?.hand ?? [],
-            legalPlays: isCurrentPlayer ? computeLegalPlays(round, viewerId) : []
+            legalPlays: isCurrentPlayer ? computeLegalPlays(round, viewerId) : [],
+            legalTargets: isCurrentPlayer ? legalTargetsFor(round, viewerId) : {}
         },
 
         // Peeks are re-checked live, every call. A record survives only while the

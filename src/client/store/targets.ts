@@ -1,29 +1,34 @@
 /**
  * Which seats a card may be played at, as the action sheet's buttons.
  *
- * **This mirrors the engine rather than inventing a rule**, and the mirroring is
- * the uncomfortable part. `computeLegalTargets` is the authority, but it takes a
- * `RoundState` the client does not have and the `RedactedView` carries no
- * `legalTargets` field — so the sheet has to assemble the list from what it can
- * see. The two rules it applies are read from the shared `EFFECT_DEFS` table,
- * not restated: `requiresTarget` decides whether there are targets at all, and
- * `canTargetSelf` decides whether the viewer is one of them.
+ * **Eligibility is read, never derived** (interface rule 1). `view.own.
+ * legalTargets` is the engine's own `computeLegalTargets` output, keyed by the
+ * card being played, so this file decides nothing about who may be targeted —
+ * it decides only how to present the answer.
  *
- * The alternative is a transport change putting `legalTargets` on the wire per
- * playable card, which is the right long-term shape and is noted as follow-up.
- * Until then this is the one place the derivation lives, so it can be tested
- * against the engine's behaviour instead of being spread through `main.ts`.
+ * That split matters because the derived version got it wrong. The viewer was
+ * filtered out for every card, so a Darell — "choose any player" — could never
+ * be aimed at its own player; with every opponent protected the sheet then
+ * declared a fizzle and sent a frame the engine refused with `TARGET_REQUIRED`,
+ * and the turn never moved. Restating a rule is how a client drifts from the
+ * engine, and there is no restatement left here to drift.
  *
- * The bug this replaced: the viewer was filtered out unconditionally, so a
- * Darell — "choose ANY player", `canTargetSelf: true` — could never be aimed at
- * yourself. With every opponent protected the sheet then declared the play a
- * fizzle and sent a frame with no target, which the engine refused with
- * `TARGET_REQUIRED` because a legal target (you) did exist. The sheet closed and
- * the turn stayed put.
+ * Two presentation choices remain, and neither is a rule about this round:
+ *
+ *  - **Which seats to list.** Every opponent, always, so a disabled button can
+ *    carry its reason (interface rule 3) rather than the rule being hidden. The
+ *    viewer appears only when they are genuinely targetable — for a Guard or a
+ *    Baron the viewer is not a choice being withheld, they are not a
+ *    participant, and a disabled "yourself" would imply otherwise. Self is
+ *    never *temporarily* ineligible: you are alive and holding the turn, and
+ *    protection does not apply to your own play.
+ *  - **Why a listed seat is disabled.** Taken from `players[]`, which is public
+ *    board state every client can already see — an explanation of the engine's
+ *    answer, not a second computation of it.
  */
 
 import { CARD_CATALOG, EFFECT_DEFS } from '../../game/engine';
-import type { CardTypeId, PlayerId, RedactedView } from '../../game/engine';
+import type { CardInstanceId, CardTypeId, PlayerId, RedactedView } from '../../game/engine';
 
 export interface SheetTargetOption {
     readonly playerId: PlayerId;
@@ -32,33 +37,34 @@ export interface SheetTargetOption {
     readonly reason?: 'protected' | 'eliminated';
 }
 
+/**
+ * `requiresTarget` is a static property of the card, like its value or its
+ * name — not a fact about this round — so reading it here is not a rule
+ * derivation. It is what separates the two meanings of an empty target list:
+ * a card that takes no target at all, and one that takes a target but has no
+ * legal one right now (UIX §7.2 gives those different copy).
+ */
+export function cardTakesTarget(cardId: CardTypeId): boolean {
+    return EFFECT_DEFS[CARD_CATALOG[cardId].effectType].requiresTarget;
+}
+
 export function sheetTargetsFor(
     view: RedactedView,
-    cardId: CardTypeId,
+    cardInstanceId: CardInstanceId,
     nameOf: (id: PlayerId) => string
 ): SheetTargetOption[] {
-    const effect = EFFECT_DEFS[CARD_CATALOG[cardId].effectType];
-    if (!effect.requiresTarget) return [];
-
+    const legal = view.own.legalTargets[cardInstanceId] ?? [];
     const own = view.own.playerId;
 
     return view.players
-        // Self appears only when the card allows it. For every other card the
-        // viewer is not a hidden choice being withheld — they are not a
-        // participant, and a disabled "yourself" button would imply otherwise.
-        .filter(player => player.id !== own || effect.canTargetSelf)
+        .filter(player => player.id !== own || legal.includes(player.id))
         .map(player => {
             const isSelf = player.id === own;
-
-            // The engine's predicate, both halves: alive always, and for an
-            // opponent, unprotected. Protection guards against other players,
-            // so it never blocks a self-target.
-            const eligible = player.alive && (isSelf || !player.protected);
 
             return {
                 playerId: player.id,
                 nickname: isSelf ? `${nameOf(player.id)} (you)` : nameOf(player.id),
-                eligible,
+                eligible: legal.includes(player.id),
                 ...(!player.alive
                     ? { reason: 'eliminated' as const }
                     : !isSelf && player.protected
