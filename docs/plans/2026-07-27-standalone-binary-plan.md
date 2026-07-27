@@ -1032,6 +1032,34 @@ and must be regenerated whenever `dist/` changes; and the ~61 MB (macOS ARM) /
 
 ---
 
+## What execution changed
+
+Recorded because the tasks above are what was *planned*, and a future reader
+comparing them to the code deserves the difference rather than a puzzle.
+
+**Traversal became a policy rule, not a lookup concern (Task 3).** The plan's
+`serveFrom` let a lookup answer only "file" or `null`, and `null` is what
+triggers the shell fallback — so `/../../etc/passwd` was refused by
+`filesystemLookup`, fell through to the fallback, and came back **200** with the
+homepage, because `passwd` has no extension and reads as a client route. Three
+existing `static.test.ts` cases failed immediately. `serveFrom` now refuses any
+decoded path with a `..` segment before it looks anything up, which fixes both
+sources at once and closes the same hole on the embedded side, which had no
+guard at all. The `resolve`-and-prefix check stays as defence in depth. This is
+the whole reason the plan insisted `static.test.ts` pass unedited.
+
+**`envOverrides` needed a mutable accumulator (Task 1).** `Partial<T>` makes
+fields optional but keeps them `readonly`, and every field of `TransportConfig`
+is `readonly`. The accumulator uses a `-readonly` mapped type and the return
+type puts the modifier back. `bun test` passed while `tsc` failed, which is the
+gotcha AGENTS.md documents about Bun transpiling without checking.
+
+**Task 6 was folded into Task 3** as planned, and `SHELL_PATH` ended up used by
+`serveFrom` and `embeddedLookup` rather than by the generator.
+
+**`renderManifest` special-cases the empty list**, so it emits `new Map([])`
+rather than a map literal with a blank line in it.
+
 ## Deferred
 
 **Size.** ~61 MB native, ~100 MB cross-compiled. Unavoidable with `--compile`;
