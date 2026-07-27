@@ -4,6 +4,14 @@ import { createMatch, view as engineView } from '../../game/engine';
 import type { MatchState } from '../../game/engine';
 import { makeView } from './__fixtures__/view';
 import { cardTakesTarget, sheetTargetsFor } from './targets';
+import type { SheetTargetOption } from './targets';
+
+/** Every test but the version-skew pair expects the view to actually answer. */
+function offered(...args: Parameters<typeof sheetTargetsFor>): SheetTargetOption[] {
+    const list = sheetTargetsFor(...args);
+    if (list === null) throw new Error('expected the view to carry legalTargets');
+    return list;
+}
 
 function seat(id: string, overrides: Partial<RedactedView['players'][number]> = {}) {
     return {
@@ -35,7 +43,7 @@ function viewWith(
 
 describe('sheetTargetsFor — it reads the engine, it does not decide', () => {
     it('marks exactly the seats the engine listed as eligible', () => {
-        const list = sheetTargetsFor(
+        const list = offered(
             viewWith([seat('p1'), seat('p2'), seat('p3')], 'toran-darell#0', ['p1', 'p3']),
             'toran-darell#0',
             nameOf
@@ -47,41 +55,52 @@ describe('sheetTargetsFor — it reads the engine, it does not decide', () => {
     it('trusts the engine even when board state alone would suggest otherwise', () => {
         // p2 looks targetable — alive and unprotected — but the engine did not
         // list them. The client defers rather than second-guessing.
-        const list = sheetTargetsFor(viewWith([seat('p1'), seat('p2')], 'informant#0', []), 'informant#0', nameOf);
+        const list = offered(viewWith([seat('p1'), seat('p2')], 'informant#0', []), 'informant#0', nameOf);
         expect(list.find(entry => entry.playerId === 'p2')!.eligible).toBe(false);
     });
 
-    it('survives a view carrying no legalTargets at all', () => {
+    it('says "cannot answer" — not "no targets" — when the view carries no legalTargets', () => {
         // Version skew, which in dev is routine: Vite hot-reloads the client
         // while `bun run dev:server` keeps running the engine it booted with.
-        // This used to throw, and since `openSheetFor` is the only route into
-        // the sheet, the TypeError made every card on the table unclickable —
-        // on turn and off — with nothing on screen to explain it.
+        //
+        // First this threw, and since `openSheetFor` is the only route into the
+        // sheet, the TypeError made every card unclickable with nothing on
+        // screen to explain it. Then it degraded to an empty list, which is
+        // worse in the way that matters: an empty list is a RULE — "every other
+        // player is protected or eliminated" — so a perfectly targetable
+        // opponent was announced as protected. `null` is neither.
         const stale = {
             ...viewWith([seat('p1'), seat('p2')], 'informant#0', []),
             own: { playerId: 'p1' as PlayerId, hand: ['informant#0' as CardInstanceId], legalPlays: [] }
         } as unknown as RedactedView;
 
-        expect(() => sheetTargetsFor(stale, 'informant#0', nameOf)).not.toThrow();
-        expect(sheetTargetsFor(stale, 'informant#0', nameOf).some(entry => entry.eligible)).toBe(false);
+        expect(sheetTargetsFor(stale, 'informant#0', nameOf)).toBeNull();
+    });
+
+    it('distinguishes that from a genuine engine answer of no legal target', () => {
+        // Same screen otherwise, opposite meanings. This one IS the rule.
+        const fizzle = sheetTargetsFor(viewWith([seat('p1'), seat('p2', { protected: true })], 'informant#0', []), 'informant#0', nameOf);
+
+        expect(fizzle).not.toBeNull();
+        expect(fizzle!.some(entry => entry.eligible)).toBe(false);
     });
 
     it('treats an unknown card as offering nothing', () => {
-        const list = sheetTargetsFor(viewWith([seat('p1'), seat('p2')], 'informant#0', ['p2']), 'mule#0', nameOf);
+        const list = offered(viewWith([seat('p1'), seat('p2')], 'informant#0', ['p2']), 'mule#0', nameOf);
         expect(list.some(entry => entry.eligible)).toBe(false);
     });
 });
 
 describe('sheetTargetsFor — presentation', () => {
     it('lists the viewer only when the engine says they are targetable', () => {
-        const withSelf = sheetTargetsFor(
+        const withSelf = offered(
             viewWith([seat('p1'), seat('p2')], 'toran-darell#0', ['p1', 'p2']),
             'toran-darell#0',
             nameOf
         );
         expect(withSelf.map(entry => entry.playerId)).toEqual(['p1', 'p2']);
 
-        const withoutSelf = sheetTargetsFor(
+        const withoutSelf = offered(
             viewWith([seat('p1'), seat('p2')], 'informant#0', ['p2']),
             'informant#0',
             nameOf
@@ -90,7 +109,7 @@ describe('sheetTargetsFor — presentation', () => {
     });
 
     it('marks the viewer so they can tell which button is them', () => {
-        const list = sheetTargetsFor(
+        const list = offered(
             viewWith([seat('p1'), seat('p2')], 'toran-darell#0', ['p1', 'p2']),
             'toran-darell#0',
             nameOf
@@ -99,7 +118,7 @@ describe('sheetTargetsFor — presentation', () => {
     });
 
     it('keeps every opponent listed, so a disabled button can carry its reason', () => {
-        const list = sheetTargetsFor(
+        const list = offered(
             viewWith([seat('p1'), seat('p2', { protected: true }), seat('p3', { alive: false })], 'informant#0', []),
             'informant#0',
             nameOf
@@ -111,12 +130,12 @@ describe('sheetTargetsFor — presentation', () => {
     });
 
     it('gives an eligible seat no reason to explain', () => {
-        const list = sheetTargetsFor(viewWith([seat('p1'), seat('p2')], 'informant#0', ['p2']), 'informant#0', nameOf);
+        const list = offered(viewWith([seat('p1'), seat('p2')], 'informant#0', ['p2']), 'informant#0', nameOf);
         expect(list[0].reason).toBeUndefined();
     });
 
     it('never labels a self-target "protected", since protection is against others', () => {
-        const list = sheetTargetsFor(
+        const list = offered(
             viewWith([seat('p1', { protected: true }), seat('p2')], 'toran-darell#0', ['p1', 'p2']),
             'toran-darell#0',
             nameOf
@@ -157,14 +176,14 @@ describe('agreement with the real engine', () => {
 
     it('offers the viewer a Darell aimed at themselves', () => {
         const view = realView(['toran-darell#0', 'informant#0']);
-        const list = sheetTargetsFor(view, 'toran-darell#0', id => id);
+        const list = offered(view, 'toran-darell#0', id => id);
 
         expect(list.find(entry => entry.playerId === 'p0')!.eligible).toBe(true);
     });
 
     it('does not offer the viewer an Informant aimed at themselves', () => {
         const view = realView(['toran-darell#0', 'informant#0']);
-        expect(sheetTargetsFor(view, 'informant#0', id => id).some(entry => entry.playerId === 'p0')).toBe(false);
+        expect(offered(view, 'informant#0', id => id).some(entry => entry.playerId === 'p0')).toBe(false);
     });
 
     it('still offers a self-target when every opponent is protected — the reported bug', () => {
@@ -180,7 +199,7 @@ describe('agreement with the real engine', () => {
             }
         }));
 
-        const list = sheetTargetsFor(view, 'toran-darell#0', id => id);
+        const list = offered(view, 'toran-darell#0', id => id);
         expect(list.some(entry => entry.eligible)).toBe(true); // not a fizzle
         expect(list.find(entry => entry.playerId === 'p0')!.eligible).toBe(true);
     });
@@ -198,7 +217,7 @@ describe('agreement with the real engine', () => {
             }
         }));
 
-        expect(sheetTargetsFor(view, 'informant#0', id => id).some(entry => entry.eligible)).toBe(false);
+        expect(offered(view, 'informant#0', id => id).some(entry => entry.eligible)).toBe(false);
     });
 
     it('offers nothing to a player who does not hold the turn', () => {
@@ -206,7 +225,7 @@ describe('agreement with the real engine', () => {
         const off = engineView({ ...base, round: { ...base.round, currentPlayerIndex: 0 } }, 'p1');
 
         for (const card of off.own.hand) {
-            expect(sheetTargetsFor(off, card, id => id).some(entry => entry.eligible)).toBe(false);
+            expect(offered(off, card, id => id).some(entry => entry.eligible)).toBe(false);
         }
     });
 });

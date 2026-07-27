@@ -333,11 +333,20 @@ function boot(): void {
         const table = store.getState().table;
         if (table === null) return;
 
-        const targets: SheetTarget[] = sheetTargetsFor(
+        const targets: SheetTarget[] | null = sheetTargetsFor(
             table.view,
             cardInstanceId,
             id => table.nicknames[id] ?? id
         );
+
+        // The view could not say who is targetable. Refusing to open is the only
+        // honest option: the sheet's other branch would announce "every other
+        // player is protected or eliminated", which is a rule of the game and
+        // would be a lie. Say what is actually wrong instead.
+        if (targets === null) {
+            toasts.show('The court is running an older version of the game. Reload the page.');
+            return;
+        }
 
         actionSheet.open({
             cardId: cardTypeOf(cardInstanceId),
