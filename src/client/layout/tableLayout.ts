@@ -14,7 +14,7 @@
  * defined by its neighbours' edges, so it cannot collide with them.
  */
 
-import { classifyTopology, isHandheldLandscape } from './topology';
+import { classifyTopology } from './topology';
 import type { Topology } from './topology';
 import type { LayoutInput, LayoutSpec, PipSpec, Rect } from './types';
 
@@ -56,8 +56,6 @@ interface Proportions {
     readonly handMaxCardH: number;
     /** How far the outer opponent chips drop below the centre one. Zero outside landscape-narrow. */
     readonly arcDepth: number;
-    /** Landscape-narrow spreads the hand to both thumbs instead of centring it. */
-    readonly spreadHand: boolean;
     /** Only `wide` has the horizontal room to set the burn panel beside the deck. */
     readonly sideBySideRemoved: boolean;
 }
@@ -71,11 +69,10 @@ const PROPORTIONS: Readonly<Record<Topology, Proportions>> = {
         ownStatusH: 0.05,
         handMaxCardH: 0.26,
         arcDepth: 0,
-        spreadHand: false,
         sideBySideRemoved: false
     },
-    // A rotated phone is short: bands take a larger share of a smaller height,
-    // and the hand spreads wide because both thumbs are at the edges.
+    // A rotated phone is short, so the bands take a larger share of a smaller
+    // height. This class no longer spreads the hand — see `handStarts`.
     'landscape-narrow': {
         statusStripH: 0.06,
         chipH: 0.16,
@@ -84,7 +81,6 @@ const PROPORTIONS: Readonly<Record<Topology, Proportions>> = {
         ownStatusH: 0.06,
         handMaxCardH: 0.3,
         arcDepth: 0.045,
-        spreadHand: true,
         sideBySideRemoved: false
     },
     // Generous seat panels with room for portrait art, and the burn panel beside
@@ -97,7 +93,6 @@ const PROPORTIONS: Readonly<Record<Topology, Proportions>> = {
         ownStatusH: 0.055,
         handMaxCardH: 0.3,
         arcDepth: 0,
-        spreadHand: false,
         sideBySideRemoved: true
     }
 };
@@ -124,9 +119,24 @@ export const MAX_DISCARDS = 8;
 
 /** Below this a pip stops reading as a value and becomes a dot. */
 export const MIN_PIP_PX = 8;
-/** Above this pips crowd the nickname out of the chip. */
-const MAX_PIP_PX = 14;
-const PIP_GAP_PX = 3;
+/**
+ * The comfortable pip size on the smallest screen the game supports.
+ *
+ * A floor rather than a ceiling. It used to be a flat cap of 14px, which meant
+ * a discard pile set at the same size on a 390px phone and a 1080p monitor —
+ * correct on the phone and unreadable on the monitor, which is exactly how it
+ * was reported. Pips now scale with the viewport like every other dimension
+ * here, and this is where that scale starts.
+ */
+const BASE_PIP_PX = 14;
+/** Share of viewport height a pip may claim once the screen is big enough to. */
+const PIP_H_FRACTION = 0.02;
+export const PIP_GAP_PX = 3;
+
+/** The largest pip worth drawing on a viewport this tall. */
+function comfortablePipPx(viewportH: number): number {
+    return Math.max(BASE_PIP_PX, Math.round(viewportH * PIP_H_FRACTION));
+}
 /** Share of the chip's height the pip block may claim. */
 const PIP_AREA_H = 0.22;
 /** Share of the chip's width, inside its padding. */
@@ -158,12 +168,12 @@ function chipHeightFor(spec: PipSpec): number {
  * design failure, and a chip that grew instead would push the deck off a phone.
  * Only when the floor itself will not fit does the caller widen the block.
  */
-function fitPips(count: number, chip: { w: number; h: number }): PipSpec {
+function fitPips(count: number, chip: { w: number; h: number }, maxSize: number): PipSpec {
     const areaW = chip.w * PIP_AREA_W;
     const areaH = chip.h * PIP_AREA_H;
     const pips = Math.max(1, count);
 
-    for (let size = MAX_PIP_PX; size >= MIN_PIP_PX; size--) {
+    for (let size = maxSize; size >= MIN_PIP_PX; size--) {
         const { perRow, rows } = pipRowsAt(size, pips, areaW);
         if (pipBlockHeight({ size, perRow, rows }) <= areaH) return { size, perRow, rows };
     }
@@ -195,15 +205,22 @@ function arcOffset(index: number, count: number, depth: number): number {
     return depth * fromCentre * fromCentre;
 }
 
-/** Horizontal starts for the hand: spread to the margins, or centred as a block. */
-function handStarts(count: number, cardW: number, margin: number, contentW: number, gapPx: number, spread: boolean): number[] {
-    if (count === 1) return [margin + (contentW - cardW) / 2];
-
-    if (spread) {
-        const step = (contentW - cardW) / (count - 1);
-        return Array.from({ length: count }, (_, i) => margin + i * step);
-    }
-
+/**
+ * Horizontal starts for the hand, always centred as one block.
+ *
+ * *UIX §6.1* had `landscape-narrow` spread the hand to both margins, on the
+ * reasoning that a phone held in landscape has a thumb at each edge. In
+ * practice it read as broken on every screen it reached — the two cards sat in
+ * opposite corners with the whole table between them, and the right-hand one
+ * landed under the quick-reference button. It was reported three times, from
+ * three different viewports, before the spread was removed outright rather
+ * than narrowed again.
+ *
+ * **Superseding §6.1**, recorded here rather than decided quietly: the hand is
+ * one block in the middle at every size. A player looks at their hand as a
+ * pair, and a pair split across a metre of desk is not a pair.
+ */
+function handStarts(count: number, cardW: number, margin: number, contentW: number, gapPx: number): number[] {
     const blockW = cardW * count + gapPx * (count - 1);
     const startX = margin + (contentW - blockW) / 2;
     return Array.from({ length: count }, (_, i) => startX + i * (cardW + gapPx));
@@ -231,7 +248,7 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
     const chipGap = CHIP_GAP * w;
     const chipW = (contentW - chipGap * (input.opponentCount - 1)) / input.opponentCount;
     const nominalChipH = p.chipH * h;
-    const pip = fitPips(input.maxDiscards, { w: chipW, h: nominalChipH });
+    const pip = fitPips(input.maxDiscards, { w: chipW, h: nominalChipH }, comfortablePipPx(h));
     const chipH = Math.max(nominalChipH, chipHeightFor(pip));
 
     const chipTop = statusStrip.y + statusStrip.h + gap;
@@ -292,15 +309,7 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
 
     const handY = h - margin - cardH;
 
-    // The spread is a reach affordance, not a composition choice: it puts both
-    // cards under the thumbs of a phone held in landscape. The class alone is
-    // not enough to authorise it — `landscape-narrow` is decided by height, and
-    // a 1400×559 desktop window is short without being holdable. Both questions
-    // have to agree: this composition spreads, AND this viewport has edges a
-    // thumb can reach.
-    const spreadHand = p.spreadHand && isHandheldLandscape(w, h);
-
-    const hand: Rect[] = handStarts(input.handCount, cardW, margin, contentW, handGapPx, spreadHand).map(x => ({
+    const hand: Rect[] = handStarts(input.handCount, cardW, margin, contentW, handGapPx).map(x => ({
         x,
         y: handY,
         w: cardW,

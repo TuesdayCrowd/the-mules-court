@@ -238,12 +238,14 @@ describe('landscape-narrow composition', () => {
         for (const chip of spec.opponents) expect(spec.deck.y).toBeGreaterThanOrEqual(bottom(chip));
     });
 
-    it('spreads the hand to both thumbs rather than centring it', () => {
+    // Superseding UIX §6.1, which spread the hand to both margins here on the
+    // reasoning that a phone in landscape has a thumb at each edge. It read as
+    // broken on every viewport it reached and was removed outright.
+    it('centres the hand as a block, like every other class', () => {
         const spec = rotated({ handCount: 2 });
-        const margin = spec.statusStrip.x;
 
-        expect(spec.hand[0].x).toBeCloseTo(margin, 5);
-        expect(right(last(spec.hand))).toBeCloseTo(right(spec.statusStrip), 5);
+        expect((spec.hand[0].x + right(last(spec.hand))) / 2).toBeCloseTo(ROTATED.w / 2, 5);
+        expect(spec.hand[1].x - right(spec.hand[0])).toBeLessThan(spec.hand[0].w);
     });
 
     it('still centres a single card', () => {

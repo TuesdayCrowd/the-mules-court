@@ -38,28 +38,6 @@ export function classifyTopology(w: number, h: number): Topology {
     return h < MIN_WIDE_HEIGHT ? 'landscape-narrow' : 'wide';
 }
 
-/**
- * The long edge of a phone lying on its side.
- *
- * The largest phone worth designing for is about 956 CSS px across in
- * landscape, and a small tablet in landscape is taller than `MIN_WIDE_HEIGHT`
- * anyway. Past this the viewport is a short desktop window.
- */
-export const MAX_HANDHELD_WIDTH = 1000;
-
-/**
- * Whether the viewer is plausibly *holding* the viewport in two hands.
- *
- * Distinct from `classifyTopology`, and deliberately so. The class answers
- * "which composition", which height alone decides. This answers "are there
- * thumbs at the left and right edges", which needs both dimensions: a
- * 1400×559 window is short enough to be `landscape-narrow` and far too wide
- * to be held, and sending the hand to its corners put one card under the
- * quick-reference button and 1100px of nothing between the two.
- *
- * Only the hand spread asks this. Every other proportion in the class is
- * about height, and height is all the class needs to know.
- */
-export function isHandheldLandscape(w: number, h: number): boolean {
-    return h < MIN_WIDE_HEIGHT && w <= MAX_HANDHELD_WIDTH;
-}
+// `isHandheldLandscape` lived here, to ask whether a viewport had thumbs at its
+// left and right edges. Only the hand spread ever asked, and the hand is now
+// always centred (see `handStarts`), so the question has no caller left.
