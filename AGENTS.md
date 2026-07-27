@@ -6,7 +6,11 @@ Guidance for coding agents working in this repository. Human contributors are we
 
 **The Mule's Court** is a _Love Letter_-style deduction/elimination card game reskinned into Isaac Asimov's Foundation universe (2–4 players, first to N Devotion Tokens wins). The complete game design — rules, turn structure, and all 11 card types with values/counts/abilities — lives in `README.md`. Treat that file as the gameplay spec.
 
-**Status:** the headless game engine is **built and tested** (`src/game/engine/`, under Vitest), and the WebSocket transport that wraps it is **built and tested** (`src/server/`, under `bun test`). What remains unbuilt is the Phaser **client** that speaks to that transport: everything under `src/game/scenes/` is still the unmodified Phaser "template-bun" starter (the `Game` scene just renders "Make something fun!"). The rich art assets in `public/assets/` and the design docs are the raw material for that client; it must be built from the README spec. This started life as the Phaser "template-bun" starter (some scene code and `logo.png`/`bg.png` are still theirs), but `package.json` metadata has been reclaimed for the game (`name: the-mules-court`).
+**Status:** three of the four layers are **built and tested**. The headless game engine (`src/game/engine/`, Vitest), the WebSocket transport that wraps it (`src/server/`, `bun test`), and now the client's browser-independent half (`src/client/`, Vitest) — its pure layer of geometry, copy, state and palette, plus the whole DOM chrome, all testable under Node and jsdom with no WebGL context and no socket.
+
+The Phaser layer now exists too: `src/game/scenes/Court.ts` draws the table, `src/game/scenes/beats.ts` runs the cinematic beats, and `src/main.ts` is the composition root that wires store, socket, DOM and canvas together. **A match is playable in a browser.** Every stage of `docs/plans/2026-07-24-uix-implementation-plan.md` is complete bar the real-device QA pass (Task 34), which needs hardware and a person — see `docs/plans/2026-07-24-uix-qa-checklist.md`.
+
+This started life as the Phaser "template-bun" starter (some scene code and `logo.png`/`bg.png` are still theirs), but `package.json` metadata has been reclaimed for the game (`name: the-mules-court`).
 
 ## Setup commands
 
@@ -15,10 +19,58 @@ Requires [Bun](https://bun.sh).
 | Command                                     | Description                                                               |
 | ------------------------------------------- | ------------------------------------------------------------------------- |
 | `bun install`                               | Install dependencies                                                      |
-| `bun run dev`                               | Dev server with hot reload at `http://localhost:8080`                     |
+| `bun run dev`                               | Client dev server at `http://localhost:8080` — **needs `dev:server` too** |
+| `bun run dev:server`                        | The API and WebSocket half, on `:3000`. Run it in a second terminal        |
+| `bun run dev:host`                          | Like `dev`, but reachable from other devices on the network               |
 | `bun run build`                             | Production build to `dist/`                                               |
 | `bun run dev-nolog` / `bun run build-nolog` | Same, but skip the `log.js` telemetry ping                                |
 | `bunx tsc --noEmit`                         | Type-check (see gotcha below — this is the only way to catch type errors) |
+
+### Running in dev takes two processes
+
+The client calls `POST /api/rooms` and opens a WebSocket, so `bun run dev` alone
+gives an `ECONNREFUSED` on the first click of *Host a game*. Run both:
+
+```bash
+bun run dev:server   # :3000 — API and WebSocket
+bun run dev          # :8080 — client, proxying /api and /ws to :3000
+```
+
+`dev:server` deliberately sets no `MULES_STATIC_ROOT`: Vite serves the client in
+dev, so the backend only answers `/api/rooms` and the socket upgrade. `bun run
+serve` is the production shape — one process serving the built `dist/` as well.
+
+### Testing on a phone
+
+`bun run dev:host` binds Vite to the network and prints the address to open.
+Only Vite needs it — the backend stays on `localhost`, because the proxy reaches
+it from the dev machine rather than from the device.
+
+**Everything served this way is a non-secure context**, and two browser APIs
+simply do not exist there:
+
+- `crypto.randomUUID` — used for `clientMsgId`. Guarded in
+  `src/client/store/ids.ts`, which prefers it and falls back when it is absent.
+  Calling it bare took the whole Play path down once already.
+- `navigator.clipboard` — the lobby's **Copy** button. `src/client/ui/clipboard.ts`
+  prefers it and falls back to a `document.execCommand('copy')` selection copy,
+  which still works in a non-secure context. **Copy therefore works on a phone.**
+  The fallback runs synchronously inside the click, because browsers only honour
+  `execCommand` during a user gesture — awaiting anything first would put it
+  outside the gesture and fail for a second, subtler reason.
+
+The invite link the lobby displays is built from `location.origin`, so it points
+at the address the device is actually using and can be shared with a second
+device. The server's own `joinUrl` field still says `localhost:3000` (deferred
+item D3) — the client never reads it, but do not copy it out of a log and expect
+it to work.
+
+**The dev script does not use `--bun`, and that is load-bearing.** Vite's
+WebSocket proxy silently fails under Bun: `/api` proxies fine, the socket upgrade
+hangs with no error in any log, and the client sits on *Connecting* forever.
+Verified both ways — the same config that times out under `bunx --bun vite`
+connects immediately under `bunx vite`. `build` still uses `--bun`, which is
+fine: nothing is proxied during a build.
 
 ### About `log.js`
 
@@ -26,7 +78,15 @@ The `dev`/`build` scripts first run `bun log.js <mode>`, which makes one silent,
 
 ## Testing instructions
 
-Two test runners, split by what each layer needs. Engine tests run under **Vitest** (`bun run test:engine`, config in `vitest.config.ts`, scoped to `src/game/**/*.test.ts`). Server/transport tests run under **Bun's own test runner** (`bun run test:server`, i.e. `bun test src/server`). The split isn't stylistic: Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun globals the transport depends on, so `src/server/` has to run on `bun test` instead. `bun run test` runs both in sequence. There is still **no linter** configured.
+Two test runners, split by what each layer needs. Engine **and client** tests run under **Vitest** (`bun run test:engine` — the name predates the client; `vitest.config.ts` collects `src/game/**/*.test.ts` and `src/client/**/*.test.ts`). Server/transport tests run under **Bun's own test runner** (`bun run test:server`, i.e. `bun test src/server`). The split isn't stylistic: Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun globals the transport depends on, so `src/server/` has to run on `bun test` instead. `bun run test` runs both in sequence. There is still **no linter** configured.
+
+Client tests default to the **Node** environment; a file needing a DOM opts in with a `// @vitest-environment jsdom` docblock on its first line. Vitest 4 removed `environmentMatchGlobs`, and the docblock keeps that choice beside the code that needs it.
+
+Three gates worth knowing about, because they fail for reasons that are not obvious:
+
+- **`src/client/__tests__/purity.test.ts`** — `layout/`, `content/`, `store/` and `tokens/` may not import Phaser, reach a DOM global, or import server *runtime* (one documented exception: `content/nickname.ts` takes the nickname limit from `src/server/config.ts`, which has zero imports). It reads raw file text, so a *comment* naming a banned global fails too.
+- **`src/client/__tests__/axe.test.ts`** — axe-core over every DOM surface. `color-contrast` is the only disabled rule, because jsdom has no layout; contrast is covered arithmetically in `src/client/tokens/contrast.test.ts` instead.
+- **`src/client/layout/discardCapacity.test.ts`** — drives thousands of real matches through the engine to prove the layout reserves room for the deepest discard pile that can actually occur (eight, not the seven the design states).
 
 The verification gate before considering any change done is:
 
@@ -44,17 +104,23 @@ Phaser **4.2.1** · Vite 6 · TypeScript 5.7 · Bun. The client ships as a stati
 
 ### Bootstrap & scene flow
 
-`index.html` loads `src/main.ts` → calls `StartGame('game-container')` in `src/game/main.ts`, which builds the `Phaser.Types.Core.GameConfig` (AUTO renderer, 1024×768, mounts into `#game-container`) and registers scenes **in order**:
+`index.html` loads `src/main.ts` → calls `StartGame('game-container')` in `src/game/main.ts`, which builds the `Phaser.Types.Core.GameConfig` (AUTO renderer, `Scale.RESIZE` at `100%` × `100%` so the canvas fills the viewport 1:1 with no design resolution, mounts into `#game-container`) and registers scenes **in order**:
 
 ```
-Boot → Preloader → MainMenu → Game → GameOver
+Boot → Preloader → Court
 ```
 
-- `Boot` loads the minimal assets the preloader itself needs (the background), then starts `Preloader`.
-- `Preloader` shows the progress bar, loads game assets via `this.load.setPath('assets')` (relative to `public/assets/`), then starts `MainMenu`.
-- `MainMenu` / `Game` / `GameOver` advance on `pointerdown` — pure placeholders to be replaced with real menu, gameplay, and results scenes.
+- `Boot` loads the one asset the preloader itself needs (the playfield background), then starts `Preloader`.
+- `Preloader` shows the progress bar and loads the real assets — every portrait derived from `CARD_CATALOG`, the card faces, the devotion token, the three shader maps — then **awaits `document.fonts.ready`** before starting `Court`. Canvas text is painted pixels: created before the face loads it renders in a fallback and never re-renders itself the way DOM text does.
+- `Court` is the only gameplay scene. Between matches it idles as the ambient nebula behind the DOM screens; during one it draws the table from a `LayoutSpec`.
 
-When implementing gameplay, keep this Scene chain as the skeleton and add the game logic inside (and alongside) the `Game` scene.
+**Loader paths are absolute (`/assets`), and that is load-bearing.** A relative path resolves against `/join/:matchId`, which the SPA fallback answers with `index.html` and a **200** — so the loader never sees a 404, decodes HTML as an image, and silently substitutes a missing texture. Same reason Vite's `base` is `/`.
+
+**`input.windowEvents` is off** (`src/game/inputPolicy.ts`), also load-bearing. With Phaser's default, `MouseManager` binds `mousedown` to `window.top` and processes it precisely when `event.target !== canvas` — so a tap on the DOM layer hit-tests the table beneath it, and every tap on the action sheet also selected the card under it.
+
+`MainMenu`, `Game`, and `GameOver` were **deleted**, not replaced — a deliberate deviation from this file's former "keep the Scene chain as the skeleton" guidance, recorded in *UIX §2.5* rather than decided ad hoc. Menu and game-over are DOM surfaces now (`src/client/ui/menuScreen.ts`, `overlays.ts`), and an empty Phaser scene behind each would be dead weight.
+
+When adding gameplay, put the *decision* in a pure module and let `Court` walk the result. `buildRenderPlan` and `computeLayout` are both tested without a WebGL context; the scene is glue thin enough to review by reading, and that is the property to preserve.
 
 ### Build config
 
@@ -63,7 +129,30 @@ Two Vite configs in `vite/`, selected per script:
 - `config.dev.mjs` — dev server on port 8080.
 - `config.prod.mjs` — Terser minification (2 passes, comments stripped) + a `phasermsg` plugin that prints a build banner.
 
-Both use `base: './'` (relative asset paths, so the `dist/` bundle can be hosted from any subpath) and split Phaser into its own `phaser` chunk via `manualChunks`.
+Both use `base: '/'` (absolute asset paths) and split Phaser into its own `phaser` chunk via `manualChunks`. The base is **not** relative, and deliberately so: the client owns the `/join/:matchId` route (*UIX §2.6*), and a relative base resolves `./assets/index-abc.js` against `/join/` on a real invite link, so the app never boots. The dev config also proxies `/api` and `/ws` to the server on :3000, which is what lets `socketUrl()` derive one same-origin URL for dev and production alike.
+
+### Client (`src/client/`)
+
+Everything the client can decide without a browser, so Vitest can hold it to the
+design without booting a WebGL context. Full design: `docs/plans/2026-07-23-uix-design.md`.
+
+**The pure layer** — no Phaser, no DOM, no ambient globals, enforced by
+`__tests__/purity.test.ts`:
+
+- `tokens/` — the palette as numbers for canvas draw calls, mirroring `styles/tokens.css`, with a drift test and a WCAG contrast check.
+- `content/` — every string a player reads: card copy, quick reference, log narration, failure copy, nickname rules, the countdown.
+- `layout/` — table geometry as data. `computeLayout(input) → LayoutSpec` across three topology classes; the `Court` scene will consume a spec rather than compute one.
+- `store/` — the WebSocket, the seat token, route parsing, room creation, and one immutable `ClientState` that never derives a game rule.
+
+**The DOM layer** — `ui/`, one factory per surface with `mount`/`update`/`destroy`.
+Menu, join, lobby, action sheet, quick reference, seat dossier, overlays, fatal
+screen, toasts, connection dot, and the offscreen accessibility twin. No surface
+reads the store; `update(state)` is pushed by a single subscriber.
+
+**Styles** — `styles/fonts.css` (self-hosted Exo 2 and Inter), `tokens.css`
+(authoritative palette), `ui.css` (the two-layer shell plus component styling).
+The pointer-events discipline lives in `ui.css` and is tested against the real
+file, not a stub.
 
 ### Server (transport layer)
 

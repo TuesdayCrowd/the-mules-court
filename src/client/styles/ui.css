@@ -1,0 +1,594 @@
+/**
+ * Structural rules for the two-layer shell (UIX §2).
+ *
+ * Only the geometry that makes canvas-plus-DOM work lives here; component
+ * styling arrives with the surfaces themselves. This replaces the Phaser
+ * starter's `public/style.css`, which centred a fixed-size canvas inside a flex
+ * box — the opposite of what `Scale.RESIZE` wants, since the canvas now fills
+ * the viewport 1:1 and there is nothing to centre.
+ */
+
+*,
+*::before,
+*::after {
+    box-sizing: border-box;
+}
+
+html,
+body {
+    margin: 0;
+    padding: 0;
+    height: 100%;
+    background: #000;
+    color: #f5f5f5;
+    /* Tokens are the source of truth; the literals above are only a flash guard
+       for the moment before tokens.css applies. */
+    background: var(--color-bg);
+    color: var(--color-text-primary);
+    overscroll-behavior: none;
+    /* UIX §2.4: Inter carries everything a player reads, nicknames included. */
+    font-family: var(--font-ui, system-ui, sans-serif);
+}
+
+/* The display face is reserved for titles and card values. */
+h1,
+h2,
+.reference-modal th[scope='col'] {
+    font-family: var(--font-display, system-ui, sans-serif);
+    font-weight: 600;
+}
+
+#app {
+    position: relative;
+    width: 100%;
+    /* dvh tracks mobile browser chrome as it collapses; vh is the fallback. */
+    height: 100vh;
+    height: 100dvh;
+    overflow: hidden;
+}
+
+#game-container {
+    position: absolute;
+    inset: 0;
+}
+
+#game-container canvas {
+    display: block;
+}
+
+/**
+ * The DOM layer. Fixed to the viewport rather than to any canvas coordinate, so
+ * the two layers share design tokens and no geometry at all.
+ *
+ * `pointer-events: none` at the root is what keeps a full-bleed overlay from
+ * swallowing every tap meant for the table beneath it. Each mounted surface is
+ * a direct child and restores `auto` for itself, so canvas taps and DOM taps
+ * never compete for the same pixel.
+ */
+#ui-root {
+    position: fixed;
+    inset: 0;
+    z-index: 1;
+    pointer-events: none;
+    /* viewport-fit=cover means content can reach under the notch and the home
+       indicator; the action dock in particular must not. */
+    padding: env(safe-area-inset-top) env(safe-area-inset-right) env(safe-area-inset-bottom)
+        env(safe-area-inset-left);
+}
+
+#ui-root > * {
+    pointer-events: auto;
+}
+
+/**
+ * Non-interactive chrome opts back out of pointer events.
+ *
+ * `#ui-root > *` restores `auto` so surfaces can be tapped, but a toast strip
+ * and a status dot have nothing to tap — left as `auto` they would sit over the
+ * table swallowing taps meant for the cards beneath. Anything inside them that
+ * IS interactive restores `auto` for itself.
+ *
+ * Scoped through `#ui-root >` deliberately: a bare `.toasts` is a class selector
+ * and loses to the ID selector it means to override, so the strip would stay
+ * interactive and nothing would say so.
+ */
+#ui-root > .toasts,
+#ui-root > .connection-dot {
+    pointer-events: none;
+}
+
+.toasts button,
+.connection-dot button {
+    pointer-events: auto;
+}
+
+/**
+ * The connection dot (UIX §5). A corner of every surface.
+ *
+ * State is never colour alone: the accessible name carries it in words, and
+ * `data-status` is what styling keys on rather than parsing that name.
+ */
+.connection-dot {
+    position: absolute;
+    top: var(--space-3);
+    right: var(--space-3);
+    width: var(--space-3);
+    height: var(--space-3);
+    border-radius: 50%;
+    background: var(--color-state-waiting);
+}
+
+.connection-dot[data-status='open'] {
+    background: var(--color-state-round-over);
+}
+
+.connection-dot[data-status='reconnecting'] {
+    background: var(--color-state-paused);
+}
+
+.connection-dot[data-status='closed'] {
+    background: var(--color-nebula-red);
+}
+
+/**
+ * Toasts (UIX §6.5). Centred above the hand zone, newest last, so the reading
+ * order matches the order things happened.
+ */
+.toasts {
+    position: absolute;
+    left: 50%;
+    bottom: 38%;
+    transform: translateX(-50%);
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+    align-items: center;
+    width: min(90%, 34rem);
+}
+
+.toast {
+    padding: var(--space-2) var(--space-4);
+    border-radius: var(--radius);
+    background: rgb(0 0 0 / 0.82);
+    border: 1px solid var(--color-seat-other);
+    color: var(--color-text-primary);
+    font-size: clamp(0.85rem, 3vw, 1rem);
+    text-align: center;
+}
+
+@media (prefers-reduced-motion: no-preference) {
+    .toast {
+        animation: toast-in 160ms ease-out;
+    }
+}
+
+@keyframes toast-in {
+    from {
+        opacity: 0;
+        transform: translateY(var(--space-2));
+    }
+}
+
+/**
+ * Screens — menu, join, lobby. Centred panels over the idling canvas.
+ *
+ * A screen with nothing to show renders no children, and an empty panel would
+ * still darken the table behind it, so the backdrop is on `:not(:empty)`.
+ */
+.screen {
+    position: absolute;
+    inset: 0;
+    display: grid;
+    place-content: center;
+    gap: var(--space-4);
+    padding: var(--space-6);
+    text-align: center;
+}
+
+.screen:empty {
+    display: none;
+}
+
+.screen:not(:empty) {
+    background: rgb(0 0 0 / 0.72);
+}
+
+.screen h1 {
+    margin: 0;
+    font-size: clamp(1.5rem, 6vw, 2.5rem);
+}
+
+.screen label {
+    display: block;
+    text-align: left;
+    margin-bottom: var(--space-1);
+}
+
+.screen input[type='text'] {
+    width: 100%;
+    min-height: var(--tap-min);
+    padding: 0 var(--space-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-seat-other);
+    background: rgb(0 0 0 / 0.6);
+    color: var(--color-text-primary);
+    font: inherit;
+}
+
+.screen input[type='text']:focus-visible,
+.screen button:focus-visible {
+    outline: 2px solid var(--color-state-your-turn);
+    outline-offset: 2px;
+}
+
+.screen button {
+    /* Interface rule 2: touch is a first-class input, so nothing is smaller
+       than a fingertip. */
+    min-height: var(--tap-min);
+    padding: 0 var(--space-6);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-your-turn);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.screen button:disabled {
+    border-color: var(--color-seat-other);
+    color: var(--color-state-waiting);
+    cursor: not-allowed;
+}
+
+.field-error {
+    margin: var(--space-1) 0 0;
+    color: var(--color-state-paused);
+    text-align: left;
+}
+
+.invite-box {
+    display: grid;
+    gap: var(--space-2);
+    justify-items: center;
+}
+
+.invite-box code {
+    word-break: break-all;
+}
+
+.copy-status {
+    margin: 0;
+    color: var(--color-state-waiting);
+}
+
+.screen-lobby ul {
+    list-style: none;
+    margin: 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-2);
+}
+
+.screen-lobby li {
+    display: flex;
+    gap: var(--space-3);
+    align-items: baseline;
+    justify-content: center;
+}
+
+/**
+ * The wall (UIX §5). Covers everything, including any screen beneath it.
+ */
+[data-role='fatal'] .fatal-dialog {
+    position: fixed;
+    inset: 0;
+    z-index: 2;
+    display: grid;
+    place-content: center;
+    gap: var(--space-6);
+    padding: var(--space-6);
+    text-align: center;
+    background: var(--color-bg);
+}
+
+.fatal-dialog h1 {
+    margin: 0;
+    font-size: clamp(1.25rem, 5vw, 2rem);
+    font-weight: 500;
+}
+
+.fatal-dialog button {
+    justify-self: center;
+    min-height: var(--tap-min);
+    padding: 0 var(--space-6);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-nebula-red);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+/**
+ * The action sheet (UIX §7.2).
+ *
+ * Anchored to the VIEWPORT, never to a card: a bottom sheet on narrow layouts, a
+ * right-edge panel on wide ones. `data-anchor` is written by a live measurement
+ * at open time, so a rotated phone re-evaluates rather than remembering.
+ */
+.action-sheet {
+    position: fixed;
+    z-index: 3;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-3);
+    padding: var(--space-4);
+    background: rgb(0 0 0 / 0.94);
+    border: 1px solid var(--color-state-your-turn);
+    /* Never taller than the viewport: the footer must stay reachable without
+       scrolling past the grids. */
+    max-height: 100dvh;
+    overflow-y: auto;
+}
+
+.action-sheet[data-anchor='bottom'] {
+    inset: auto 0 0 0;
+    border-radius: var(--radius) var(--radius) 0 0;
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+}
+
+.action-sheet[data-anchor='right'] {
+    inset: 0 0 0 auto;
+    width: min(28rem, 40vw);
+    border-radius: var(--radius) 0 0 var(--radius);
+}
+
+.action-sheet h2,
+.action-sheet h3 {
+    margin: 0;
+}
+
+.action-sheet section {
+    display: flex;
+    flex-wrap: wrap;
+    gap: var(--space-2);
+    align-items: center;
+}
+
+.action-sheet button {
+    min-height: var(--tap-min);
+    min-width: var(--tap-min);
+    padding: 0 var(--space-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-your-turn);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.action-sheet button[aria-pressed='true'] {
+    background: var(--color-state-your-turn);
+    color: var(--color-bg);
+}
+
+.action-sheet button:disabled {
+    border-color: var(--color-seat-other);
+    color: var(--color-state-waiting);
+    cursor: not-allowed;
+}
+
+.action-sheet button:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+}
+
+/* The Mule alone. The words on the button carry the warning; the colour only
+   reinforces it, so this is never colour-alone. */
+.action-sheet button[data-variant='danger'] {
+    border-color: var(--color-nebula-red);
+    color: var(--color-nebula-red);
+}
+
+/* Pinned last so Cancel and Play stay thumb-reachable. */
+.sheet-footer {
+    display: flex;
+    gap: var(--space-3);
+    justify-content: flex-end;
+    margin-top: auto;
+    padding-top: var(--space-2);
+}
+
+/**
+ * The offscreen twin (UIX §11).
+ *
+ * Visually hidden by clipping, never by `display: none` or `visibility: hidden`
+ * — either removes it from the accessibility tree it exists to populate — and
+ * never `aria-hidden`, for the same reason.
+ */
+#a11y-twin {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/**
+ * The quick reference (UIX §10). A floating tab, layered above the action sheet
+ * because it must stay reachable while a play is being composed.
+ */
+.reference-tab {
+    position: fixed;
+    right: var(--space-3);
+    bottom: var(--space-3);
+    z-index: 4;
+    min-height: var(--tap-min);
+    padding: 0 var(--space-4);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-your-turn);
+    background: rgb(0 0 0 / 0.86);
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+/**
+ * While an action sheet is open the tab swaps corners.
+ *
+ * Both want bottom-right, and the tab wins on z-index — so it lands squarely on
+ * Cancel and Play and the sheet cannot be used at all. The sheet covers the hand
+ * while it is open, which is exactly what frees the opposite corner, and the tab
+ * has to stay reachable because choosing a guess is when the reference is most
+ * wanted (UIX §10).
+ */
+#ui-root[data-sheet] .reference-tab {
+    right: auto;
+    left: var(--space-3);
+}
+
+.reference-modal {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    overflow-y: auto;
+    padding: var(--space-6);
+    background: rgb(0 0 0 / 0.96);
+}
+
+/* A side drawer where there is width for one, near-fullscreen on a phone. */
+@media (min-width: 60rem) {
+    .reference-modal {
+        inset: 0 0 0 auto;
+        width: min(32rem, 45vw);
+        border-left: 1px solid var(--color-state-your-turn);
+    }
+}
+
+.reference-modal table {
+    width: 100%;
+    border-collapse: collapse;
+    margin-bottom: var(--space-4);
+}
+
+.reference-modal th,
+.reference-modal td {
+    padding: var(--space-2);
+    text-align: left;
+    border-bottom: 1px solid var(--color-seat-other);
+}
+
+.reference-modal button {
+    min-height: var(--tap-min);
+    padding: 0 var(--space-6);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-your-turn);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+/**
+ * The seat dossier (UIX §6.2). Supplementary detail, never required to read a
+ * value — the pips on the chip already carry every discard.
+ */
+.seat-dossier {
+    position: fixed;
+    inset: auto 0 0 0;
+    z-index: 5;
+    max-height: 80dvh;
+    overflow-y: auto;
+    padding: var(--space-4);
+    padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
+    border-radius: var(--radius) var(--radius) 0 0;
+    background: rgb(0 0 0 / 0.96);
+    border: 1px solid var(--color-seat-other);
+}
+
+.seat-dossier [role='tablist'] {
+    display: flex;
+    gap: var(--space-2);
+    margin: var(--space-3) 0;
+}
+
+.seat-dossier button {
+    min-height: var(--tap-min);
+    padding: 0 var(--space-4);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-seat-other);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+.seat-dossier [role='tab'][aria-selected='true'] {
+    border-color: var(--color-state-your-turn);
+    color: var(--color-state-your-turn);
+}
+
+.seat-dossier ol {
+    margin: 0 0 var(--space-4);
+    padding-left: var(--space-6);
+    display: grid;
+    gap: var(--space-1);
+}
+
+/**
+ * Round over, match over, paused (UIX §9). The table stays visible beneath —
+ * the round result only makes sense against the seats that produced it.
+ */
+.overlay {
+    position: fixed;
+    inset: auto 0 auto 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 6;
+    margin: 0 auto;
+    width: min(90%, 34rem);
+    max-height: 80dvh;
+    overflow-y: auto;
+    padding: var(--space-6);
+    border-radius: var(--radius);
+    background: rgb(0 0 0 / 0.94);
+    border: 1px solid var(--color-state-round-over);
+    text-align: center;
+}
+
+.overlay[data-overlay='paused'] {
+    border-color: var(--color-state-paused);
+}
+
+.overlay[data-overlay='match-over'] {
+    border-color: var(--color-state-match-over);
+}
+
+.overlay h2 {
+    margin: 0 0 var(--space-3);
+}
+
+.overlay ul {
+    list-style: none;
+    margin: var(--space-3) 0;
+    padding: 0;
+    display: grid;
+    gap: var(--space-1);
+}
+
+.overlay button {
+    min-height: var(--tap-min);
+    margin-top: var(--space-3);
+    padding: 0 var(--space-6);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-paused);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}

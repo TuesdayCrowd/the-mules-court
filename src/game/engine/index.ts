@@ -24,7 +24,10 @@ export { reduce, startNextRound } from './reduce';
 export { validateAction } from './validation';
 export { view, broadcastViews } from './view';
 export { computeLegalPlays, computeLegalTargets } from './legality';
-export { CARD_CATALOG, cardTypeOf, makeCardInstanceId } from './cardCatalog';
+// INFORMANT_VALUE and the value bounds are static rules data, not per-match
+// state. The client's quick reference and guess grid both derive from them, and
+// the barrel is the only door the client is allowed through.
+export { CARD_CATALOG, cardTypeOf, makeCardInstanceId, INFORMANT_VALUE, MIN_CARD_VALUE, MAX_CARD_VALUE } from './cardCatalog';
 export { EFFECT_DEFS } from './effectRegistry';
 
 import type { MatchState, PlayerId } from './types';

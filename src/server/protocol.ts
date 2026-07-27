@@ -35,7 +35,11 @@ export type SeatStatus = 'open' | 'occupied' | 'disconnected';
 
 export type ClientMessage =
     | { type: 'CLAIM_SEAT'; matchId: MatchId; nickname: string } // no seat index — server assigns
-    | { type: 'RESUME_SEAT'; matchId: MatchId; seatToken: SeatToken }
+    // `nickname` is adopted only by a seat that has none, and only in lobby
+    // (UIX §13.1). The host seat is minted over HTTP with no nickname and never
+    // sends CLAIM_SEAT, so this is its one chance to acquire one — deliberately
+    // not a rename, which a seat token must never authorise.
+    | { type: 'RESUME_SEAT'; matchId: MatchId; seatToken: SeatToken; nickname?: string }
     | { type: 'START_MATCH'; matchId: MatchId } // host only; 2-4 seats claimed
     | {
           type: 'PLAY_CARD';
@@ -171,9 +175,27 @@ export function parseClientMessage(raw: string, maxNickname: number): ParseResul
         }
 
         case 'RESUME_SEAT': {
-            if (!hasExactKeys(obj, ['type', 'matchId', 'seatToken'])) return { ok: false };
+            if (!hasExactKeys(obj, ['type', 'matchId', 'seatToken'], ['nickname'])) return { ok: false };
             if (typeof obj.matchId !== 'string' || typeof obj.seatToken !== 'string') return { ok: false };
-            return { ok: true, msg: { type: 'RESUME_SEAT', matchId: obj.matchId, seatToken: obj.seatToken } };
+
+            let nickname: string | undefined;
+            if (obj.nickname !== undefined) {
+                nickname = parseNickname(obj.nickname, maxNickname);
+                // Present but invalid is MALFORMED, never silently dropped: a
+                // client that sent a name it believed good must not be told the
+                // frame was fine while the name vanished.
+                if (nickname === undefined) return { ok: false };
+            }
+
+            return {
+                ok: true,
+                msg: {
+                    type: 'RESUME_SEAT',
+                    matchId: obj.matchId,
+                    seatToken: obj.seatToken,
+                    ...(nickname !== undefined ? { nickname } : {})
+                }
+            };
         }
 
         case 'START_MATCH': {

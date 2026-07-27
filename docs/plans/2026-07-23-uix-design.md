@@ -180,7 +180,7 @@ Three opponent chips fit 390 px at ~120 px each; the layout functions prove it a
 
 Each chip carries: nickname · devotion tokens · a card-back marker while holding a card · the discard pile.
 
-- **Discard pips never truncate.** Every played value stays visible at all times, as value pips with a running total (`▪1 ▪3 ▪5 = 9`), wrapping to more rows as the pile grows. The layout functions reserve room for the worst case (a two-player round can reach 7 discards on one seat — verified against the engine by simulation). Pips shrink toward a legible floor before anything else in the chip does. This is deduction data; hiding any of it mid-inference is a design failure.
+- **Discard pips never truncate.** Every played value stays visible at all times, as value pips with a running total (`▪1 ▪3 ▪5 = 9`), wrapping to more rows as the pile grows. The layout functions reserve room for the worst case (a two-player round can reach **8** discards on one seat — measured against the engine by simulation in Task 18, which corrected the 7 this section first estimated: five own-turn discards, plus both Darells forcing an out-of-turn discard, plus the held card revealed on elimination). Pips shrink toward a legible floor before anything else in the chip does. This is deduction data; hiding any of it mid-inference is a design failure.
 - **Tokens collapse; discards don't.** Token medallions wrap at four and collapse to `👁 ×5` under width pressure — a count of identical items loses nothing as a numeral. Discard values are heterogeneous and never collapse.
 - **Tapping a chip opens the seat dossier** (DOM sheet): the full discard pile in play order with card names, the value total, token count, status, and — as its second tab — the complete match log. Supplementary detail, never required to see values.
 
@@ -330,11 +330,12 @@ Work this design requires beyond what exists in `public/assets/`:
 
 ## 13. Open questions and follow-ups
 
-1. **Host nickname (transport gap, blocks the lobby design).** The host seat is minted over HTTP with no nickname; `claimSeat` is the only setter and `RESUME_SEAT` carries no nickname field, so every lobby shows a blank host. Recommend a small transport addition: an optional `nickname` on `RESUME_SEAT`, applied only when the seat has none and the phase is `lobby`. Until then the client falls back to "Host".
+1. ~~**Host nickname (transport gap, blocks the lobby design).**~~ **RESOLVED** — the optional `RESUME_SEAT` nickname landed in Task 8, and D2 decided where the host types it: on the menu, before `POST /api/rooms` (Task 21). Original text follows.
+   **Host nickname (transport gap, blocks the lobby design).** The host seat is minted over HTTP with no nickname; `claimSeat` is the only setter and `RESUME_SEAT` carries no nickname field, so every lobby shows a blank host. Recommend a small transport addition: an optional `nickname` on `RESUME_SEAT`, applied only when the seat has none and the phase is `lobby`. Until then the client falls back to "Host".
 2. **Real-device QA pass** before implementation sign-off: iOS Safari keyboard/toolbar resize storms, devicePixelRatio crispness, and the DOM/canvas touch seam. Devtools emulation does not reproduce Safari's viewport behavior.
 3. **Manual VoiceOver/TalkBack pass** — axe-core catches structure, not experience.
 4. **VISUAL_SHOWCASE.md** carries superseded metrics and the stale 10-minute figure; it gains a pointer note to this document (done alongside this design) and should be pruned or absorbed when the client ships.
-5. **AGENTS.md** describes the five-scene starter chain; update it when the scene change (§2.5) lands.
+5. ~~**AGENTS.md** describes the five-scene starter chain.~~ **RESOLVED (Task 33).** The chain is now `Boot → Preloader → Court` in both the code and the file, with the two load-bearing constraints Stage 6 uncovered recorded beside it: absolute loader paths, and `input.windowEvents` off. Original note: **Partly addressed in Task 33:** its status, testing, architecture and Vite-base sections are now true of the built client, and the stale "keep this Scene chain as the skeleton" guidance is replaced by a pointer to §2.5. The chain description itself is still accurate and is deliberately left alone — it changes when Stage 6 replaces the scenes, not before.
 
 ## 14. Interface rules
 

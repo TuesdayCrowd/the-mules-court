@@ -1,22 +1,26 @@
 import { Scene } from 'phaser';
 
-export class Boot extends Scene
-{
-    constructor ()
-    {
+/**
+ * Loads only what the Preloader itself needs to draw a loading screen.
+ *
+ * Boot has no preloader of its own, so anything queued here is an unmeasured
+ * wait on a blank canvas — one background, and nothing else.
+ */
+export class Boot extends Scene {
+    constructor() {
         super('Boot');
     }
 
-    preload ()
-    {
-        //  The Boot Scene is typically used to load in any assets you require for your Preloader, such as a game logo or background.
-        //  The smaller the file size of the assets, the better, as the Boot Scene itself has no preloader.
-
-        this.load.image('background', 'assets/bg.png');
+    preload() {
+        // Absolute, not relative. On /join/:matchId a relative URL resolves to
+        // /join/<id>/assets/..., which the SPA fallback answers with index.html
+        // and a 200 — so the loader never sees a 404, it just decodes HTML as an
+        // image and silently substitutes a missing texture. Same reason Vite's
+        // base is '/' rather than './'.
+        this.load.image('playfield', '/assets/misc/playfield_background_space.png');
     }
 
-    create ()
-    {
+    create() {
         this.scene.start('Preloader');
     }
 }

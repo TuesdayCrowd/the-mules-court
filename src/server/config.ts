@@ -20,6 +20,17 @@ export interface TransportConfig {
     readonly messageRefillPerSec: number;    // 5
     readonly ipConnectionsPerMinute: number; // 30 — new sockets + room lookups + room creates
     readonly maxNicknameLength: number;      // 24
+    /**
+     * Directory of built client files to host, or null to serve none.
+     *
+     * Defaults to null rather than 'dist': dist/ is gitignored Vite output, and
+     * a transport default naming it would make the server's configuration
+     * depend on a build artifact that need not exist. A transport with no
+     * client to serve is a valid configuration — it is what every test is — so
+     * hosting is an explicit deployment opt-in, wired in package.json's `serve`
+     * script one line from the `build` script that produces the directory.
+     */
+    readonly staticRoot: string | null;
 }
 
 export const DEFAULT_CONFIG: TransportConfig = {
@@ -37,7 +48,8 @@ export const DEFAULT_CONFIG: TransportConfig = {
     messageBurst: 10,
     messageRefillPerSec: 5,
     ipConnectionsPerMinute: 30,
-    maxNicknameLength: 24
+    maxNicknameLength: 24,
+    staticRoot: null
 };
 
 /** Builds a `TransportConfig`, applying `overrides` on top of the defaults. */

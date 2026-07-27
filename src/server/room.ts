@@ -338,11 +338,25 @@ export class Room {
      * for the rebind itself, since `conn`/`disconnectedAt` are transport-only
      * and never appear in `StoredSeat`.
      */
-    resumeSeat(conn: SeatConnection, token: string): { seat: number; playerId: PlayerId } | null {
+    resumeSeat(conn: SeatConnection, token: string, nickname?: string): { seat: number; playerId: PlayerId } | null {
         const seat = this.seats.find(s => s.tokenHash !== null && tokenMatches(token, s.tokenHash));
         if (!seat) {
             this.sendFatal(conn, 'BAD_TOKEN');
             return null;
+        }
+
+        // UIX §13.1: the host seat is minted over HTTP with no nickname, and
+        // `claimSeat` — the only other writer — never runs for it. Adopt one
+        // exactly once, in lobby only. Both guards matter: the seat token is
+        // this system's only credential, so allowing a rename on top of it
+        // would make it an impersonation primitive, and nicknames resolve the
+        // public log, so a mid-match rename would retroactively change who the
+        // narration says played what. Persisted before any send (Design §9),
+        // because `nickname` is a `StoredSeat` field and a rebuilt room must
+        // not resurrect a blank host.
+        if (nickname !== undefined && seat.nickname === null && this.phase === 'lobby') {
+            seat.nickname = nickname;
+            this.persist();
         }
 
         const oldConn = seat.conn;

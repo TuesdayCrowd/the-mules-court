@@ -51,7 +51,7 @@
 
 **Goal:** Client tests run in both Node and jsdom environments; the palette exists once and is proven consistent and legible; every string the game shows a player exists as tested data.
 **Success criteria:** `bun run test` runs engine + client + server suites green; a token present in CSS but missing from TypeScript fails a test; every `CardTypeId` has copy.
-**Status:** Not Started
+**Status:** Complete
 
 ### Task 0: Branch
 
@@ -695,7 +695,7 @@ but commit uix-client -m "feat(client): card copy, quick reference, and log narr
 
 **Goal:** Close the one protocol gap the design flagged as blocking, and make a real invite link work end to end in both dev and production.
 **Success criteria:** A lobby shows the host's nickname; `http://localhost:3000/join/<matchId>` serves the app; `bun run dev` reaches the server without CORS or port juggling; path traversal is refused.
-**Status:** Not Started
+**Status:** Complete
 
 ### Task 8: `RESUME_SEAT` carries an optional nickname
 
@@ -790,6 +790,7 @@ but commit uix-client -m "feat(server): let RESUME_SEAT adopt a nickname for the
 **Files:**
 - Modify: `src/server/config.ts`
 - Modify: `src/server/index.ts:52-79`
+- Modify: `package.json` (the `serve` script)
 - Create: `src/server/__tests__/static.test.ts`
 
 `joinUrl` is `publicBaseUrl + '/join/' + matchId` (`src/server/roomRegistry.ts:63`) and `publicBaseUrl` defaults to the server's own origin — but `fetch` currently answers every non-upgrade request with `404`. Every invite link is therefore dead. This task makes the server host the built client with SPA fallback.
@@ -862,7 +863,30 @@ describe('static hosting', () => {
 
 **Step 2: Run — FAIL** (`staticRoot` is not a config field; every route 404s).
 
-**Step 3: Add the config field.** In `src/server/config.ts`, add `readonly staticRoot: string | null; // 'dist' in production, null in tests` and default it to `'dist'`.
+**Step 3: Add the config field, defaulting to `null`.** In `src/server/config.ts`:
+
+```ts
+/** Directory of built client files to host, or null to serve none. */
+readonly staticRoot: string | null;
+```
+
+**Default it to `null`, not `'dist'`.** `dist/` is gitignored Vite output; a transport default naming it would make the server's configuration depend on a build artifact that need not exist. A transport with no client to serve is a valid configuration — it is precisely what all 169 pre-existing server tests are — so `null` is the honest default and hosting is an explicit deployment opt-in.
+
+The one mention of `dist` lives in `package.json`, one line from the `build` script that produces it:
+
+```json
+"serve": "MULES_STATIC_ROOT=dist bun src/server/index.ts",
+```
+
+and `index.ts`'s entrypoint reads it:
+
+```ts
+if (import.meta.main) {
+    startServer(makeConfig({ staticRoot: Bun.env.MULES_STATIC_ROOT ?? null }));
+}
+```
+
+*(Checked rather than assumed: exactly one pre-existing test requests a non-`/api` path — `abuse.test.ts:385` fetches `/` — and it sends `Upgrade: websocket` and asserts `101`, so under header-keyed routing it takes the upgrade branch and never reaches `serveStatic`. A `'dist'` default would not have broken any test. It would still have been the wrong default.)*
 
 **Step 4: Rewrite `fetch` in `src/server/index.ts`** with an explicit route order:
 
@@ -933,7 +957,7 @@ async function serveStatic(root: string, pathname: string): Promise<Response> {
 
 Import `{ basename, join, resolve, sep }` from `node:path`. Note `fetch` now returns `Promise<Response>` on the static branch — Bun accepts that.
 
-**Step 6: Run the full server suite.** Expected: PASS, all pre-existing tests included (they pass `staticRoot` implicitly as `'dist'`, but never issue a plain HTTP GET).
+**Step 6: Run the full server suite.** Expected: PASS, all pre-existing tests included — they inherit `staticRoot: null`, so their behaviour is unchanged and they gain no filesystem dependency. `static.test.ts` is the only suite that passes a root, and it builds its own fixture directory under a temp path.
 
 **Step 7: Commit.**
 
@@ -1020,7 +1044,7 @@ but commit uix-client -m "build: absolute base, dev proxy, and the two-layer pag
 
 **Goal:** Everything between the WebSocket and the renderer, fully tested without a browser.
 **Success criteria:** A scripted sequence of `ServerMessage`s drives the store through host → lobby → match → round over → match over; a dropped socket reconnects with backoff; `FATAL BAD_TOKEN` clears the stored token exactly once.
-**Status:** Not Started
+**Status:** Complete
 
 ### Task 11: Route parsing
 
@@ -1251,8 +1275,16 @@ it('runs animations one at a time', async () => { /* overlapping enqueues do not
 ## Stage 4: Layout — geometry as pure data
 
 **Goal:** Every canvas position and size is computed by tested functions that have never heard of Phaser.
-**Success criteria:** Three opponent chips fit 390 px; seven discard pips stay legible; no two rects overlap in any topology; every rect is inside the viewport.
-**Status:** Not Started
+**Success criteria:** Three opponent chips fit 390 px; **eight** discard pips stay legible; no two rects overlap in any topology; every rect is inside the viewport. Each holds across the full cross product of viewport, seat count, and hand size, not at one reference phone.
+**Status:** Complete
+
+> **Eight, not seven.** Task 18 measures the worst case against the engine rather
+> than taking UIX §6.2's figure on trust, and gets eight at every seat count. A
+> two-player round deals a deck of ten, so turns alternate and one seat takes five
+> of them: five own-turn discards, plus the two Prince-effect cards — Bayta and
+> Toran — each forcing that seat to discard out of turn, plus the one held card
+> revealed on elimination. The design's figure counted a single Prince.
+> **UIX §6.2 still says seven and wants correcting when the design doc is next opened.**
 
 ### Task 16: Topology classification
 
@@ -1348,7 +1380,8 @@ describe('portrait layout', () => {
         const spec = computeLayout({ ...PHONE, opponentCount: 3, handCount: 1, showsRemovedCard: false, maxDiscards: 3 });
         expect(spec.opponents).toHaveLength(3);
         for (const chip of spec.opponents) expect(chip.w).toBeGreaterThanOrEqual(110);
-        const spanned = spec.opponents.at(-1)!.x + spec.opponents.at(-1)!.w - spec.opponents[0].x;
+        const rightmost = last(spec.opponents); // see the note below — not `.at(-1)`
+        const spanned = rightmost.x + rightmost.w - spec.opponents[0].x;
         expect(spanned).toBeLessThanOrEqual(PHONE.w);
     });
 
@@ -1390,6 +1423,28 @@ describe('portrait layout', () => {
 ```
 
 `allRects(spec)` is a test helper that flattens the spec, skipping `null`s and `viewport`.
+
+**`last()`, not `.at(-1)`.** `Array.prototype.at` is ES2022 and `tsconfig.json` sets
+`lib: ["ES2020", ...]`, so `.at(-1)` fails `bunx tsc --noEmit` with TS2550. No file
+in `src/` uses an ES2021+ array method, and this snippet was the plan's only one.
+Put the helper beside `allRects` in the layout test file — Task 19 reuses the same
+invariant helpers, and it drops two non-null assertions and a duplicated lookup:
+
+```ts
+/** Last element, or a clear failure. `.at(-1)` is ES2022; tsconfig's lib is ES2020. */
+function last<T>(items: readonly T[]): T {
+    if (items.length === 0) throw new Error('expected a non-empty array');
+    return items[items.length - 1];
+}
+```
+
+**Do not "fix" this by widening `lib` alone.** `lib` governs type declarations while
+`target` governs syntax downleveling, and `.at` is neither — it is a runtime method
+that no tool in this pipeline polyfills (tsc runs with `noEmit`; Vite/esbuild
+transpile syntax only). Raising `lib` to ES2022 while `target` stays ES2020 makes
+`tsc` accept code that would throw on any browser matching the declared target. If
+the project later wants modern methods generally, raise **both** so the config
+stops claiming support it does not have.
 
 **Step 3: Implement `computeLayout`** as fractions of the live viewport, with the topology chosen by `classifyTopology`. Every constant gets a named `const` with a comment; no bare numbers in the body.
 
@@ -1468,7 +1523,7 @@ but commit uix-client -m "feat(client): pure table layout for all three topology
 
 **Goal:** Every surface made of words, as real DOM with real buttons, real focus order, and real disabled reasons.
 **Success criteria:** Menu → host → lobby → table chrome all drive from the store; every failure code in *UIX §5* has designed copy; axe-core is clean.
-**Status:** Not Started
+**Status:** Complete
 
 **Shared conventions for this stage.** Every UI module exports one factory:
 
@@ -1774,7 +1829,36 @@ but commit uix-client -m "feat(client): action sheet, quick reference, dossier, 
 
 **Goal:** Replace the starter scenes with one gameplay scene that renders `LayoutSpec` output and spends the cinematic budget exactly where the design puts it.
 **Success criteria:** `bun run build` succeeds; a real match is playable start to finish in a browser; reduced motion collapses every beat.
-**Status:** Not Started
+**Status:** Complete. Tasks 28, 29 and 30 all landed; `beats.ts` exists and the presentation queue awaits it.
+
+> **What is and is not verified.** The beats compile, the sequencing is real —
+> each step returns a promise the presentation queue awaits, so an announcement
+> cannot precede its animation — and the reduced-motion collapse is tested
+> against `motionPlan`. What no test here can assert is whether any of it *looks*
+> right; that is the device pass.
+>
+> **Two beats stay flat, deliberately, and are recorded here rather than left
+> to read as oversights.** *UIX §8.1* says a lost peek's marker "fades" and
+> *§9.1* says the showdown hands "flip face-up staggered 150 ms". Neither
+> animates: `Court.draw()` clears and rebuilds the table on every state update,
+> so a marker cannot outlive the redraw that removes it, and the round-over
+> hands are DOM in an overlay rather than canvas. Both facts still land — the
+> marker disappears the instant the peek expires, and every revealed hand is
+> listed — so what is missing is the transition, not the information. Revisit if
+> the device pass says the change reads as a glitch.
+>
+> Two deliberate simplifications, recorded rather than hidden. The victory burst
+> is a scaling, fading `sparkle_pattern` sheet rather than a `ParticleEmitter`:
+> one texture, one tween, nothing to tune, and the emitter can come later if it
+> earns its keep. The elimination desaturation is a grey wash into the dimmed
+> state `buildRenderPlan` already draws persistently, rather than a grayscale
+> `ColorMatrix` on the seat — the seat objects are destroyed and rebuilt by
+> `draw()` on every state update, so a filter attached to one would vanish
+> mid-beat.
+>
+> That last point is why beats own a layer `draw()` never clears: a tween whose
+> target is destroyed resolves early, and an early promise silently breaks the
+> very sequencing rule the queue exists to keep.
 
 ### Task 28: Scene chain replacement
 
@@ -1929,7 +2013,29 @@ but commit uix-client -m "feat(client): the Court scene, its reconciler, and the
 
 **Goal:** Make accessibility a regression test rather than a hope; produce the assets the design lists; leave the repo's guidance true.
 **Success criteria:** axe-core runs inside `bun run test` and is clean; fonts and icons ship; `AGENTS.md` describes the scene chain that actually exists.
-**Status:** Not Started
+**Status:** Tasks 31, 32 and 33 Complete. Task 34 written; **the device run is the only thing left in the whole plan.**
+
+> **Task 33 is done now.** It was split deliberately: the truth-ups that were
+> true before Stage 6 landed first, and the scene-chain rewrite waited until the
+> chain had actually changed, because describing scenes that did not exist would
+> have been worse than describing the starter ones that did. Both halves are in.
+>
+> **Task 34 needs hardware and a person.** The checklist at
+> `docs/plans/2026-07-24-uix-qa-checklist.md` is written in full and every box is
+> unchecked. It cannot be run from here: devtools emulation does not reproduce
+> Safari's viewport behaviour, and nothing emulates VoiceOver or TalkBack
+> gestures. *UIX §13.2* and §13.3 name both as sign-off conditions precisely
+> because a test suite cannot assert them.
+>
+> Two lines on it now carry more weight than when it was written, because the
+> bugs they describe have since actually happened in this build:
+>
+> - *"a tap on the action sheet never reaches the canvas beneath"* — this failed,
+>   twice, for two unrelated reasons (a z-index collision and Phaser's
+>   `windowEvents`). Both are fixed and neither produced a console error.
+> - *"the toast region announces each play once, and never before its animation"*
+>   — half of this is unverifiable until `beats.ts` exists, since there is no
+>   animation to be early to yet.
 
 ### Task 31: The offscreen twin and the axe-core gate
 
@@ -2099,3 +2205,217 @@ Then play a real match: two browsers, one hosting and one joining through the co
 - [ ] Every interface rule in *UIX §14* holds; rules 4 and 7 in particular — no other player's hand outside `revealed[]` and `roundResult.revealedHands`, and no truncated discard value at any viewport size
 - [ ] `AGENTS.md` describes the client that exists
 - [ ] No TODO without an issue number
+
+---
+
+## Deferred: work agreed but deliberately not done here
+
+These are scoped and decided, but sequenced **after** the client ships. They are
+recorded with their evidence so the next session does not have to rediscover it.
+
+### D1: A closed `SeatId` union in the protocol layer
+
+**Status:** Deferred by decision, 2026-07-26. Do after Stage 7.
+**Scope:** `src/server/protocol.ts`, `src/server/room.ts` (seat construction), and
+whichever client boundaries consume seat ids.
+
+The four-seat rule is real and already enforced at runtime, but it is thrown away
+at the type level:
+
+```ts
+const TARGET_RE = /^p[1-4]$/;
+function isTarget(value: unknown): value is PlayerId { … }   // PlayerId = string
+```
+
+That guard narrows `unknown` to `string`. It validates the rule and then discards
+what it learned. Likewise `room.ts:85` builds `playerId: \`p${index + 1}\``, which
+infers as `` `p${number}` `` — nothing in the type system stops a `p5`.
+
+**The change:** add `export type SeatId = 'p1' | 'p2' | 'p3' | 'p4'` to
+`protocol.ts`, return `value is SeatId` from `isTarget`, and pin the seat
+construction site so it cannot produce an out-of-range id.
+
+**Not a TypeScript `enum`,** which was the shape originally proposed. Three
+reasons specific to this repo: `enum` emits a runtime object, while
+`engine/types.ts` states "Types only — no runtime code lives here" and requires
+everything reachable from `MatchState` to be plain JSON; `isolatedModules: true`
+bans the only zero-cost variant, `const enum`; and every other domain type here
+is a string-literal union (`CardTypeId`, `EffectType`, `MatchMode`,
+`RoundEndReason`, `SeatStatus`), so an enum would be the sole exception. A union
+serialises as `"p1"` with no indirection.
+
+**Not applied to the engine's `PlayerId`.** Measured, not assumed: changing
+`PlayerId = string` to the union produces **369 tsc errors**. Two findings explain
+why that is the wrong layer rather than merely expensive work:
+
+1. `Record<PlayerId, X>` silently changes meaning. As `Record<string, X>` it is an
+   index signature; as a 4-member union it demands all four keys, so a
+   two-player match fails to typecheck (`Type '{ p0: …; p1: … }' is missing …:
+   p2, p3, p4`). Every such record — `RoundState.players`,
+   `STATE_UPDATE.nicknames`, `RoundResult.revealedHands` — would become
+   `Partial<Record<…>>`, forcing `| undefined` handling across 53 lookup sites.
+2. The engine is deliberately seat-agnostic. Its own tests seat players as `p0`,
+   `p1`, … (`engine/__tests__/reduce.test.ts:17`) while the transport mints
+   `p1`–`p4`; the two coexist precisely because the engine treats `PlayerId` as
+   opaque. Narrowing it would couple a reusable headless reducer to the
+   transport's four-chair convention.
+
+**Definition of done:** `isTarget` narrows to `SeatId`; seat construction cannot
+produce an out-of-range id; `bun run test && bunx tsc --noEmit && bun run build`
+all pass; the engine's `PlayerId` is untouched.
+
+### D2: Where the host types a nickname
+
+**Status:** **Decided 2026-07-26 — option (a).** The host names themselves on the
+menu, before `POST /api/rooms`. The Stage 3 groundwork has landed; the UI is Task 21.
+
+Task 8 gave `RESUME_SEAT` an optional nickname, but the client flow never asks
+the host for one: *UIX §3* routes Host → `POST /api/rooms` → store token →
+`/join/:matchId`, and §3's nickname field appears only on the **no stored token**
+branch. The host always has a token, so they skip it and `RESUME_SEAT` carries
+`nickname: undefined` every time. The transport work is necessary but not
+sufficient.
+
+Two candidate fixes, either supported by the server as built:
+
+- **(a)** The menu's *Host a game* reveals a name field before `POST /api/rooms`.
+  Host is named from the first frame. Changes Task 21.
+- **(b)** `/join/:matchId` shows the nickname step whenever the seat has no
+  nickname, token or not. One nickname UI for everyone; the host renders blank
+  until they type. Changes Task 22.
+
+**Decision: (a).** Every player types their name into the same field, with the
+same validation, before they are seated — the host's field simply lives on the
+menu because their seat is minted over HTTP rather than claimed over the socket.
+That is name parity, which is what was asked for; screen parity is not available,
+because the two seats come into existence by different routes.
+
+(b) was rejected on the round-trip. The client cannot know whether a seat already
+has a nickname until it has connected and received `LOBBY_UPDATE`, so a nickname
+step gated on "the seat has none" must connect first, send a nameless
+`RESUME_SEAT`, render a blank host, and then send a second `RESUME_SEAT` once the
+player types. (a) has the name on the first frame and never renders a blank host
+at all.
+
+**What this cost, and where it landed (Stage 3):** the host's name is
+chosen *before* the room exists and must survive a full page navigation to
+`/join/:matchId`, so something has to carry it. `StoredSeat` gained an optional
+`nickname`, and it is the only thing that crosses that boundary.
+
+- `seatTokenStore` round-trips `nickname` and validates it on read. Absent is fine
+  (seats predate the field); present-but-not-a-string returns `null`, because such
+  a value would reach `RESUME_SEAT` and fail the whole frame as `MALFORMED`.
+- The store gained a `claimSeat(nickname)` intent, mirroring `playCard`: it sends
+  `CLAIM_SEAT` and holds the name so `SEAT_CLAIMED` can persist it. `SEAT_CLAIMED`
+  does not echo the nickname and only this browser knows what it asked for, so
+  without that the joiner's reconnect would resume a seat it could no longer name.
+  The name is remembered only once the frame is away, so a refused claim leaves
+  nothing to persist against someone else's `SEAT_CLAIMED`.
+- `socket.ts`'s `sendableNickname` already holds to `parseNickname`'s rules exactly,
+  so an over-length or control-bearing name is dropped rather than costing the seat.
+
+**Task 21 changes.** *Host a game* reveals a labelled nickname field and a submit
+button disabled until it validates, reusing Task 22's `validateNickname` — write
+that module first, or the two validators drift. The order the existing test pins
+becomes `['save', 'navigate']` with the nickname already inside the saved record:
+
+```ts
+tokens.save(matchId, { seat: 0, playerId: hostSeat, seatToken: hostSeatToken, nickname });
+```
+
+**Task 22 changes.** The join screen shows its nickname field only when there is no
+stored seat. A host arriving at `/join/:matchId` has one, already named, and goes
+straight to the lobby — which is exactly the `screen: 'joining'` with a non-null
+`state.seat` that Stage 3's store already produces at construction.
+
+### D3: `publicBaseUrl` in dev
+
+**Status:** Noted, low priority.
+
+`publicBaseUrl` defaults to `http://localhost:3000`, so a host running
+`bun run dev` on :8080 copies an invite link pointing at :3000 — which serves the
+app only if `dist/` is current. It is one config value and does not affect
+production, but it will be confusing during Stage 5 lobby testing.
+
+### D4: The client is never told when the host's lobby grace expires
+
+**Status:** Open, found building Task 23. Small, well-scoped transport fix.
+**Scope:** `src/server/protocol.ts` (`LOBBY_UPDATE`), `src/server/room.ts`
+(`broadcastLobbyUpdate`, the reaper), `src/client/store/types.ts`,
+`src/client/ui/lobbyScreen.ts`.
+
+*UIX §4*: "If the host stays gone past the lobby grace, every remaining player's
+screen offers **Dissolve lobby**." The server enforces exactly that — a non-host
+`END_MATCH` is accepted only once `now - hostSeat.disconnectedAt >
+lobbyDisconnectGraceMs` (`room.ts:556-560`). **Nothing tells the client when that
+moment arrives.**
+
+Two facts combine to close every channel it might have arrived through:
+
+1. **The host seat never reopens** (`room.ts:643`). Seat reopening is what sets
+   `seatsReopened` and triggers a `LOBBY_UPDATE` from the reaper (`room.ts:669`),
+   so the host's grace expiring produces no broadcast at all.
+2. **`LOBBY_UPDATE` carries no timing.** `seats[]` has `status` but no
+   `disconnectedAt`, and there is no `canDissolve` field. A client holding a
+   `disconnected` host seat cannot tell a two-second drop from a two-minute one.
+
+Deriving it locally is not available either: interface rule 5 gives every clock
+to the server, and the client has no timestamp to measure from regardless — it
+learns only that the status *is* `disconnected`, never when it became so.
+
+**What Task 23 does meanwhile.** The button appears as soon as the host seat
+reads `disconnected`, captioned with the condition rather than a promise: *"The
+host has left. Once they have been gone a minute, the court can be dissolved."*
+Pressing too early is refused by the server and surfaces as a toast. That is
+honest and it works, but it asks the player to guess.
+
+**The change:** add `canDissolve: boolean` to `LOBBY_UPDATE`, computed by the
+predicate `endMatch` already applies, and have the reaper broadcast when it flips
+— the same shape as Task 8's `RESUME_SEAT` nickname: one optional field, one
+existing predicate reused, no new state. The lobby then renders the button
+exactly when pressing it will work, and the caption becomes unnecessary.
+
+**The same gap exists in the active phase.** Found again in Task 27. UIX §9.3
+gives a paused match an **End match** button to any seat once one has been
+missing past `activeGraceMs` (2 minutes), and the server enforces it with the
+same predicate. `STATE_UPDATE` carries `missingSeats` but no timestamp for them,
+so once more the client can see *that* a seat is gone and never *since when*.
+`overlays.ts` therefore takes `canEndMatch()` as an injected predicate and Task
+27 tests both sides of it; the wiring is deferred to the same fix.
+
+One field answers both: whatever it is called, it is computed by the predicate
+`endMatch` already applies and sent on the message the client already receives —
+`LOBBY_UPDATE` for the lobby case, `STATE_UPDATE` for the active one.
+
+**Definition of done:** a non-host client sees no Dissolve button before the
+lobby grace and sees one within a sweep interval after it; the same for **End
+match** past `activeGraceMs`; `bun run test && bunx tsc --noEmit && bun run
+build` all pass; no existing server test changes shape.
+
+### D5: The playfield background needs a larger source
+
+**Status:** Noted in Task 32 Step 5, proceeding with the existing file as instructed.
+**Scope:** `public/assets/misc/playfield_background_space.png`.
+
+`playfield_background_space.png` is **512×720** — a portrait image, where the
+table it backs is usually landscape. Cover-scaling it to a 1920×1080 desktop
+viewport needs `max(1920/512, 1080/720)` = **3.75×**, and a 3.75× upscale of a
+512-pixel-wide source will visibly soften. That is arithmetic rather than an
+impression, so it did not need the browser check the task describes.
+
+Every other asset in `misc/` and `shaders/` is the same 512×720, which suggests
+the whole set came out of one generation pass at a portrait resolution rather
+than being sized for their roles.
+
+**Not blocking.** The task says to proceed with the existing file, and the design
+calls the background ambient — it sits behind a dimmed table and under DOM
+panels, which is the most forgiving possible use of a soft image. Two options
+when art time is available, in order of cost:
+
+1. Regenerate at 1920×1080 or larger, seamless, so it also tiles for viewports
+   wider than the source.
+2. Failing that, lean into it: a deliberate blur plus the nebula gradient the
+   palette already defines would read as intent rather than as a stretched PNG.
+
+**Definition of done:** a background that does not soften at 1920×1080, or a
+recorded decision that the soft look is intentional.
