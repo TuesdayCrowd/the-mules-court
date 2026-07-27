@@ -367,8 +367,8 @@ than editing it.
 
 ## Status
 
-Version 1.0.0. The engine, the transport, the client, and the Phaser table are built
-and tested — 1445 tests across 81 files — and a match is playable end to end, from a
+Version 1.1.0. The engine, the transport, the client, and the Phaser table are built
+and tested — 1453 tests across 82 files — and a match is playable end to end, from a
 checkout or from a single downloadable binary.
 
 Known limitations:
