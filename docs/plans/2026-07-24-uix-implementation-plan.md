@@ -1837,6 +1837,16 @@ but commit uix-client -m "feat(client): action sheet, quick reference, dossier, 
 > against `motionPlan`. What no test here can assert is whether any of it *looks*
 > right; that is the device pass.
 >
+> **Two beats stay flat, deliberately, and are recorded here rather than left
+> to read as oversights.** *UIX §8.1* says a lost peek's marker "fades" and
+> *§9.1* says the showdown hands "flip face-up staggered 150 ms". Neither
+> animates: `Court.draw()` clears and rebuilds the table on every state update,
+> so a marker cannot outlive the redraw that removes it, and the round-over
+> hands are DOM in an overlay rather than canvas. Both facts still land — the
+> marker disappears the instant the peek expires, and every revealed hand is
+> listed — so what is missing is the transition, not the information. Revisit if
+> the device pass says the change reads as a glitch.
+>
 > Two deliberate simplifications, recorded rather than hidden. The victory burst
 > is a scaling, fading `sparkle_pattern` sheet rather than a `ParticleEmitter`:
 > one texture, one tween, nothing to tune, and the emitter can come later if it

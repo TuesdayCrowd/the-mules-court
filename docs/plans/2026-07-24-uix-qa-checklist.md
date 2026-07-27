@@ -1,21 +1,19 @@
 # UIX QA checklist — real device and screen reader
 
-**Status: written, NOT RUN.** Every box below is unchecked, and none of them can
-be checked yet.
+**Status: written, NOT RUN.** Every box below is unchecked.
 
-Two reasons, and the first is the blocking one:
+**The client is ready for this pass.** `src/main.ts` mounts every DOM surface and
+starts the `Court` scene, `beats.ts` runs the cinematic beats, and a match is
+playable in a browser. The one thing standing between this checklist and a set of
+ticked boxes is hardware.
 
-1. **The client does not run in a browser.** `src/main.ts` still boots the Phaser
-   starter scenes; nothing in `src/client/` is mounted by anything. Stage 6 of
-   `2026-07-24-uix-implementation-plan.md` does that wiring. Until it lands there
-   is no application to open on a phone.
-2. **This needs physical hardware.** Devtools emulation does not reproduce
-   Safari's viewport behaviour — the toolbar collapse, the keyboard's effect on
-   `100dvh`, or the safe-area insets — and no emulator reproduces VoiceOver or
-   TalkBack gesture navigation. *UIX §13.2* and §13.3 name both as sign-off
-   conditions precisely because a test suite cannot assert them.
+**This needs physical hardware.** Devtools emulation does not reproduce Safari's
+viewport behaviour — the toolbar collapse, the keyboard's effect on `100dvh`, or
+the safe-area insets — and no emulator reproduces VoiceOver or TalkBack gesture
+navigation. *UIX §13.2* and §13.3 name both as sign-off conditions precisely
+because a test suite cannot assert them.
 
-Run this after Stage 6, on real devices, and record the results in place.
+Run this on real devices and record the results in place.
 
 **Serving it:** `bun run dev:server` in one terminal, `bun run dev:host` in
 another, then open the printed network address on the device.

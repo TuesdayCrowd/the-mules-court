@@ -8,9 +8,9 @@ Guidance for coding agents working in this repository. Human contributors are we
 
 **Status:** three of the four layers are **built and tested**. The headless game engine (`src/game/engine/`, Vitest), the WebSocket transport that wraps it (`src/server/`, `bun test`), and now the client's browser-independent half (`src/client/`, Vitest) — its pure layer of geometry, copy, state and palette, plus the whole DOM chrome, all testable under Node and jsdom with no WebGL context and no socket.
 
-The Phaser layer now exists too: `src/game/scenes/Court.ts` draws the table, and `src/main.ts` is the composition root that wires store, socket, DOM and canvas together. **A match is playable in a browser.** What remains is the cinematic layer — `beats.ts`, the staged elimination, the Mule ripple, the peek reveal — tracked as Task 30 in `docs/plans/2026-07-24-uix-implementation-plan.md`. Beats aside, every stage is complete bar the real-device QA pass (Task 34).
+The Phaser layer now exists too: `src/game/scenes/Court.ts` draws the table, `src/game/scenes/beats.ts` runs the cinematic beats, and `src/main.ts` is the composition root that wires store, socket, DOM and canvas together. **A match is playable in a browser.** Every stage of `docs/plans/2026-07-24-uix-implementation-plan.md` is complete bar the real-device QA pass (Task 34), which needs hardware and a person — see `docs/plans/2026-07-24-uix-qa-checklist.md`.
 
-The rich art assets in `public/assets/` and the design docs are the raw material for that last layer. This started life as the Phaser "template-bun" starter (some scene code and `logo.png`/`bg.png` are still theirs), but `package.json` metadata has been reclaimed for the game (`name: the-mules-court`).
+This started life as the Phaser "template-bun" starter (some scene code and `logo.png`/`bg.png` are still theirs), but `package.json` metadata has been reclaimed for the game (`name: the-mules-court`).
 
 ## Setup commands
 
@@ -104,7 +104,7 @@ Phaser **4.2.1** · Vite 6 · TypeScript 5.7 · Bun. The client ships as a stati
 
 ### Bootstrap & scene flow
 
-`index.html` loads `src/main.ts` → calls `StartGame('game-container')` in `src/game/main.ts`, which builds the `Phaser.Types.Core.GameConfig` (AUTO renderer, 1024×768, mounts into `#game-container`) and registers scenes **in order**:
+`index.html` loads `src/main.ts` → calls `StartGame('game-container')` in `src/game/main.ts`, which builds the `Phaser.Types.Core.GameConfig` (AUTO renderer, `Scale.RESIZE` at `100%` × `100%` so the canvas fills the viewport 1:1 with no design resolution, mounts into `#game-container`) and registers scenes **in order**:
 
 ```
 Boot → Preloader → Court
