@@ -38,6 +38,36 @@ describe('view — what a player sees of themselves', () => {
     });
 });
 
+describe('view — the removed cards', () => {
+    it('reports how many cards were set aside face down, as a count', () => {
+        // The fixture removes one face down. The COUNT is public — it follows
+        // from the player count, which every client already has — while the
+        // identities are not, so this is `deckCount`'s rule applied again.
+        expect(view(match(), 'p0').removedFaceDownCount).toBe(1);
+    });
+
+    it('still never names a face-down card', () => {
+        const serialized = JSON.stringify(view(match(), 'p0'));
+        expect(serialized).not.toContain('first-speaker#0'); // the fixture's face-down card
+    });
+
+    it('counts every face-down card a real two-player round removes', () => {
+        const twoPlayer = createMatch(['p0', 'p1'], 'two-player-seed');
+        const projection = view(twoPlayer, 'p0');
+
+        expect(projection.removedFaceDownCount).toBe(2);
+        expect(projection.setAsideFaceUp).not.toBeNull(); // one face up, two face down
+    });
+
+    it('removes nothing at four players', () => {
+        const fourPlayer = createMatch(['p0', 'p1', 'p2', 'p3'], 'four-player-seed');
+        const projection = view(fourPlayer, 'p0');
+
+        expect(projection.removedFaceDownCount).toBe(0);
+        expect(projection.setAsideFaceUp).toBeNull();
+    });
+});
+
 describe('view — legal targets', () => {
     /** p0 holds a Darell (self-targetable) and an Informant (not). */
     const darellMatch = (overrides: Partial<MatchState['round']['players']> = {}): MatchState => {

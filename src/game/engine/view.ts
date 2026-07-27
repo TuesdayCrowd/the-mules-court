@@ -64,6 +64,11 @@ export function view(match: MatchState, viewerId: PlayerId): RedactedView {
         // the instance id would distinguish otherwise identical copies.
         setAsideFaceUp: round.setAsideFaceUp === null ? null : cardTypeOf(round.setAsideFaceUp),
 
+        // The count only, never the array — the same rule `deckCount` follows,
+        // and for the same reason: naming these would hand every player the
+        // three cards that cannot possibly be in an opponent's hand.
+        removedFaceDownCount: round.setAsideFaceDown.length,
+
         currentPlayerId: round.seatOrder[round.currentPlayerIndex],
         turnNumber: round.turnNumber,
         publicLog: round.publicLog,

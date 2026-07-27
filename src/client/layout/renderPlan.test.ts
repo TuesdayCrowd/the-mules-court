@@ -318,7 +318,19 @@ describe('geometry comes from the spec, never from here', () => {
         const view = fourSeats({ setAsideFaceUp: 'magnifico' });
 
         expect(buildRenderPlan({ view, nicknames: {}, phase: 'active', paused: false, missingSeats: [] }, twoPlayer).removedCard)
-            .toEqual({ rect: twoPlayer.removedCard, cardId: 'magnifico' });
+            .toEqual({ rect: twoPlayer.removedCard, cardId: 'magnifico', faceDownCount: 0 });
         expect(plan(view).removedCard).toBeNull(); // SPEC reserved no panel
+    });
+
+    it('carries the face-down count, so the scene need not restate the setup table', () => {
+        // Two players remove three: one face up, two face down. The scene draws
+        // the two as card backs; knowing there are two is the engine's to say.
+        const twoPlayer = computeLayout({ w: 390, h: 844, opponentCount: 1, handCount: 1, showsRemovedCard: true, maxDiscards: 2 });
+        const view = fourSeats({ setAsideFaceUp: 'magnifico', removedFaceDownCount: 2 });
+
+        expect(
+            buildRenderPlan({ view, nicknames: {}, phase: 'active', paused: false, missingSeats: [] }, twoPlayer)
+                .removedCard?.faceDownCount
+        ).toBe(2);
     });
 });

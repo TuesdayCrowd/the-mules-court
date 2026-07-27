@@ -62,6 +62,35 @@ export function createA11yTwin(deps: A11yTwinDeps): Surface {
         return list;
     }
 
+    /**
+     * The face-up removed card (README setup, step 3).
+     *
+     * A two-player round removes three cards: one face up and two face down.
+     * The face-up one is public on purpose — both players see it, so it narrows
+     * the deduction space symmetrically rather than favouring anyone. The canvas
+     * draws it; without this the twin did not, which handed every sighted player
+     * a fact a screen reader user could not reach.
+     *
+     * The two face-down cards appear nowhere, here or on the canvas, and cannot:
+     * `RedactedView` has no field able to hold `setAsideFaceDown`.
+     */
+    function removedCard(table: TableSnapshot): HTMLElement[] {
+        const cardId = table.view.setAsideFaceUp;
+        if (cardId === null) return [];
+
+        const copy = cardCopyFor(cardId);
+        const hidden = table.view.removedFaceDownCount;
+
+        const item = document.createElement('p');
+        item.dataset.twin = 'removed';
+        // The canvas says this with fanned card backs beside the face-up card.
+        // Same fact, stated: the count is public, the faces are not.
+        item.textContent =
+            `Removed from play: ${copy.displayName}, value ${copy.value}` +
+            (hidden === 0 ? '' : `, and ${hidden} more face down`);
+        return [item];
+    }
+
     function handProxies(table: TableSnapshot): HTMLElement[] {
         const spec = deps.layout();
         if (spec === null) return [];
@@ -114,7 +143,7 @@ export function createA11yTwin(deps: A11yTwinDeps): Surface {
                 container.replaceChildren();
                 return;
             }
-            container.replaceChildren(seatList(table), ...handProxies(table));
+            container.replaceChildren(seatList(table), ...removedCard(table), ...handProxies(table));
         },
 
         destroy() {
