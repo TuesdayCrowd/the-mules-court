@@ -1,6 +1,7 @@
 import { Scene } from 'phaser';
 import { buildRenderPlan, medallionPlan } from '../../client/layout/renderPlan';
 import type { RenderPlan, SeatPlan } from '../../client/layout/renderPlan';
+import { fitOverline } from '../../client/layout/overline';
 import { computeLayout } from '../../client/layout/tableLayout';
 import type { LayoutSpec, Rect } from '../../client/layout/types';
 import type { ClientState } from '../../client/store/types';
@@ -434,7 +435,7 @@ export class Court extends Scene {
 
         // The name gives way before the value does: the value is what every
         // rule in the game is written in.
-        if (name.width > rect.w - 6) name.setScale((rect.w - 6) / name.width);
+        if (name.width > rect.w - LABEL_PAD) name.setScale((rect.w - LABEL_PAD) / name.width);
 
         const parts: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text)[] = [scrim, name];
 
@@ -444,16 +445,32 @@ export class Court extends Scene {
         // value sits over its left end rather than under it.
         if (overline !== undefined) {
             const bandH = Math.max(MIN_NAME_H, Math.round(rect.h * NAME_FRACTION));
-            parts.push(
-                this.add.rectangle(rect.x, rect.y, rect.w, bandH, TOKENS.colorBg, 0.72).setOrigin(0, 0),
-                this.add
-                    .text(rect.x + rect.w / 2, rect.y + bandH / 2, overline, {
-                        fontFamily: 'Inter, sans-serif',
-                        fontSize: `${Math.round(bandH * 0.46)}px`,
-                        color: hex(TOKENS.colorStateWaiting)
-                    })
-                    .setOrigin(0.5)
-            );
+            const fontSize = Math.round(bandH * 0.46);
+
+            const caption = this.add
+                .text(rect.x + rect.w / 2, rect.y + bandH / 2, overline, {
+                    fontFamily: 'Inter, sans-serif',
+                    fontSize: `${fontSize}px`,
+                    color: hex(TOKENS.colorStateWaiting)
+                })
+                .setOrigin(0.5);
+
+            // Measured, then judged: only Phaser knows how wide the caption
+            // actually set, and `fitOverline` owns what to do about it. The
+            // burn panel is the one card that carries a caption and the
+            // smallest card on the table, so on a landscape phone the caption
+            // ran to twice the card's width — past the rect `computeLayout`
+            // proved empty, and out under the value badge.
+            const scale = fitOverline(rect.w - LABEL_PAD, caption.width, fontSize);
+
+            if (scale === null) {
+                // Nothing legible fits. Destroy rather than leave it parked:
+                // `this.add.*` has already put it on the display list.
+                caption.destroy();
+            } else {
+                caption.setScale(scale);
+                parts.push(this.add.rectangle(rect.x, rect.y, rect.w, bandH, TOKENS.colorBg, 0.72).setOrigin(0, 0), caption);
+            }
         }
 
         parts.push(plate, value);
@@ -558,6 +575,9 @@ const MEDALLION_SPAN = MEDALLION * 4 + 12;
 /** The value badge, as a fraction of the card's short edge, with a legible floor. */
 const BADGE_FRACTION = 0.28;
 const MIN_BADGE = 22;
+
+/** Breathing room a card's text keeps from its own edges, both sides together. */
+const LABEL_PAD = 6;
 
 /** The name strip along the card's bottom edge. */
 const NAME_FRACTION = 0.16;
