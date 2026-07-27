@@ -2,9 +2,10 @@ import { Scene } from 'phaser';
 import { buildRenderPlan } from '../../client/layout/renderPlan';
 import type { RenderPlan, SeatPlan } from '../../client/layout/renderPlan';
 import { computeLayout } from '../../client/layout/tableLayout';
-import type { LayoutSpec } from '../../client/layout/types';
+import type { LayoutSpec, Rect } from '../../client/layout/types';
 import type { ClientState } from '../../client/store/types';
 import { cardCopyFor } from '../../client/content/cardCopy';
+import type { CardTypeId } from '../../game/engine';
 import { TOKENS } from '../../client/tokens/tokens';
 import type { BeatRunner } from './beats';
 import { createBeatRunner } from './beats';
@@ -144,6 +145,7 @@ export class Court extends Scene {
                 .setOrigin(0, 0)
                 .setDisplaySize(plan.removedCard.rect.w, plan.removedCard.rect.h);
             this.table.add(burn);
+            this.table.add(this.cardFaceLabel(plan.removedCard.cardId, plan.removedCard.rect));
         }
 
         // UIX §6.1's "own tokens + discards" row. The viewer is filtered out of
@@ -186,6 +188,13 @@ export class Court extends Scene {
                 // card, and `caption` on the plan says which.
                 .setAlpha(card.dimmed ? 0.4 : 1);
             this.table.add(face);
+
+            // Value first, always. A hand card carrying only art has to be
+            // recognised rather than read, and two portraits in this set are
+            // close enough that recognising is not reliable.
+            const label = this.cardFaceLabel(card.cardId, card.rect);
+            for (const part of label) part.setAlpha(card.dimmed ? 0.5 : 1);
+            this.table.add(label);
 
             if (card.playable) {
                 const border = this.add
@@ -275,6 +284,18 @@ export class Court extends Scene {
                 .setOrigin(1, 1)
                 .setDisplaySize(REVEALED_H * CARD_ASPECT, REVEALED_H);
             this.table.add(revealed);
+
+            // Too small for the full label, and the value is the deduction
+            // datum anyway — the pip row beside it already carries the history.
+            const value = this.add
+                .text(
+                    seat.rect.x + seat.rect.w - 6 - REVEALED_H * CARD_ASPECT - 2,
+                    seat.rect.y + seat.rect.h - 6,
+                    String(cardCopyFor(seat.revealedCard).value),
+                    { fontFamily: 'Exo 2, sans-serif', fontSize: '15px', color: '#f5f5f5' }
+                )
+                .setOrigin(1, 1);
+            this.table.add(value);
         }
 
         // UIX §6.2: tapping a chip opens the seat dossier. A dedicated hit
@@ -312,6 +333,53 @@ export class Court extends Scene {
             });
             this.table.add(caption);
         }
+    }
+
+    /**
+     * A card face's value badge and name (UIX §6.1, and the baseline's
+     * value-first rule the design keeps in §1).
+     *
+     * The badge is a filled corner rather than bare text because it sits on
+     * portrait art of unknown brightness, and a numeral that disappears against
+     * a light background is the failure this exists to prevent. The name goes
+     * along the bottom on a scrim for the same reason.
+     */
+    private cardFaceLabel(cardId: CardTypeId, rect: Rect): (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text)[] {
+        const copy = cardCopyFor(cardId);
+        const badge = Math.max(MIN_BADGE, Math.round(Math.min(rect.w, rect.h) * BADGE_FRACTION));
+
+        const plate = this.add
+            .rectangle(rect.x, rect.y, badge, badge, TOKENS.colorBg, 0.78)
+            .setOrigin(0, 0)
+            .setStrokeStyle(1, TOKENS.colorNebulaPurple);
+
+        const value = this.add
+            .text(rect.x + badge / 2, rect.y + badge / 2, String(copy.value), {
+                fontFamily: 'Exo 2, sans-serif',
+                fontSize: `${Math.round(badge * 0.68)}px`,
+                color: '#f5f5f5'
+            })
+            .setOrigin(0.5);
+
+        const nameH = Math.max(MIN_NAME_H, Math.round(rect.h * NAME_FRACTION));
+        const scrim = this.add
+            .rectangle(rect.x, rect.y + rect.h - nameH, rect.w, nameH, TOKENS.colorBg, 0.72)
+            .setOrigin(0, 0);
+
+        const name = this.add
+            .text(rect.x + rect.w / 2, rect.y + rect.h - nameH / 2, copy.displayName, {
+                fontFamily: 'Inter, sans-serif',
+                fontSize: `${Math.round(nameH * 0.52)}px`,
+                color: '#f5f5f5',
+                align: 'center'
+            })
+            .setOrigin(0.5);
+
+        // The name gives way before the value does: the value is what every
+        // rule in the game is written in.
+        if (name.width > rect.w - 6) name.setScale((rect.w - 6) / name.width);
+
+        return [scrim, name, plate, value];
     }
 
     /**
@@ -410,6 +478,14 @@ const MEDALLION_SPAN = MEDALLION * 4 + 12;
 
 /** UIX §6.2: medallions wrap at four, then collapse to a numeral. */
 const MEDALLIONS_BEFORE_COLLAPSE = 4;
+
+/** The value badge, as a fraction of the card's short edge, with a legible floor. */
+const BADGE_FRACTION = 0.28;
+const MIN_BADGE = 22;
+
+/** The name strip along the card's bottom edge. */
+const NAME_FRACTION = 0.16;
+const MIN_NAME_H = 16;
 
 /** Long enough to ride out a toolbar collapse, short enough to feel immediate. */
 const RESIZE_DEBOUNCE_MS = 100;
