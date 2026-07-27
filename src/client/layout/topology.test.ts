@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { MIN_WIDE_HEIGHT, classifyTopology } from './topology';
+import { MAX_HANDHELD_WIDTH, MIN_WIDE_HEIGHT, classifyTopology, isHandheldLandscape } from './topology';
 
 describe('classifyTopology', () => {
     it.each([
@@ -52,5 +52,31 @@ describe('the landscape split', () => {
     it('does not let the height split promote a portrait viewport', () => {
         // Short AND tall-shaped stays portrait: aspect is still checked first.
         expect(classifyTopology(300, 400)).toBe('portrait');
+    });
+});
+
+describe('isHandheldLandscape', () => {
+    // The class asks "which composition", and height answers it. This asks a
+    // different question — "are there thumbs at the left and right edges" — and
+    // height alone cannot answer that one.
+    it('accepts a phone lying on its side', () => {
+        expect(isHandheldLandscape(844, 390)).toBe(true); // iPhone 14
+        expect(isHandheldLandscape(956, 440)).toBe(true); // the largest worth designing for
+    });
+
+    it('refuses a short desktop window, however short', () => {
+        // Same class as the phones above, nowhere near holdable.
+        expect(classifyTopology(1400, 559)).toBe('landscape-narrow');
+        expect(isHandheldLandscape(1400, 559)).toBe(false);
+        expect(isHandheldLandscape(2400, 400)).toBe(false);
+    });
+
+    it('refuses anything tall enough to be a desktop', () => {
+        expect(isHandheldLandscape(844, MIN_WIDE_HEIGHT)).toBe(false);
+    });
+
+    it('places the width boundary exactly at the long edge of a phone', () => {
+        expect(isHandheldLandscape(MAX_HANDHELD_WIDTH, 400)).toBe(true); // inclusive
+        expect(isHandheldLandscape(MAX_HANDHELD_WIDTH + 1, 400)).toBe(false);
     });
 });
