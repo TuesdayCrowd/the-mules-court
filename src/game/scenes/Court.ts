@@ -194,7 +194,12 @@ export class Court extends Scene {
             // UIX §6.1's mock labels this panel, and it needs to: an unlabelled
             // card beside the deck reads as a leak rather than as the face-up
             // removal a two-player round always makes (README setup, step 3).
-            this.table.add(this.cardFaceLabel(plan.removedCard.cardId, faceRect, 'Removed from play'));
+            // "Removed", not "Removed from play": the caption now sets in the
+            // band beside the value badge rather than across the whole card,
+            // and the longer phrase cannot fit there at a legible size on any
+            // real burn panel — `fitOverline` would drop it everywhere. The
+            // accessibility twin still announces the full "Removed from play".
+            this.table.add(this.cardFaceLabel(plan.removedCard.cardId, faceRect, 'Removed'));
         }
 
         // UIX §6.1's "own tokens + discards" row. The viewer is filtered out of
@@ -447,8 +452,16 @@ export class Court extends Scene {
             const bandH = Math.max(MIN_NAME_H, Math.round(rect.h * NAME_FRACTION));
             const fontSize = Math.round(bandH * 0.46);
 
+            // The badge owns the top-left corner on every card in the game, and
+            // it is drawn last, so anything sharing that corner ends up under
+            // it. The caption takes the band to the badge's right and centres
+            // itself there — it used to centre on the whole card, which put its
+            // first few characters beneath the value and read as clipped.
+            const captionLeft = rect.x + badge;
+            const captionW = rect.w - badge - LABEL_PAD;
+
             const caption = this.add
-                .text(rect.x + rect.w / 2, rect.y + bandH / 2, overline, {
+                .text(captionLeft + captionW / 2, rect.y + bandH / 2, overline, {
                     fontFamily: 'Inter, sans-serif',
                     fontSize: `${fontSize}px`,
                     color: hex(TOKENS.colorStateWaiting)
@@ -460,8 +473,8 @@ export class Court extends Scene {
             // burn panel is the one card that carries a caption and the
             // smallest card on the table, so on a landscape phone the caption
             // ran to twice the card's width — past the rect `computeLayout`
-            // proved empty, and out under the value badge.
-            const scale = fitOverline(rect.w - LABEL_PAD, caption.width, fontSize);
+            // proved empty.
+            const scale = fitOverline(captionW, caption.width, fontSize);
 
             if (scale === null) {
                 // Nothing legible fits. Destroy rather than leave it parked:
