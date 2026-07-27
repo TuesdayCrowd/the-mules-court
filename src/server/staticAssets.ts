@@ -102,7 +102,7 @@ export function filesystemLookup(root: string): Lookup {
  * The map's values are whatever `import … with { type: 'file' }` evaluated to:
  * an absolute filesystem path when run under `bun`, an opaque embedded-VFS path
  * inside a compiled binary. `Bun.file` accepts both, which is why
- * `standalone.ts` is runnable — and testable — with no 61 MB build step.
+ * `standalone.ts` is runnable — and testable — with no 71 MB build step.
  *
  * No traversal guard, deliberately: a `Map.get` for '/../../etc/passwd' misses,
  * and there is no directory to escape into. The `exists` check is not
