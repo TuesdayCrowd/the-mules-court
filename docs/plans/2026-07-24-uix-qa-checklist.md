@@ -20,13 +20,13 @@ Run this after Stage 6, on real devices, and record the results in place.
 **Serving it:** `bun run dev:server` in one terminal, `bun run dev:host` in
 another, then open the printed network address on the device.
 
-**Two things that are correct behaviour, not findings.** Everything served over
-`http://<lan-ip>` is a non-secure context, so the lobby's **Copy** button reports
-*"Could not copy"* — the API does not exist there, and the fallback is
-deliberate. Select the link and copy it by hand. Similarly, the cinematic beats
-(`beats.ts`) are not built: eliminations and the Mule will read as a state change
-rather than a moment, so skip every line below about announcements waiting on
-animations.
+**Worth knowing before you start.** Everything served over `http://<lan-ip>` is a
+non-secure context, so `navigator.clipboard` does not exist there — the lobby's
+**Copy** button falls back to a selection copy and should still work. If it does
+not, that *is* a finding; note the device and OS version.
+
+The cinematic beats now exist, so every line below about announcements waiting on
+their animation is live and worth checking.
 
 ---
 
@@ -90,3 +90,13 @@ re-runnable.
 | Date | Device | OS | Sections run | Failures |
 | --- | --- | --- | --- | --- |
 | — | — | — | — | — |
+
+## The invite link, specifically
+
+The one flow that only exists across two devices, and the one most affected by
+being served over plain http.
+
+- [ ] **Copy** on the phone actually copies — paste it somewhere to confirm, do not trust the confirmation message.
+- [ ] The copied link points at the address the phone is using, not `localhost`.
+- [ ] Opening it on a second device reaches the lobby and takes a seat.
+- [ ] The confirmation is announced, not only shown.

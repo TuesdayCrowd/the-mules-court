@@ -52,10 +52,12 @@ simply do not exist there:
 - `crypto.randomUUID` — used for `clientMsgId`. Guarded in
   `src/client/store/ids.ts`, which prefers it and falls back when it is absent.
   Calling it bare took the whole Play path down once already.
-- `navigator.clipboard` — the lobby's **Copy** button. Guarded in `main.ts`,
-  which supplies a rejecting stand-in so the lobby shows *"Could not copy —
-  select the link and copy it yourself."* **That message is correct behaviour on
-  a phone over http, not a bug.**
+- `navigator.clipboard` — the lobby's **Copy** button. `src/client/ui/clipboard.ts`
+  prefers it and falls back to a `document.execCommand('copy')` selection copy,
+  which still works in a non-secure context. **Copy therefore works on a phone.**
+  The fallback runs synchronously inside the click, because browsers only honour
+  `execCommand` during a user gesture — awaiting anything first would put it
+  outside the gesture and fail for a second, subtler reason.
 
 The invite link the lobby displays is built from `location.origin`, so it points
 at the address the device is actually using and can be shared with a second

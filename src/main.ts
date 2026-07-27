@@ -39,6 +39,7 @@ import type { ClientState } from './client/store/types';
 import { createA11yTwin } from './client/ui/a11yTwin';
 import { createActionSheet } from './client/ui/actionSheet';
 import type { SheetTarget } from './client/ui/actionSheet';
+import { createClipboard } from './client/ui/clipboard';
 import { createConnectionDot } from './client/ui/connectionDot';
 import { createFatalScreen } from './client/ui/fatalScreen';
 import { createJoinScreen } from './client/ui/joinScreen';
@@ -151,12 +152,15 @@ function boot(): void {
         createLobbyScreen({
             onStart: () => socket?.send({ type: 'START_MATCH', matchId: matchId as string }),
             onDissolve: () => socket?.send({ type: 'END_MATCH', matchId: matchId as string }),
-            // Same secure-context trap as randomUUID: `navigator.clipboard`
-            // is undefined over plain http, and the lobby already has a
-            // graceful path for a refusal — so give it one to take.
-            clipboard: navigator.clipboard ?? {
-                writeText: () => Promise.reject(new Error('clipboard unavailable over http'))
-            },
+            // `navigator.clipboard` is secure-context only and absent over
+            // http on a LAN address — which is exactly where the invite link
+            // most needs copying, since that is when there is a second device
+            // to send it to. `createClipboard` falls back to a selection copy
+            // there rather than giving up.
+            clipboard: createClipboard({
+                ...(navigator.clipboard === undefined ? {} : { clipboard: navigator.clipboard }),
+                exec: command => document.execCommand(command)
+            }),
             joinUrlFor: id => `${location.origin}/join/${id}`
         })
     );
