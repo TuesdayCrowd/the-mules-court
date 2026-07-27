@@ -56,3 +56,47 @@ export const DEFAULT_CONFIG: TransportConfig = {
 export function makeConfig(overrides: Partial<TransportConfig> = {}): TransportConfig {
     return { ...DEFAULT_CONFIG, ...overrides };
 }
+
+/**
+ * The four tunables a *deployment* sets, read from the environment.
+ *
+ * Separate from the rest of `DEFAULT_CONFIG` because those are design constants
+ * — the reveal window is five seconds because the design says so, on every
+ * machine. These four are the ones that differ between this repo's `serve`
+ * script and a binary someone downloaded, which cannot assume :3000 is free or
+ * that its working directory is the one you meant.
+ *
+ * Takes the environment as an argument rather than reading `Bun.env`, so tests
+ * are pure and no test can leak a variable into the next one.
+ */
+export function envOverrides(env: Record<string, string | undefined>): Partial<TransportConfig> {
+    // `Partial<T>` makes fields optional but keeps them `readonly`, and every
+    // field here is readonly by design — so the accumulator drops the modifier
+    // and the return type puts it back.
+    const overrides: { -readonly [K in keyof TransportConfig]?: TransportConfig[K] } = {};
+
+    if (env.MULES_PORT !== undefined) {
+        // `Number('')` is 0 and `Number(' 80 ')` is 80, so the range check does
+        // the work an eager `parseInt` would have got wrong in both directions.
+        const port = Number(env.MULES_PORT);
+        if (!Number.isInteger(port) || port < 1 || port > 65535) {
+            throw new Error(`MULES_PORT must be an integer from 1 to 65535, got ${JSON.stringify(env.MULES_PORT)}`);
+        }
+        overrides.port = port;
+        // Deferred item D3: `joinUrl` is built from `publicBaseUrl`, so moving
+        // the port and saying nothing about the URL has to move the invite link
+        // too — otherwise every guest is sent to a port nothing is serving.
+        // Overwritten just below if the deployment names a URL of its own.
+        overrides.publicBaseUrl = `http://localhost:${port}`;
+    }
+
+    if (env.MULES_PUBLIC_BASE_URL !== undefined) {
+        // `${base}/join/${id}` would otherwise double the slash.
+        overrides.publicBaseUrl = env.MULES_PUBLIC_BASE_URL.replace(/\/+$/, '');
+    }
+
+    if (env.MULES_DB_PATH !== undefined) overrides.dbPath = env.MULES_DB_PATH;
+    if (env.MULES_STATIC_ROOT !== undefined) overrides.staticRoot = env.MULES_STATIC_ROOT;
+
+    return overrides;
+}

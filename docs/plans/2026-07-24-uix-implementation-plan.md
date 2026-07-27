@@ -2330,12 +2330,19 @@ straight to the lobby — which is exactly the `screen: 'joining'` with a non-nu
 
 ### D3: `publicBaseUrl` in dev
 
-**Status:** Noted, low priority.
+**Status:** Closed 2026-07-27, in `envOverrides`
+(`docs/plans/2026-07-27-standalone-binary-plan.md`, Task 1).
 
-`publicBaseUrl` defaults to `http://localhost:3000`, so a host running
-`bun run dev` on :8080 copies an invite link pointing at :3000 — which serves the
-app only if `dist/` is current. It is one config value and does not affect
-production, but it will be confusing during Stage 5 lobby testing.
+`publicBaseUrl` defaulted to `http://localhost:3000`, so a host running
+`bun run dev` on :8080 copied an invite link pointing at :3000 — which serves the
+app only if `dist/` is current. It was one config value and did not affect
+production, but it was confusing during Stage 5 lobby testing.
+
+It became urgent once the server could be handed to someone as a binary, where
+the default is baked in and the host is not the person who compiled it.
+`MULES_PUBLIC_BASE_URL` now sets it, and `MULES_PORT` moves it by itself — a host
+who changes the port and says nothing about the URL means the new port, not the
+old one. An explicit URL still wins, which is what a reverse proxy needs.
 
 ### D4: The client is never told when the host's lobby grace expires
 

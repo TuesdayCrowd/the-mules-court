@@ -7,14 +7,14 @@
  * `dispatchMessage`, `RoomRegistry`, or `Room`.
  */
 
-import { basename, join, resolve, sep } from 'node:path';
 import type { TransportConfig } from './config';
-import { makeConfig } from './config';
+import { envOverrides, makeConfig } from './config';
 import type { ConnectionState } from './dispatch';
 import { dispatchMessage } from './dispatch';
 import { MatchStore } from './persistence';
 import { IpLimiter, TokenBucket } from './rateLimiter';
 import { RoomRegistry } from './roomRegistry';
+import { filesystemLookup, serveFrom } from './staticAssets';
 
 export interface RunningServer {
     // Bun.Server takes exactly one required generic (the WebSocket data
@@ -25,56 +25,24 @@ export interface RunningServer {
 }
 
 /**
- * Static hosting with an SPA fallback for `/join/:matchId` (UIX §2.6).
+ * Static hosting from a directory, with an SPA fallback for `/join/:matchId`
+ * (UIX §2.6).
  *
- * The resolve-then-prefix-check is the whole security story: `resolve`
- * collapses every `..`, and a resolved path that no longer starts with the root
- * is refused before `Bun.file` ever opens it. Percent-encoded traversal is
- * covered because decoding happens first and resolution second — checking the
- * raw pathname would miss `%2e%2e`, and decoding after resolving would
- * reintroduce it.
+ * The rules live in `staticAssets.ts`, shared with the standalone binary, which
+ * runs the same policy over a manifest of compiled-in files instead of a
+ * directory. Only the lookup differs; keeping the policy in one place is what
+ * stops a downloaded binary from routing differently to the server this repo's
+ * tests exercise.
  *
- * The `target !== base` arm matters: a request for `/` resolves to the root
- * itself, which is legitimate and does not carry the trailing separator the
- * prefix test looks for. Comparing against `base + sep` alone would 404 the
- * homepage; comparing against `base` alone would let `/../dist-evil` through
- * on a sibling directory whose name merely starts with the root's.
- *
- * Exported for direct testing. Driving this through `fetch` cannot exercise it:
- * the URL parser collapses `..` before the request leaves the client, so
- * `/../secret` arrives as `/secret` and a traversal test run that way would
+ * Still exported, because driving the traversal guard through `fetch` cannot
+ * exercise it: the URL parser collapses `..` before the request leaves the
+ * client, so `/../secret` arrives as `/secret` and a test run that way would
  * pass against a function with no check in it at all. Only `%2f`-encoded
  * separators survive that normalisation — and an upstream proxy may well decode
- * them, so the guard is tested here against raw pathnames instead.
+ * them, so the guard is tested against raw pathnames instead.
  */
-export async function serveStatic(root: string, pathname: string): Promise<Response> {
-    const base = resolve(root);
-
-    let decoded: string;
-    try {
-        decoded = decodeURIComponent(pathname);
-    } catch {
-        // A malformed percent-escape is not a path worth guessing at.
-        return new Response('Not Found', { status: 404 });
-    }
-
-    const target = resolve(base, '.' + decoded);
-    if (target !== base && !target.startsWith(base + sep)) {
-        return new Response('Not Found', { status: 404 });
-    }
-
-    const file = Bun.file(target);
-    if (await file.exists()) return new Response(file);
-
-    // A path with no extension is a client route, so hand back the app shell
-    // and let the router sort it out. A missing .png stays a 404: pretending a
-    // broken asset is the homepage hides the breakage.
-    if (!basename(target).includes('.')) {
-        const shell = Bun.file(join(base, 'index.html'));
-        if (await shell.exists()) return new Response(shell);
-    }
-
-    return new Response('Not Found', { status: 404 });
+export function serveStatic(root: string, pathname: string): Promise<Response> {
+    return serveFrom(filesystemLookup(root), pathname);
 }
 
 /** Builds the JSON `201` body for a successful `POST /api/rooms` (Design §3). */
@@ -82,7 +50,14 @@ function roomCreatedResponse(created: { matchId: string; joinUrl: string; hostSe
     return new Response(JSON.stringify(created), { status: 201, headers: { 'content-type': 'application/json' } });
 }
 
-export function startServer(config: TransportConfig): RunningServer {
+/**
+ * Answers a request for a static path. `standalone.ts` passes one backed by the
+ * compiled-in manifest; everything else leaves it null and gets `config
+ * .staticRoot`, or no hosting at all.
+ */
+export type StaticHandler = (pathname: string) => Promise<Response>;
+
+export function startServer(config: TransportConfig, serveAsset: StaticHandler | null = null): RunningServer {
     const store = new MatchStore(config.dbPath);
     const registry = new RoomRegistry(config, store);
     registry.startSweeping();
@@ -142,9 +117,11 @@ export function startServer(config: TransportConfig): RunningServer {
                 return new Response('Not Found', { status: 404 });
             }
 
-            if (config.staticRoot !== null) {
-                return serveStatic(config.staticRoot, url.pathname);
-            }
+            // An explicit handler wins over a directory: a binary carries its
+            // client inside itself and never sets `staticRoot`, so the two are
+            // alternatives rather than layers.
+            if (serveAsset !== null) return serveAsset(url.pathname);
+            if (config.staticRoot !== null) return serveStatic(config.staticRoot, url.pathname);
 
             return new Response('Not Found', { status: 404 });
         },
@@ -203,7 +180,10 @@ export function startServer(config: TransportConfig): RunningServer {
 }
 
 if (import.meta.main) {
-    // Hosting is opt-in, set by package.json's `serve` script — the only place
-    // that knows this repo builds to dist/, one line from the script producing it.
-    startServer(makeConfig({ staticRoot: Bun.env.MULES_STATIC_ROOT ?? null }));
+    // Hosting stays opt-in, set by package.json's `serve` script — the only
+    // place that knows this repo builds to dist/, one line from the script
+    // producing it. Every other tunable a deployment moves (port, database
+    // path, invite-link origin) now arrives through the same door; see
+    // `envOverrides`.
+    startServer(makeConfig(envOverrides(Bun.env)));
 }
