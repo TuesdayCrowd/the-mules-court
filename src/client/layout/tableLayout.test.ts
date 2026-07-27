@@ -166,8 +166,12 @@ describe('portrait layout', () => {
 
 const VIEWPORTS = [
     { name: 'rotated phone', w: 844, h: 390, topology: 'landscape-narrow' },
-    { name: 'tablet', w: 1024, h: 768, topology: 'landscape-narrow' },
+    { name: 'tablet', w: 1024, h: 768, topology: 'wide' },
     { name: 'desktop', w: 1920, h: 1080, topology: 'wide' },
+    // A 4:3 monitor: tall, but an aspect well short of the old 1.45 wide test.
+    // It used to draw a rotated phone's table — see `the landscape split` in
+    // topology.test.ts. Held to the same invariants as every other viewport.
+    { name: 'desktop 4:3', w: 1633, h: 1221, topology: 'wide' },
     { name: 'phone', w: 390, h: 844, topology: 'portrait' }
 ] as const;
 
@@ -247,6 +251,14 @@ describe('landscape-narrow composition', () => {
         expect(spec.hand[0].x + spec.hand[0].w / 2).toBeCloseTo(ROTATED.w / 2, 5);
     });
 
+    it('stays this class however wide the viewport, as long as it is short', () => {
+        // The spread and the tightened bands are for a phone on its side. Aspect
+        // does not decide that — a rotated phone is 2.16, deep in wide territory.
+        expect(computeLayout({ w: 2400, h: 400, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 }).topology).toBe(
+            'landscape-narrow'
+        );
+    });
+
     it('stacks the removed card below the deck, as portrait does', () => {
         const spec = rotated({ opponentCount: 1, showsRemovedCard: true });
         expect(spec.removedCard!.y).toBeGreaterThanOrEqual(bottom(spec.deck));
@@ -291,6 +303,42 @@ describe('wide composition', () => {
         const portraitSpec = computeLayout({ w: 390, h: 844, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 });
         const spec = wide({ opponentCount: 3, handCount: 2 });
         expect(spec.opponents[0].h / DESKTOP.h).toBeGreaterThan(portraitSpec.opponents[0].h / 844);
+    });
+
+    // A 4:3 monitor is a desktop by every measure §6.1 names, but its aspect
+    // (1.34) sat below the old 1.45 wide test, so it drew a rotated phone's
+    // table: tight bands, a small deck, the burn panel stacked under it, and a
+    // hand flung to both margins with 1068px between the two cards.
+    describe('on a 4:3 window, which the aspect rule used to call a phone', () => {
+        const MONITOR = { w: 1633, h: 1221 } as const;
+
+        function monitor(overrides: Partial<LayoutInput> = {}): LayoutSpec {
+            return computeLayout({ ...MONITOR, opponentCount: 1, handCount: 2, showsRemovedCard: true, maxDiscards: 3, ...overrides });
+        }
+
+        it('centres the hand as a block', () => {
+            const spec = monitor();
+            expect((spec.hand[0].x + right(last(spec.hand))) / 2).toBeCloseTo(MONITOR.w / 2, 5);
+        });
+
+        it('keeps the two cards adjacent rather than pinned to the margins', () => {
+            const spec = monitor();
+            expect(spec.hand[1].x - right(spec.hand[0])).toBeLessThan(spec.hand[0].w);
+        });
+
+        it('sets the removed card beside the deck rather than stacking it', () => {
+            const spec = monitor();
+            expect(spec.removedCard!.x).toBeGreaterThanOrEqual(right(spec.deck));
+            expect(spec.removedCard!.y).toBe(spec.deck.y);
+        });
+
+        it('draws a bigger deck and roomier seats than the phone composition did', () => {
+            const phoneish = computeLayout({ w: 844, h: 390, opponentCount: 1, handCount: 2, showsRemovedCard: true, maxDiscards: 3 });
+            const spec = monitor();
+
+            expect(spec.deck.h / MONITOR.h).toBeGreaterThan(phoneish.deck.h / 390);
+            expect(spec.opponents[0].h / MONITOR.h).toBeGreaterThan(phoneish.opponents[0].h / 390);
+        });
     });
 
     it('keeps opponents level — the arc belongs to landscape-narrow', () => {
