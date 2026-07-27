@@ -310,8 +310,26 @@ function boot(): void {
         return {};
     }
 
-    /** Assembled by `sheetTargetsFor`. The sheet renders what it is handed and evaluates nothing. */
+    /**
+     * Assembled by `sheetTargetsFor`. The sheet renders what it is handed and
+     * evaluates nothing.
+     *
+     * Wrapped, because this handler is the ONLY way into the action sheet and a
+     * throw inside it is completely silent: the tap lands, nothing opens, and no
+     * card on the table can be opened afterwards either. That is precisely how a
+     * one-field version skew presented — as "cards stopped being clickable".
+     * Whatever goes wrong here, say so.
+     */
     function openSheetFor(cardInstanceId: CardInstanceId): void {
+        try {
+            openSheetOrThrow(cardInstanceId);
+        } catch (error) {
+            console.error('[court] could not open the action sheet', error);
+            toasts.show('Could not open that card. Reload if it keeps happening.');
+        }
+    }
+
+    function openSheetOrThrow(cardInstanceId: CardInstanceId): void {
         const table = store.getState().table;
         if (table === null) return;
 

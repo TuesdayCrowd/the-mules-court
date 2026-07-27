@@ -53,7 +53,21 @@ export function sheetTargetsFor(
     cardInstanceId: CardInstanceId,
     nameOf: (id: PlayerId) => string
 ): SheetTargetOption[] {
-    const legal = view.own.legalTargets[cardInstanceId] ?? [];
+    // Read through `?? {}`, not `view.own.legalTargets[...]` directly.
+    //
+    // `parseServerMessage` deliberately validates the message TYPE and casts the
+    // rest, so every field here is only as trustworthy as the server sending it
+    // — and in dev the two halves version-skew routinely, because Vite hot-
+    // reloads the client while `bun run dev:server` keeps running the engine it
+    // booted with. A server predating this field made the subscript throw, and
+    // because `openSheetFor` is the only way into the sheet, that TypeError took
+    // every card on the table with it: no card could be opened, on turn or off,
+    // with nothing on screen to say why.
+    //
+    // Absent therefore reads as "no target offered". The server is authoritative
+    // and refuses a play it did not sanction, so this can only ever prevent a
+    // move, never permit an illegal one.
+    const legal = (view.own.legalTargets ?? {})[cardInstanceId] ?? [];
     const own = view.own.playerId;
 
     return view.players

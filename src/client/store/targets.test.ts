@@ -51,6 +51,21 @@ describe('sheetTargetsFor — it reads the engine, it does not decide', () => {
         expect(list.find(entry => entry.playerId === 'p2')!.eligible).toBe(false);
     });
 
+    it('survives a view carrying no legalTargets at all', () => {
+        // Version skew, which in dev is routine: Vite hot-reloads the client
+        // while `bun run dev:server` keeps running the engine it booted with.
+        // This used to throw, and since `openSheetFor` is the only route into
+        // the sheet, the TypeError made every card on the table unclickable —
+        // on turn and off — with nothing on screen to explain it.
+        const stale = {
+            ...viewWith([seat('p1'), seat('p2')], 'informant#0', []),
+            own: { playerId: 'p1' as PlayerId, hand: ['informant#0' as CardInstanceId], legalPlays: [] }
+        } as unknown as RedactedView;
+
+        expect(() => sheetTargetsFor(stale, 'informant#0', nameOf)).not.toThrow();
+        expect(sheetTargetsFor(stale, 'informant#0', nameOf).some(entry => entry.eligible)).toBe(false);
+    });
+
     it('treats an unknown card as offering nothing', () => {
         const list = sheetTargetsFor(viewWith([seat('p1'), seat('p2')], 'informant#0', ['p2']), 'mule#0', nameOf);
         expect(list.some(entry => entry.eligible)).toBe(false);
