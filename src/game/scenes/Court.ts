@@ -140,15 +140,44 @@ export class Court extends Scene {
         this.table.add(banner);
 
         if (plan.removedCard !== null) {
+            const panel = plan.removedCard.rect;
+            const hidden = plan.removedCard.faceDownCount;
+
+            /**
+             * The face-down removals, peeking out to the right: `[4]]]`.
+             *
+             * Their whole job is to say "three cards left this round and you
+             * only get to see one" — the count is public (it follows from the
+             * player count) while the faces are not, and a fanned edge says
+             * both at once better than a sentence would.
+             *
+             * Laid out INSIDE the reserved rect, with the face-up card giving
+             * up the width. Drawing past the rect would put pixels somewhere
+             * `computeLayout` never proved empty, and the no-overlap and
+             * inside-viewport guarantees are only over the rects it returns.
+             */
+            const sliverStep = hidden > 0 ? Math.max(MIN_SLIVER_STEP, Math.round(panel.w * SLIVER_STEP_FRACTION)) : 0;
+            const faceRect: Rect = { ...panel, w: panel.w - sliverStep * hidden };
+
+            // Back to front, so each sliver tucks behind the one to its left and
+            // the face-up card sits on top of all of them.
+            for (let index = hidden; index >= 1; index--) {
+                const back = this.add
+                    .image(faceRect.x + faceRect.w + sliverStep * index, panel.y + SLIVER_INSET, TEXTURES.cardBack)
+                    .setOrigin(1, 0)
+                    .setDisplaySize(faceRect.w, panel.h - SLIVER_INSET * 2);
+                this.table.add(back);
+            }
+
             const burn = this.add
-                .image(plan.removedCard.rect.x, plan.removedCard.rect.y, cardCopyFor(plan.removedCard.cardId).portraitKey)
+                .image(faceRect.x, faceRect.y, cardCopyFor(plan.removedCard.cardId).portraitKey)
                 .setOrigin(0, 0)
-                .setDisplaySize(plan.removedCard.rect.w, plan.removedCard.rect.h);
+                .setDisplaySize(faceRect.w, faceRect.h);
             this.table.add(burn);
             // UIX §6.1's mock labels this panel, and it needs to: an unlabelled
             // card beside the deck reads as a leak rather than as the face-up
             // removal a two-player round always makes (README setup, step 3).
-            this.table.add(this.cardFaceLabel(plan.removedCard.cardId, plan.removedCard.rect, 'Removed from play'));
+            this.table.add(this.cardFaceLabel(plan.removedCard.cardId, faceRect, 'Removed from play'));
         }
 
         // UIX §6.1's "own tokens + discards" row. The viewer is filtered out of
@@ -519,6 +548,18 @@ const MIN_BADGE = 22;
 /** The name strip along the card's bottom edge. */
 const NAME_FRACTION = 0.16;
 const MIN_NAME_H = 16;
+
+/**
+ * How far each face-down removal peeks out past the one in front of it.
+ *
+ * A fraction of the panel so it scales with the table, with a floor so the
+ * edges stay visible as separate cards rather than merging into one thick line.
+ */
+const SLIVER_STEP_FRACTION = 0.14;
+const MIN_SLIVER_STEP = 5;
+
+/** Vertically inset, so the hidden cards read as sitting behind the face-up one. */
+const SLIVER_INSET = 3;
 
 /** Long enough to ride out a toolbar collapse, short enough to feel immediate. */
 const RESIZE_DEBOUNCE_MS = 100;

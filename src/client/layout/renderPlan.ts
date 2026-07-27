@@ -96,7 +96,18 @@ export interface RenderPlan {
     readonly hand: readonly HandCardPlan[];
     readonly deck: DeckPlan;
     readonly banner: BannerPlan;
-    readonly removedCard: { readonly rect: Rect; readonly cardId: CardTypeId } | null;
+    /**
+     * The face-up removal, plus how many went face down beside it.
+     *
+     * The count is drawn as card backs rather than stated, because what it
+     * communicates is "three cards left this round, and you only get to see
+     * one" — a shape a player reads without being told (UIX §6.1).
+     */
+    readonly removedCard: {
+        readonly rect: Rect;
+        readonly cardId: CardTypeId;
+        readonly faceDownCount: number;
+    } | null;
 }
 
 export interface RenderInput {
@@ -242,7 +253,11 @@ export function buildRenderPlan(input: RenderInput, spec: LayoutSpec): RenderPla
         banner: bannerFor(input, spec.banner, nameOf),
         removedCard:
             spec.removedCard !== null && view.setAsideFaceUp !== null
-                ? { rect: spec.removedCard, cardId: view.setAsideFaceUp }
+                ? {
+                      rect: spec.removedCard,
+                      cardId: view.setAsideFaceUp,
+                      faceDownCount: view.removedFaceDownCount
+                  }
                 : null
     };
 }

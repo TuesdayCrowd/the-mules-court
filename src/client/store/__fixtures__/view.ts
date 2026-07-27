@@ -45,6 +45,7 @@ export function makeView(overrides: ViewOverrides = {}): RedactedView {
         players: [seatOf('p1', 0), seatOf('p2', 1)],
         deckCount: 10,
         setAsideFaceUp: null,
+        removedFaceDownCount: 0,
         currentPlayerId: 'p1',
         turnNumber: 1,
         publicLog: [],

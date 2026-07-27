@@ -181,6 +181,18 @@ describe('the removed card', () => {
         expect(removed.textContent).toMatch(/removed from play/i);
     });
 
+    it('counts the face-down removals without naming them', () => {
+        // The canvas fans two card backs beside the face-up card; this is the
+        // same fact for a reader. The count is public, the faces never are.
+        const ui = mounted(viewWithSeats({ setAsideFaceUp: 'shielded-mind', removedFaceDownCount: 2 }));
+        expect(ui.host.querySelector('[data-twin="removed"]')!.textContent).toContain('2 more face down');
+    });
+
+    it('says nothing about face-down cards when there are none', () => {
+        const ui = mounted(viewWithSeats({ setAsideFaceUp: 'shielded-mind', removedFaceDownCount: 0 }));
+        expect(ui.host.querySelector('[data-twin="removed"]')!.textContent).not.toMatch(/face down/i);
+    });
+
     it('says nothing at all when no card was removed face up', () => {
         // Three and four player rounds remove nothing face up, and an element
         // announcing "none" would be noise on every turn.

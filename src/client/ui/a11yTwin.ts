@@ -79,9 +79,15 @@ export function createA11yTwin(deps: A11yTwinDeps): Surface {
         if (cardId === null) return [];
 
         const copy = cardCopyFor(cardId);
+        const hidden = table.view.removedFaceDownCount;
+
         const item = document.createElement('p');
         item.dataset.twin = 'removed';
-        item.textContent = `Removed from play: ${copy.displayName}, value ${copy.value}`;
+        // The canvas says this with fanned card backs beside the face-up card.
+        // Same fact, stated: the count is public, the faces are not.
+        item.textContent =
+            `Removed from play: ${copy.displayName}, value ${copy.value}` +
+            (hidden === 0 ? '' : `, and ${hidden} more face down`);
         return [item];
     }
 

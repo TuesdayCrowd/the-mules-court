@@ -326,6 +326,21 @@ export interface RedactedView {
     /** An integer, never an array. A padded array would leak deck positions. */
     readonly deckCount: number;
     readonly setAsideFaceUp: CardTypeId | null;
+    /**
+     * How many cards were set aside face down. An integer, for `deckCount`'s
+     * reason: the identities are hidden, but the count is not secret at all —
+     * it follows from `playerCount`, which every client already has. Sending it
+     * saves the client restating the setup table to draw the removed pile.
+     *
+     * **Deliberately not named `setAsideFaceDownCount`.** The transport's
+     * integration suite bans the substring `setAsideFaceDown` from every frame
+     * a client receives (`FORBIDDEN_SUBSTRINGS`), which is a good guard
+     * precisely because it is blunt — any occurrence means something serialized
+     * raw `MatchState`. A count field carrying that prefix trips it, and the
+     * fix is to name the field differently rather than teach the guard an
+     * exception it would then have to keep getting right.
+     */
+    readonly removedFaceDownCount: number;
     readonly currentPlayerId: PlayerId;
     readonly turnNumber: number;
     readonly publicLog: readonly PublicLogEntry[];
