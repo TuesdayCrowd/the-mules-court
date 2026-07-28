@@ -13,7 +13,7 @@
 
 import { cardTypeOf } from '../../game/engine';
 import type { CardInstanceId, CardTypeId, PlayerId, RedactedView } from '../../game/engine';
-import { cardCopyFor } from '../content/cardCopy';
+import { forcedPlayCaption } from '../content/playability';
 import { TOKENS } from '../tokens/tokens';
 import type { LayoutSpec, Rect } from './types';
 
@@ -61,8 +61,18 @@ export interface SeatPlan {
 export interface OwnStatusPlan {
     readonly rect: Rect;
     readonly tokens: number;
-    /** Interface rule 7 applies here exactly as it does to a seat chip. */
-    readonly discardValues: readonly number[];
+    /**
+     * The pile in play order, each entry keeping its face as well as its value.
+     *
+     * `RedactedView` has always carried `{cardId, value}` here and this plan
+     * mapped it down to the number, so the row could only ever draw numerals
+     * while a seat chip drew a portrait for its revealed card. The identity was
+     * not missing; it was being discarded one layer above the renderer.
+     *
+     * Interface rule 7 applies here exactly as it does to a seat chip: every
+     * entry, never a truncation.
+     */
+    readonly discards: readonly { readonly cardId: CardTypeId; readonly value: number }[];
     readonly discardTotal: number;
 }
 
@@ -200,7 +210,10 @@ function bannerFor(input: RenderInput, rect: Rect, nameOf: (id: PlayerId) => str
  */
 function dimCaption(view: RedactedView): string | null {
     if (view.own.legalPlays.length !== 1 || view.own.hand.length < 2) return null;
-    return `must play ${cardCopyFor(cardTypeOf(view.own.legalPlays[0])).displayName}`;
+    // Shared with the action sheet, which explains the same rule beside a
+    // disabled Play button. Two surfaces phrasing one rule two ways is the drift
+    // this import exists to prevent.
+    return forcedPlayCaption(cardTypeOf(view.own.legalPlays[0]));
 }
 
 /**
@@ -256,7 +269,9 @@ export function buildRenderPlan(input: RenderInput, spec: LayoutSpec): RenderPla
     const own: OwnStatusPlan = {
         rect: spec.ownStatus,
         tokens: self?.tokens ?? 0,
-        discardValues: self?.discardPile.map(entry => entry.value) ?? [],
+        // Passed through whole. The view already carries the face beside the
+        // value; mapping it away here is what left the row unable to show one.
+        discards: self?.discardPile.map(entry => ({ cardId: entry.cardId, value: entry.value })) ?? [],
         discardTotal: self?.discardValueTotal ?? 0
     };
 

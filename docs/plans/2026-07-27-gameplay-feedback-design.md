@@ -89,7 +89,7 @@ protected-or-eliminated sentence appears only when it is the viewer's turn; one 
 target is `aria-pressed=true` on open and two are not; focus survives a recompute.
 **Notes:** the sheet deliberately patches nodes in place rather than rebuilding, to keep
 focus (`actionSheet.ts:87-93`). The recompute must honour that.
-**Status:** Not Started
+**Status:** Complete
 
 ### Stage 3: What the canvas tells the truth about
 
@@ -106,7 +106,18 @@ unedited, since icons need more room than numerals at eight discards.
 and the name scrim is added to the container after the medallions, so it paints over
 them. Fix the budget in `tableLayout.ts` where the pip block is already budgeted, and
 let the scene draw what it is handed.
-**Status:** Not Started
+**Status:** Complete — and it found two more of the same bug. `DeckPlan.pulse`
+(UIX §6.4's empty-deck warning) was computed, tested and never drawn, leaving the
+deck's state as colour alone. `SeatPlan.discardTotal` is computed and shown only
+in the dossier. `courtContract.test.ts` now reads `Court.ts` as text and fails on
+any published field the scene never mentions, because that failure — pure layer
+right, scene ignoring it — is invisible to every other test here and has now
+happened four times.
+
+Seat chips keep numeric pips. A chip is `contentW / opponentCount` wide and has
+to hold eight discards with wrapping; faces there would break the guarantee
+`discardCapacity.test.ts` exists to make. The row the feedback named is the own
+row, and that is where the faces went.
 
 ### Stage 4: Round history
 

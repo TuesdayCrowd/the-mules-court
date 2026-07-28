@@ -158,8 +158,61 @@ describe("the viewer's own status", () => {
 
         expect(built.own.rect).toBe(SPEC.ownStatus);
         expect(built.own.tokens).toBe(2);
-        expect(built.own.discardValues).toEqual([1, 3]);
         expect(built.own.discardTotal).toBe(4);
+    });
+
+    it('keeps each own discard’s face beside its value', () => {
+        // The row could only ever draw numerals because this plan mapped the
+        // view's `{cardId, value}` down to the number — the identity was being
+        // discarded one layer above the renderer, not missing from the view.
+        const view = fourSeats();
+        const built = plan({
+            ...view,
+            players: [
+                seat('p1', {
+                    tokens: 2,
+                    discardPile: [
+                        { cardId: 'informant', value: 1 },
+                        { cardId: 'ebling-mis', value: 3 }
+                    ],
+                    discardValueTotal: 4
+                }),
+                view.players[1],
+                view.players[2],
+                view.players[3]
+            ]
+        });
+
+        expect(built.own.discards).toEqual([
+            { cardId: 'informant', value: 1 },
+            { cardId: 'ebling-mis', value: 3 }
+        ]);
+    });
+
+    it('keeps the pile in play order, so the row reads as a history', () => {
+        const view = fourSeats();
+        const built = plan({
+            ...view,
+            players: [
+                seat('p1', {
+                    discardPile: [
+                        { cardId: 'mayor-indbur', value: 6 },
+                        { cardId: 'informant', value: 1 },
+                        { cardId: 'first-speaker', value: 7 }
+                    ],
+                    discardValueTotal: 14
+                }),
+                view.players[1],
+                view.players[2],
+                view.players[3]
+            ]
+        });
+
+        expect(built.own.discards.map(entry => entry.cardId)).toEqual([
+            'mayor-indbur',
+            'informant',
+            'first-speaker'
+        ]);
     });
 
     it('marks a missing seat disconnected without removing their cards', () => {
