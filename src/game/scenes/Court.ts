@@ -48,6 +48,14 @@ export class Court extends Scene {
     private deckPulse: Phaser.Tweens.Tween | null = null;
     /** Matches the predicate the beat runner uses, so the two agree. */
     private reducedMotion: () => boolean = () => false;
+    /**
+     * The pending long press, if any.
+     *
+     * One at a time — a second finger starts a new press rather than racing the
+     * first — and cleared whenever the table is rebuilt, because the card it
+     * was going to describe has just been destroyed.
+     */
+    private pressTimer: Phaser.Time.TimerEvent | null = null;
     private latest: ClientState | null = null;
     private resizeHandle: number | null = null;
 
@@ -71,6 +79,8 @@ export class Court extends Scene {
         this.events.once('shutdown', () => {
             this.deckPulse?.stop();
             this.deckPulse = null;
+            this.pressTimer?.remove();
+            this.pressTimer = null;
             this.beats.destroy();
             this.scale.off('resize', this.onResize, this);
             if (this.resizeHandle !== null) window.clearTimeout(this.resizeHandle);
@@ -130,6 +140,12 @@ export class Court extends Scene {
     private draw(plan: RenderPlan, spec: LayoutSpec): void {
         this.deckPulse?.stop();
         this.deckPulse = null;
+        // The card a pending press was going to describe is about to be
+        // destroyed, and the hint that is up describes a table that no longer
+        // exists.
+        this.pressTimer?.remove();
+        this.pressTimer = null;
+        this.events.emit(CARD_HINT_CLEARED);
         this.table.removeAll(true);
 
         // The pip geometry travels with the seat rather than being read off
@@ -329,7 +345,16 @@ export class Court extends Scene {
                     })
                     .setOrigin(0.5, 1);
 
-                this.table.add([plate, value]);
+                // Hint-only: a discard is history, so there is nothing to tap.
+                // It is also the card most worth explaining, because unlike a
+                // hand card it has no action sheet to open.
+                const hit = this.add
+                    .rectangle(x, faceTop, row.iconW, row.iconH, 0x000000, 0)
+                    .setOrigin(0, 0)
+                    .setInteractive({ useHandCursor: true });
+                this.attachCardGesture(hit, discard.cardId);
+
+                this.table.add([plate, value, hit]);
             });
 
             if (own.discards.length > 0) {
@@ -408,7 +433,9 @@ export class Court extends Scene {
                     .rectangle(card.rect.x, card.rect.y, card.rect.w, card.rect.h, 0x000000, 0)
                     .setOrigin(0, 0)
                     .setInteractive({ useHandCursor: true });
-                hit.on('pointerdown', () => this.events.emit(CARD_SELECTED, card.cardInstanceId));
+                this.attachCardGesture(hit, card.cardId, () =>
+                    this.events.emit(CARD_SELECTED, card.cardInstanceId)
+                );
                 this.table.add(hit);
             }
         }
@@ -498,7 +525,7 @@ export class Court extends Scene {
         // already carries the value, and this carries the face.
         if (seat.revealedCard !== null) {
             const revealed = this.add
-                .image(seat.rect.x + seat.rect.w - 6, seat.rect.y + seat.rect.h - 6, cardCopyFor(seat.revealedCard).portraitKey)
+                .image(seat.rect.x + seat.rect.w - chip.pad, seat.rect.y + seat.rect.h - chip.pad, cardCopyFor(seat.revealedCard).portraitKey)
                 .setOrigin(1, 1)
                 .setDisplaySize(REVEALED_H * CARD_ASPECT, REVEALED_H);
             this.table.add(revealed);
@@ -507,8 +534,8 @@ export class Court extends Scene {
             // datum anyway — the pip row beside it already carries the history.
             const value = this.add
                 .text(
-                    seat.rect.x + seat.rect.w - 6 - REVEALED_H * CARD_ASPECT - 2,
-                    seat.rect.y + seat.rect.h - 6,
+                    seat.rect.x + seat.rect.w - chip.pad - REVEALED_H * CARD_ASPECT - 2,
+                    seat.rect.y + seat.rect.h - chip.pad,
                     String(cardCopyFor(seat.revealedCard).value),
                     { fontFamily: FONT_DISPLAY, fontSize: '15px', color: '#f5f5f5' }
                 )
@@ -525,6 +552,32 @@ export class Court extends Scene {
             .setInteractive({ useHandCursor: true });
         hit.on('pointerdown', () => this.events.emit(SEAT_SELECTED, seat.playerId));
         this.table.add(hit);
+
+        /**
+         * The revealed card gets its own gesture, added AFTER the chip-wide
+         * rect so it wins the hit test — Phaser picks the topmost interactive
+         * object, and added first it would never see a pointer at all.
+         *
+         * It still opens the dossier on a tap, because tapping anywhere on a
+         * chip always has. Only the hover is new.
+         */
+        if (seat.revealedCard !== null) {
+            const revealedHit = this.add
+                .rectangle(
+                    seat.rect.x + seat.rect.w - chip.pad - REVEALED_H * CARD_ASPECT,
+                    seat.rect.y + seat.rect.h - chip.pad - REVEALED_H,
+                    REVEALED_H * CARD_ASPECT,
+                    REVEALED_H,
+                    0x000000,
+                    0
+                )
+                .setOrigin(0, 0)
+                .setInteractive({ useHandCursor: true });
+            this.attachCardGesture(revealedHit, seat.revealedCard, () =>
+                this.events.emit(SEAT_SELECTED, seat.playerId)
+            );
+            this.table.add(revealedHit);
+        }
 
         // Added AFTER the chip-wide rect so it wins the hit test: Phaser picks
         // the topmost interactive object, and this one is inside the other.
@@ -722,6 +775,86 @@ export class Court extends Scene {
     }
 
     /**
+     * Hover and long-press on one card's hit area.
+     *
+     * **Hover is an enhancement, never a dependency** (UIX §349). Every sentence
+     * it shows is already reachable by tapping the card or opening the dock, so
+     * a touch device loses nothing — and gains the long press, which is the same
+     * affordance for a player with no pointer.
+     *
+     * The hint itself is DOM. Nothing about it may be stored on a Phaser object:
+     * `draw` destroys every one of them on each `STATE_UPDATE`, so hover state
+     * held here would have its owner deleted mid-gesture the moment an opponent
+     * plays a card.
+     *
+     * `onTap` fires on pointer**up**, not down. A long press has to be able to
+     * decide the gesture was not a tap, and it cannot do that after the tap has
+     * already been dispatched — which is what firing on pointerdown meant. It is
+     * also better tap semantics: a press that slides off the card no longer
+     * counts as choosing it.
+     */
+    private attachCardGesture(
+        hit: Phaser.GameObjects.Rectangle,
+        cardId: CardTypeId,
+        onTap?: () => void
+    ): void {
+        let pressedAt: { x: number; y: number } | null = null;
+        let longPressed = false;
+
+        const cancelTimer = (): void => {
+            this.pressTimer?.remove();
+            this.pressTimer = null;
+        };
+
+        hit.on('pointerover', (pointer: Phaser.Input.Pointer) => {
+            // A touch "hover" is really the finger already down; the long press
+            // owns that case, and honouring both makes a tap flash a hint.
+            if (pointer.wasTouch) return;
+            this.events.emit(CARD_HINTED, cardId, { x: pointer.x, y: pointer.y });
+        });
+
+        hit.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+            if (pointer.wasTouch) {
+                // Sliding a finger is a scroll or a mis-aim, not a press.
+                if (pressedAt !== null && Phaser.Math.Distance.BetweenPoints(pointer, pressedAt) > MOVE_CANCEL_PX) {
+                    cancelTimer();
+                    pressedAt = null;
+                }
+                return;
+            }
+            this.events.emit(CARD_HINTED, cardId, { x: pointer.x, y: pointer.y });
+        });
+
+        hit.on('pointerout', () => {
+            cancelTimer();
+            pressedAt = null;
+            this.events.emit(CARD_HINT_CLEARED);
+        });
+
+        hit.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            pressedAt = { x: pointer.x, y: pointer.y };
+            longPressed = false;
+            cancelTimer();
+
+            this.pressTimer = this.time.delayedCall(LONG_PRESS_MS, () => {
+                this.pressTimer = null;
+                if (pressedAt === null) return;
+                longPressed = true;
+                this.events.emit(CARD_HINTED, cardId, pressedAt);
+            });
+        });
+
+        hit.on('pointerup', () => {
+            cancelTimer();
+            const wasTap = pressedAt !== null && !longPressed;
+            pressedAt = null;
+            // A long press showed the hint; dispatching the tap as well would
+            // open the sheet over the thing the player pressed to read.
+            if (wasTap) onTap?.();
+        });
+    }
+
+    /**
      * A tap target over a run of devotion medallions.
      *
      * Built from the same numbers that placed the medallions, for the reason
@@ -788,6 +921,15 @@ export const SEAT_SELECTED = 'seat-selected';
  */
 export const TOKENS_SELECTED = 'tokens-selected';
 
+/**
+ * A card wants its ability shown — pointer hover, or a long press on touch.
+ * Carries viewport coordinates, because the hint is a DOM surface.
+ */
+export const CARD_HINTED = 'card-hinted';
+
+/** The hint should go away. */
+export const CARD_HINT_CLEARED = 'card-hint-cleared';
+
 type FacePart = Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text;
 
 /**
@@ -819,6 +961,16 @@ const REVEALED_H = 30;
  * what `ownRow.medallionSpan` is measured with.
  */
 const MEDALLION_GAP = 2;
+
+/**
+ * How long a finger must rest on a card before it reads as "tell me about this"
+ * rather than "play this". Long enough not to fire on a deliberate tap, short
+ * enough that a player who is waiting does not give up first.
+ */
+const LONG_PRESS_MS = 450;
+
+/** A press that travels this far was a scroll or a mis-aim, not a press. */
+const MOVE_CANCEL_PX = 10;
 
 /** The value badge, as a fraction of the card's short edge, with a legible floor. */
 const BADGE_FRACTION = 0.28;

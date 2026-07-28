@@ -41,18 +41,19 @@ import { createA11yTwin } from './client/ui/a11yTwin';
 import { createActionSheet } from './client/ui/actionSheet';
 import type { SheetRequest, SheetTarget } from './client/ui/actionSheet';
 import { createClipboard } from './client/ui/clipboard';
+import { createCardHint } from './client/ui/cardHint';
 import { createConnectionDot } from './client/ui/connectionDot';
 import { createFatalScreen } from './client/ui/fatalScreen';
 import { createJoinScreen } from './client/ui/joinScreen';
 import { createLobbyScreen } from './client/ui/lobbyScreen';
 import { createMenuScreen } from './client/ui/menuScreen';
 import { createOverlays } from './client/ui/overlays';
-import { createQuickReference } from './client/ui/quickReference';
+import { createReferenceDock } from './client/ui/referenceDock';
 import { createSeatDossier } from './client/ui/seatDossier';
 import { REAL_TIMERS } from './client/ui/surface';
 import { createToasts } from './client/ui/toasts';
 import { createUiRoot } from './client/ui/uiRoot';
-import { CARD_SELECTED, SEAT_SELECTED } from './game/scenes/Court';
+import { CARD_HINTED, CARD_HINT_CLEARED, CARD_SELECTED, SEAT_SELECTED, TOKENS_SELECTED } from './game/scenes/Court';
 import type { Court } from './game/scenes/Court';
 import StartGame from './game/main';
 
@@ -162,6 +163,10 @@ function boot(): void {
     });
 
     const seatDossier = createSeatDossier();
+    // The dock remembers whether it was up and which tab was showing, so it
+    // needs the same storage the seat token uses — injected, never reached for.
+    const referenceDock = createReferenceDock({ storage: window.localStorage });
+    const cardHint = createCardHint({ viewport: () => ({ w: window.innerWidth, h: window.innerHeight }) });
 
     uiRoot.add(createConnectionDot());
     uiRoot.add(
@@ -204,7 +209,8 @@ function boot(): void {
             onBackToMenu: () => location.assign('/')
         })
     );
-    uiRoot.add(createQuickReference());
+    uiRoot.add(referenceDock);
+    uiRoot.add(cardHint);
     uiRoot.add(seatDossier);
     uiRoot.add(actionSheet);
     uiRoot.add(
@@ -238,10 +244,28 @@ function boot(): void {
         // Tapping a card on the canvas and activating its accessibility proxy
         // are the same intent, so both land here.
         court.events.on(CARD_SELECTED, (id: CardInstanceId) => openSheetFor(id));
+        // Hover on a pointer device, long-press on touch. Both are enhancements
+        // — UIX §349 keeps hover out of the critical path — so the hint is a
+        // DOM surface the scene only signals, never a state it holds. draw()
+        // destroys every interactive object on each STATE_UPDATE.
+        court.events.on(CARD_HINTED, (cardId: CardTypeId, at: { x: number; y: number }) =>
+            cardHint.show(cardId, at)
+        );
+        court.events.on(CARD_HINT_CLEARED, () => cardHint.hide());
         // UIX §6.2. The dossier is supplementary detail — every value it holds
         // is already legible on the chip — but it is the only place the pile
         // appears in play order with card names, and the match log with it.
         court.events.on(SEAT_SELECTED, (id: PlayerId) => seatDossier.open(id));
+        // A devotion token IS a round won, so tapping one opens the log at that
+        // round — the most recent the seat took, which is the token that just
+        // landed. Without this the round's narration is gone the moment the next
+        // is dealt, which is what the engine's roundHistory now prevents.
+        court.events.on(TOKENS_SELECTED, (id: PlayerId) => {
+            const history = store.getState().table?.view.roundHistory ?? [];
+            const won = history.filter(round => round.winnerIds.includes(id));
+            const latest = won[won.length - 1];
+            referenceDock.open('log', ...(latest === undefined ? [] : [{ round: latest.roundNumber }]));
+        });
         court.renderView(store.getState());
     });
 
@@ -368,6 +392,10 @@ function boot(): void {
     }
 
     function openSheetOrThrow(cardInstanceId: CardInstanceId): void {
+        // The sheet states this card's effect itself, so a hint over it would be
+        // the same sentence twice in two places.
+        cardHint.hide();
+
         // No table is not a version skew, and must not be reported as one. Two
         // meanings behind one `null` is the mistake `sheetTargetsFor` exists to
         // stop the client making about targeting; it is no better here.

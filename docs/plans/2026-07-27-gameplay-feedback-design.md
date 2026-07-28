@@ -133,7 +133,7 @@ engine rather than a client heuristic that watches the log get shorter: which ro
 devotion token came from is a fact about the match, and the client restating it is the
 drift `targets.ts` exists to prevent. Persistence stores `{seed, actionLog}` and replays,
 so history rebuilds without a migration.
-**Status:** Not Started
+**Status:** Complete
 
 ### Stage 5: The dock
 
@@ -145,7 +145,13 @@ reads the current round and any completed one.
 `role="dialog"`, focus stays where the player left it; `axe.test.ts` covers the new
 surface; `a11yTwin` still announces without doubling the dock.
 **Notes:** `seatDossier.ts:131` already implements a two-tab panel; copy that shape.
-**Status:** Not Started
+**Status:** Complete — and the panel's `inset: 0` had to go with the modality. Full
+bleed is right for a modal and wrong for something meant to stay up while playing:
+it left no play visible, and it would have covered the action sheet's Cancel and
+Play, which anchor to the same bottom edge and lose to the dock on z-index. The
+dock takes the top on narrow and the right edge on wide. Written as longhand
+offsets because `inset` is not readable back in jsdom, and an assertion that
+cannot fail is worse than none on the rule that keeps those two apart.
 
 ### Stage 6: Hover and long-press
 
@@ -159,7 +165,15 @@ instead; a rebuild of the table clears any showing tooltip.
 the tooltip must be a DOM surface owning its own lifetime while the scene emits only
 enter and leave. Suppress the tooltip for a card whose action sheet is open, or the same
 sentence renders twice.
-**Status:** Not Started
+**Status:** Complete. Hand cards now select on pointer**up** rather than down —
+a long press cannot decide the gesture was not a tap after the tap has already
+been dispatched. It is better tap semantics regardless: a press that slides off
+a card no longer counts as choosing it.
+
+Hover reaches hand cards, the own row's discard faces, and a seat's revealed
+card. The last of those needed its hit rect added *after* the chip-wide one:
+Phaser picks the topmost interactive object, and added first it would never have
+seen a pointer.
 
 ## Carried through every stage
 

@@ -12,6 +12,7 @@ import { createJoinScreen } from '../ui/joinScreen';
 import { createLobbyScreen } from '../ui/lobbyScreen';
 import { createMenuScreen } from '../ui/menuScreen';
 import { createOverlays } from '../ui/overlays';
+import { createCardHint } from '../ui/cardHint';
 import { createReferenceDock } from '../ui/referenceDock';
 import { createSeatDossier } from '../ui/seatDossier';
 import type { Surface } from '../ui/surface';
@@ -136,6 +137,14 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
                 ],
                 available: { w: 390, h: 844 }
             });
+        }
+    ],
+    [
+        'card hint',
+        root => {
+            const surface = createCardHint({ viewport: () => ({ w: 1000, h: 800 }) });
+            drive(surface, root, makeState({ screen: 'table', table: makeTable() }));
+            surface.show('first-speaker', { x: 120, y: 240 });
         }
     ],
     [
@@ -307,11 +316,11 @@ describe('the gate itself', () => {
         // A surface added to the DOM layer but not to this list would ship
         // unchecked, and nothing else in the suite would notice.
         //
-        // Fourteen cases across thirteen surfaces: the reference dock appears
+        // Fifteen cases across fourteen surfaces: the reference dock appears
         // twice, because its two tabs render entirely different markup and
         // checking only the one it happens to open on would leave the other
         // unchecked.
-        expect(SURFACES).toHaveLength(14);
+        expect(SURFACES).toHaveLength(15);
     });
 
     it('detects a violation rather than passing over it', async () => {

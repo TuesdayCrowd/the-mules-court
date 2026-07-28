@@ -420,6 +420,37 @@ h2,
 }
 
 /**
+ * The card hint (hover, and long-press on touch).
+ *
+ * `pointer-events: none` is the load-bearing line: a tooltip that could be
+ * hovered would sit between the pointer and the card that summoned it, and
+ * flicker between showing and hiding. It is positioned from JS, so only the
+ * things JS does not set live here.
+ *
+ * Layered below the action sheet: while a sheet is open it is already stating
+ * the same sentence, and a hint over it would be the copy twice.
+ */
+.card-hint {
+    position: fixed;
+    z-index: 2;
+    pointer-events: none;
+    display: grid;
+    gap: var(--space-1);
+    max-width: 16rem;
+    padding: var(--space-2) var(--space-3);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-your-turn);
+    background: rgb(0 0 0 / 0.94);
+    color: var(--color-text-primary);
+    font-size: 0.85rem;
+    line-height: 1.35;
+}
+
+.card-hint strong {
+    font-family: var(--font-display, system-ui, sans-serif);
+}
+
+/**
  * The quick reference (UIX §10). A floating tab, layered above the action sheet
  * because it must stay reachable while a play is being composed.
  */
