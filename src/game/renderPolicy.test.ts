@@ -193,4 +193,14 @@ describe('what wakes it', () => {
     it('includes pointer cancellation, which is how a touch ends when the browser takes over', () => {
         expect([...WAKE_EVENTS]).toContain('pointercancel');
     });
+
+    it('covers the touch events Phaser actually binds, not only their pointer equivalents', () => {
+        // TouchManager binds these four to the canvas directly, and they are what
+        // a finger is queued from. Browsers emit pointer events for touch as
+        // well, so listing only the pointer names happened to work on a handset —
+        // by coincidence, and deaf to any touch that arrived without one.
+        expect([...WAKE_EVENTS]).toEqual(
+            expect.arrayContaining(['touchstart', 'touchmove', 'touchend', 'touchcancel'])
+        );
+    });
 });

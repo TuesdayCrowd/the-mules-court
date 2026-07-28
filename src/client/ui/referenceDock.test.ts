@@ -175,6 +175,28 @@ describe('sharing the screen with the action sheet', () => {
         expect(getComputedStyle(ui.panel()!).maxHeight).not.toBe('none');
     });
 
+    it('gets shorter still while a bottom sheet is open', () => {
+        /**
+         * Measured on an emulated 390×844 phone with a card raised: the dock ran
+         * to 464px and the sheet began at 393px, so the dock's last 71px sat over
+         * the sheet's title and its effect line — and the dock wins at z-index 5
+         * against the sheet's 3.
+         *
+         * `data-sheet` is the attribute the sheet already sets for the tab's
+         * corner swap, so this costs no measurement and no new coupling.
+         */
+        const ui = mounted();
+        ui.show();
+        click(ui.launcher());
+
+        const alone = getComputedStyle(ui.panel()!).maxHeight;
+        ui.root.setAttribute('data-sheet', 'bottom');
+        const withSheet = getComputedStyle(ui.panel()!).maxHeight;
+
+        expect(withSheet).not.toBe(alone);
+        expect(Number.parseFloat(withSheet)).toBeLessThan(Number.parseFloat(alone));
+    });
+
     it('layers above an open action sheet, so it stays readable while composing a play', () => {
         const ui = mounted();
         ui.show();

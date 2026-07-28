@@ -517,6 +517,22 @@ h2,
     background: rgb(0 0 0 / 0.96);
 }
 
+/**
+ * A bottom sheet shortens the dock, on narrow layouts only.
+ *
+ * The dock takes the top 55dvh and the sheet anchors to the bottom, which is
+ * enough to keep them apart on their own — until a tall sheet is open. Measured
+ * on a 390x844 phone with a card raised: the dock ran to 464px and the sheet
+ * began at 393px, so the dock's last 71px sat over the sheet's title and effect
+ * line, and the dock wins at z-index 5 against the sheet's 3.
+ *
+ * Same trigger as the tab's corner swap directly above, for the same reason: one
+ * attribute, no measurement, and no coupling beyond it.
+ */
+#ui-root[data-sheet='bottom'] .reference-modal {
+    max-height: 42dvh;
+}
+
 /* A side drawer where there is width for one — the table keeps the rest. */
 @media (min-width: 60rem) {
     .reference-modal {

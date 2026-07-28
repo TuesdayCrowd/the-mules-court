@@ -180,12 +180,24 @@ export function createRenderPump(deps: RenderPumpDeps): RenderPump {
  * `pointermove` is included on purpose even though a bare cursor crossing the
  * table changes nothing: hover is what raises a card's hint, and the hit-test
  * that decides it runs on the loop.
+ *
+ * **The touch four are not redundant with the pointer four.** Phaser's
+ * `TouchManager` binds `touchstart`/`touchmove`/`touchend`/`touchcancel` to the
+ * canvas directly — those, not pointer events, are what a finger is queued
+ * from. Browsers do also emit pointer events for touch, so listing only the
+ * pointer names happened to work on a handset; it worked by coincidence, and it
+ * left the loop deaf to a touch that arrived without one. Cover what Phaser
+ * actually binds.
  */
 export const WAKE_EVENTS = [
     'pointerdown',
     'pointerup',
     'pointermove',
     'pointercancel',
+    'touchstart',
+    'touchmove',
+    'touchend',
+    'touchcancel',
     'wheel',
     'keydown'
 ] as const;

@@ -51,11 +51,23 @@ export class Court extends Scene {
     /**
      * The pending long press, if any.
      *
+     * A **window** timer, not `this.time.delayedCall`, and that is the whole of
+     * why long-press works. Phaser dispatches input the moment the browser hands
+     * it over, but its Clock only advances while the render loop runs — and the
+     * loop is asleep precisely when a player is holding a finger still on a card
+     * and nothing is moving. Measured on an emulated handset: a tap opened the
+     * sheet with the loop stopped, and a 700ms hold did nothing at all, because
+     * the 450ms timer sat in a clock that was not ticking.
+     *
+     * Wall-clock is also the honest unit here. This measures how long a finger
+     * has rested, which has nothing to do with game time, and what it raises is
+     * a DOM surface that needs no frame drawn to appear.
+     *
      * One at a time — a second finger starts a new press rather than racing the
      * first — and cleared whenever the table is rebuilt, because the card it
      * was going to describe has just been destroyed.
      */
-    private pressTimer: Phaser.Time.TimerEvent | null = null;
+    private pressTimer: number | null = null;
     /**
      * Beats currently mid-flight.
      *
@@ -89,7 +101,7 @@ export class Court extends Scene {
         this.events.once('shutdown', () => {
             this.deckPulse?.stop();
             this.deckPulse = null;
-            this.pressTimer?.remove();
+            if (this.pressTimer !== null) window.clearTimeout(this.pressTimer);
             this.pressTimer = null;
             this.beats.destroy();
             this.scale.off('resize', this.onResize, this);
@@ -153,7 +165,7 @@ export class Court extends Scene {
         // The card a pending press was going to describe is about to be
         // destroyed, and the hint that is up describes a table that no longer
         // exists.
-        this.pressTimer?.remove();
+        if (this.pressTimer !== null) window.clearTimeout(this.pressTimer);
         this.pressTimer = null;
         this.events.emit(CARD_HINT_CLEARED);
         this.table.removeAll(true);
@@ -863,7 +875,7 @@ export class Court extends Scene {
         let longPressed = false;
 
         const cancelTimer = (): void => {
-            this.pressTimer?.remove();
+            if (this.pressTimer !== null) window.clearTimeout(this.pressTimer);
             this.pressTimer = null;
         };
 
@@ -897,12 +909,12 @@ export class Court extends Scene {
             longPressed = false;
             cancelTimer();
 
-            this.pressTimer = this.time.delayedCall(LONG_PRESS_MS, () => {
+            this.pressTimer = window.setTimeout(() => {
                 this.pressTimer = null;
                 if (pressedAt === null) return;
                 longPressed = true;
                 this.events.emit(CARD_HINTED, cardId, pressedAt);
-            });
+            }, LONG_PRESS_MS);
         });
 
         hit.on('pointerup', () => {
@@ -956,7 +968,10 @@ export class Court extends Scene {
      * wasted frames.
      */
     isAnimating(): boolean {
-        return this.beatsInFlight > 0 || this.pressTimer !== null || this.tweens.getTweens().length > 0;
+        // A pending long press is deliberately NOT here. It is a window timer
+        // raising a DOM hint, so it needs no frame drawn and must not hold the
+        // loop open while a player rests a finger on a card.
+        return this.beatsInFlight > 0 || this.tweens.getTweens().length > 0;
     }
 
     /** The spec the table was last drawn from, for the accessibility twin's hand proxies. */
