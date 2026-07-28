@@ -317,15 +317,11 @@ Test files went from 64 to 69. New suites: `content/playability.test.ts`,
 `content/matchLog.test.ts`, `ui/referenceDock.test.ts`, `ui/cardHint.test.ts`,
 `engine/roundHistory.test.ts`, `scenes/courtContract.test.ts`.
 
-**Not verified on hardware.** `docs/plans/2026-07-24-uix-qa-checklist.md` still wants a
-real-device pass (Task 34 of the UIX plan), and this branch adds two things that only a
-phone can confirm:
-
-- **Long-press.** 450 ms with a 10px movement cancel. Whether that reads as deliberate
-  rather than sluggish is a judgement no test makes.
-- **The dock at phone width.** It takes the top 55dvh; whether that leaves enough table
-  visible to keep playing is the whole point of the change and cannot be asserted in
-  jsdom, which has no layout.
+**Both phone items were driven and both were broken.** An emulated 390×844 handset over
+CDP settled them — see §12. Long-press never fired at all, and the dock sat on the action
+sheet. What remains unverified is narrower than it was: the touch-specific branches, and
+whether 450 ms *feels* deliberate rather than sluggish, which is a judgement no test
+makes.
 
 Worth a look too: the pointer-up change to hand-card selection is the one behaviour
 players will feel immediately.
@@ -558,3 +554,59 @@ whether the twin needed the same fact. It is not separate work.
 
 `purity.test.ts` reads raw file text, so `layout/`, `content/`, `store/` and `tokens/`
 may not so much as name a DOM global in a comment.
+
+---
+
+## 12. The phone pass
+
+Driven on an emulated 390×844 handset (DPR 3) over CDP, with a desktop opponent, against
+a real dealt table. Both outstanding QA items were broken.
+
+### Long-press never fired
+
+A 700 ms hold opened the action sheet exactly as a tap does, and no hint ever appeared.
+Three causes, found in this order:
+
+**The timer was on Phaser's clock.** `this.time.delayedCall` only advances while the
+render loop runs — and the loop is asleep *precisely* when a player holds a finger still
+and nothing is moving. Meanwhile input kept working, because Phaser dispatches that
+immediately. The measurement that pinned it: a tap opened the sheet with **zero frames
+rendered**. Taps worked, holds could not.
+
+It is a `window` timer now, which is also the honest unit. It measures how long a finger
+has rested — nothing to do with game time — and what it raises is a DOM surface needing
+no frame drawn. `isAnimating()` no longer counts a pending press, for the same reason.
+
+**`WAKE_EVENTS` listed only pointer events.** Phaser's `TouchManager` binds
+`touchstart`/`touchmove`/`touchend`/`touchcancel` to the canvas directly, and those are
+what a finger is queued from. Browsers emit pointer events for touch as well, so the old
+list happened to work — by coincidence, and deaf to any touch arriving without one.
+
+**And the harness lied twice before the code did.** A synthetic `MouseEvent('mousedown')`
+produces no `pointerdown`, so it could never wake the loop; and reading the sheet's state
+*after* a press rather than during one showed a hint that had already been cleared. Two
+false readings that each looked like a product bug.
+
+### The dock sat on the action sheet
+
+Measured with a card raised: the dock ran to 464 px and the sheet began at 393 px, so the
+dock's last **71 px** covered the sheet's title and effect line — and the dock wins at
+z-index 5 against the sheet's 3. It shortens now while a bottom sheet is open, keyed on
+the same `data-sheet` attribute the tab's corner swap already uses. Re-measured: overlap
+**0**, Play still visible.
+
+### After the fixes
+
+| | |
+| --- | --- |
+| 150 ms tap | opens the sheet |
+| 700 ms hold | suppresses the tap, hint reads *"4 · Shielded Mind — Until your next turn, ignore effects from other players."* |
+| dock alone | 0–464 px, hand at 614 — clear |
+| dock + sheet | dock ends 354, sheet starts 393 — overlap 0 |
+
+### Still unverified
+
+Every press above went in as a **mouse**, because CDP touch injection hangs in this
+environment. So `wasTouch` was false throughout and two branches never ran: hover being
+suppressed on touch, and the 10 px drift cancel. Whether 450 ms reads as deliberate
+rather than sluggish is also a human judgement, unchanged by any of this.
