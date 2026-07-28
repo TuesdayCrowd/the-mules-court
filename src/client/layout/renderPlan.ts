@@ -190,9 +190,20 @@ function seatState(
     return seat.protected ? 'protected' : 'idle';
 }
 
+/**
+ * The state, in the fewest words that still say it.
+ *
+ * A chip is `contentW / opponentCount` wide — about 110px on a three-opponent
+ * phone — and "Protected — cannot be targeted" sets to roughly 165px at the size
+ * this band affords. It ran off the right edge of the chip on every narrow
+ * layout, on top of being drawn through the discard pips.
+ *
+ * The sentence is not lost: `seatDossier.ts` keeps its own full-length wording,
+ * one tap away, where there is room for it. What a chip needs is the word.
+ */
 const SEAT_CAPTIONS: Readonly<Record<SeatState, string | null>> = {
     current: null, // the banner already names them
-    protected: 'Protected — cannot be targeted',
+    protected: 'Protected',
     eliminated: 'Out of the round',
     disconnected: 'Reconnecting…',
     idle: null

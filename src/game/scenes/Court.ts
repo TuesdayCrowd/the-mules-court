@@ -596,31 +596,70 @@ export class Court extends Scene {
         // recomputed per call, so a card played, traded or redrawn simply stops
         // appearing here. The client mirrors that and decides nothing.
         if (seat.knownCard !== null) {
-            // Below the medallion row rather than beside the nickname: the
-            // top-right corner now belongs to the card-back marker.
-            const known = this.add.text(
-                seat.rect.x + chip.pad,
-                seat.rect.y + chip.tokenTop + chip.medallion + chip.pad,
-                // Value first, like every other card label on the table. This
-                // marker is the standing record of a peek — it outlives the
-                // reveal — so it is the one a player actually reads back when
-                // deciding a guess, and a name alone makes them recall the
-                // number instead of read it.
+            // Value first, like every other card label on the table. This marker
+            // is the standing record of a peek — it outlives the reveal — so it
+            // is the one a player actually reads back when deciding a guess, and
+            // a name alone makes them recall the number instead of read it.
+            this.chipLine(
+                seat,
+                chip,
+                chip.markerTop,
                 `you know: ${cardLabel(seat.knownCard)}`,
-                { fontFamily: FONT_UI, fontSize: '11px', color: hex(TOKENS.colorSeatProtected) }
+                hex(TOKENS.colorSeatProtected)
             );
-            known.setOrigin(0, 0);
-            this.table.add(known);
         }
 
+        /**
+         * The seat's state, in words (UIX §6.3 — never colour alone).
+         *
+         * Drawn from `chip.captionTop`, which is budgeted between the marker and
+         * the pips. It used to sit at a literal `rect.h - 16` while the pip block
+         * was measured up from the bottom edge, so it landed inside the discard
+         * values at every viewport — reported as "the text for being protected is
+         * drawn over the same area of an opponent's discard".
+         */
         if (seat.caption !== null) {
-            const caption = this.add.text(seat.rect.x + chip.pad, seat.rect.y + seat.rect.h - 16, seat.caption, {
-                fontFamily: FONT_UI,
-                fontSize: '11px',
-                color: hex(SEAT_COLOURS[seat.state])
-            });
-            this.table.add(caption);
+            this.chipLine(seat, chip, chip.captionTop, seat.caption, hex(SEAT_COLOURS[seat.state]));
         }
+    }
+
+    /**
+     * One small labelled line inside a seat chip, on its own scrim.
+     *
+     * Both callers previously drew bare text at a fixed 11px. The nickname and
+     * the pips have carried scrims for a while — the chip's border is
+     * stroke-only, so anything without one sits straight on the nebula — and
+     * these two were the last table text that did not.
+     *
+     * Scrim sized to the text rather than the chip, for the reason the nickname's
+     * is: a two-player table gives one opponent the full width of the screen, and
+     * a full-width bar there is a black stripe across the table rather than a
+     * legibility aid.
+     */
+    private chipLine(seat: SeatPlan, chip: ChipSpec, top: number, text: string, colour: string): void {
+        const y = seat.rect.y + top;
+
+        const label = this.add
+            .text(seat.rect.x + chip.pad, y, text, {
+                fontFamily: FONT_UI,
+                fontSize: `${chip.smallPx}px`,
+                color: colour
+            })
+            .setOrigin(0, 0);
+
+        // Measured, then clamped. Only Phaser knows how wide a string actually
+        // set, and a chip is `contentW / opponentCount` — narrow enough that a
+        // state caption used to run off its right edge.
+        const room = seat.rect.w - chip.pad * 2;
+        if (label.width > room) label.setScale(room / label.width);
+
+        const scrim = this.add
+            .rectangle(seat.rect.x, y - 1, label.displayWidth + chip.pad * 2, chip.smallH, TOKENS.colorBg, 0.6)
+            .setOrigin(0, 0);
+
+        // Scrim first: it is a backdrop, and added second it would cover the
+        // text it exists to make readable.
+        this.table.add([scrim, label]);
     }
 
     /**

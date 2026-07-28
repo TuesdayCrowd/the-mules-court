@@ -2,7 +2,9 @@
 
 **Date:** 2026-07-27
 **Source:** eleven items of playtest feedback, triaged against the code.
-**Status:** all eleven shipped on branch `gameplay-feedback` ([PR #30](https://github.com/TuesdayCrowd/the-mules-court/pull/30)). One real-device pass outstanding.
+**Status:** eleven items plus a second round of feedback, shipped on branch
+`gameplay-feedback` ([PR #30](https://github.com/TuesdayCrowd/the-mules-court/pull/30)).
+One real-device pass outstanding.
 
 This is both the plan the work followed and the record of what it found. The two are
 one document on purpose: three of the defects fixed here were *already* described
@@ -305,7 +307,7 @@ happens to open on would leave the other unchecked.
 ## 7. Verification
 
 ```
-bun run test        # 1309 client/engine (was 1198) + 255 server, all passing
+bun run test        # 1314 client/engine (was 1198) + 255 server, all passing
 bunx tsc --noEmit    # clean
 bun run build        # succeeds; embedded asset manifest regenerated
 ```
@@ -339,7 +341,52 @@ players will feel immediately.
   `NOT_DRAWN` with that reason rather than left silent.
 - **The screenshots in `docs/gameplay/` are uncommitted**, at the author's instruction.
 
-## 9. One unexplained observation
+## 9. Second round of feedback
+
+> When a player is protected by a `4`, or a `2` was played against them, the text is
+> hard to read. The text for being protected is drawn over the same area of an
+> opponent's discard.
+
+The same class as item 1, one band further down. The state caption was drawn at a
+literal `seat.rect.h - 16` while the pip block is measured up from the bottom edge, so
+it landed inside the discard values at **every** viewport:
+
+| Viewport | pips | caption |
+| --- | --- | --- |
+| phone 390×844 | 87–104 | 94–107 |
+| tablet 1024×768 | 133–148 | 138–151 |
+| desktop 1920×1080 | 188–210 | 200–213 |
+
+Measuring it turned up two more faults nobody had reported:
+
+- **The peek marker was colliding too.** `you know: 3 · Ebling Mis` was placed at
+  `tokenTop + medallion + pad`, which on a rotated phone put it at 42–55 against a pip
+  block at 43–56. The chip had always been too short for its contents there; it simply
+  overlapped rather than growing.
+- **Both lines carried no scrim, and neither scaled.** The chip's border is stroke-only,
+  so the nickname and the pips have scrims. These two were the last table text without
+  one — bare 11px over the nebula and over the numerals at once — and the only text left
+  pinned to a phone's pixel count.
+- **The caption was too wide for a chip.** "Protected — cannot be targeted" sets to
+  roughly 165px at this size; a three-opponent phone chip is about 110px. It ran off the
+  right edge.
+
+`ChipSpec` now budgets all five bands — name, tokens, marker, caption, pips — and
+`chipHeightForBands` grows the chip when they will not fit. The chip caption is shortened
+to `Protected`; the sentence stays in `seatDossier.ts`, where there is room for it, and
+matches what `a11yTwin.ts` already said. One `chipLine` method draws both small lines,
+each on a scrim sized to its own text and clamped to the chip's width.
+
+The only viewport that grows is the rotated phone, 62 → 90px, and that is the honest
+cost of a band it was already drawing over. One composition test changed its measure as
+a result: a landscape-narrow chip now claims a larger *fraction* of a much smaller
+screen than a monitor's does, so "roomier seats" is asserted in pixels, which is what a
+player actually sees.
+
+`courtContract.test.ts` gained an assertion that `drawSeat` positions both lines from the
+spec and never from `seat.rect.h - 16`.
+
+## 10. One unexplained observation
 
 A single run of `bun test src/server` reported one failure in `roomRegistry.test.ts`
 ("a semantically corrupt actionLog fails replay on cold get"). It has not reproduced

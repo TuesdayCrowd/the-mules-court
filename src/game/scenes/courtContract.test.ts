@@ -122,4 +122,15 @@ describe('the scene does not re-derive chip geometry', () => {
         expect(body).toContain('chip.nameH');
         expect(body).toContain('chip.pipTop');
     });
+
+    it('positions the peek marker and the state caption from the spec', () => {
+        // The caption was drawn at `seat.rect.h - 16` while the pip block was
+        // measured up from the bottom edge, so it landed inside the discard
+        // values at every viewport — reported as the protected text sitting on
+        // an opponent's discard.
+        const body = drawSeatBody();
+        expect(body).toContain('chip.markerTop');
+        expect(body).toContain('chip.captionTop');
+        expect(body).not.toMatch(/seat\.rect\.h - 16\b/);
+    });
 });
