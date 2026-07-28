@@ -4,7 +4,8 @@
 **Source:** eleven items of playtest feedback, triaged against the code.
 **Status:** eleven items plus two further rounds of feedback, shipped on branch
 `gameplay-feedback` ([PR #30](https://github.com/TuesdayCrowd/the-mules-court/pull/30)).
-One real-device pass outstanding.
+One real-device pass outstanding. The third round's reported symptom — high GPU — turned
+out not to be this codebase at all; see §10.
 
 This is both the plan the work followed and the record of what it found. The two are
 one document on purpose: three of the defects fixed here were *already* described
@@ -386,12 +387,53 @@ player actually sees.
 `courtContract.test.ts` gained an assertion that `drawSeat` positions both lines from the
 spec and never from `seat.rect.h - 16`.
 
-## 10. Third round: the GPU at 80%
+## 10. Third round: the GPU at 80% — *and it was not the game*
 
 > There is an issue with resources. The GPU is at 80% utilization when the game is open
 > in the browser.
 
-**Root cause, from Phaser's own source rather than inference.** `Game.step` runs
+**Resolved, and not here.** It was Edge's **Transparency effects** setting, under
+Appearance. That is a full-screen backdrop blur on the browser's own chrome,
+recomposited continuously against whatever sits behind it — browser furniture, not page
+content. Turning it off fixed it.
+
+This section is kept because the investigation was wrong in an instructive way and
+because two real defects came out of it. What it is *not* is the explanation for the
+report.
+
+**The measurements said so before the cause was known, and were misread anyway:**
+
+| | |
+| --- | --- |
+| Visible window, menu idle, frames per 500 ms | `0 0 0 0 0 0 0 0 0 0 5 62 3 0 0 0` |
+| Same window, blank page | 7.3% mean, 47% max |
+| Same window, game at menu | **5.0% mean, 56% max** |
+
+A page costing *less* than `about:blank`, and a GPU busy while the render loop sat at
+zero frames, are both the same signal: the load was outside the page. An earlier reading
+of "45% with no browser" turned out to have been taken with Edge still running, which is
+the sort of error that keeps a wrong theory alive.
+
+The hypothesis was raised early and dismissed for a bad reason: `src/client/styles/` was
+grepped for `backdrop-filter`, found clean, and compositing effects were struck off. That
+checked the page and never considered the chrome around it.
+
+### What it nevertheless found
+
+Two genuine defects, both worth keeping, neither of which the report was about:
+
+1. **The render loop never stopped.** Phaser renders unconditionally and this game has no
+   per-frame logic, so a static table was redrawn at the display's refresh rate forever.
+   Real waste on a battery, and this design is touch-first — but not what pegged the GPU.
+2. **The deck warning was an endless tween**, added unprompted in the previous round, so
+   the pump above could never sleep for the back half of any round. An infinite tween and
+   a sleep-when-idle loop cannot both be right.
+
+And one unrelated bug the two-client harness exposed, described below.
+
+### The original reasoning, kept for the record
+
+**From Phaser's own source rather than inference.** `Game.step` runs
 `preRender`, `scene.render` and `postRender` on every animation frame with no dirty
 check anywhere in the path. That is correct for a game with a simulation. This one is
 turn-based, its table is a still image between actions, and **no scene here defines
@@ -454,12 +496,16 @@ proxies, then one the instant a second state update arrived. One line of reorder
 proxies on the first deal now. `subscriberOrder.test.ts` reads `main.ts` as text and
 holds the order, since the composition root has no test of its own.
 
-### What this does not cover
+### The pulse that undid it
 
-The deck's low-deck pulse is a `repeat: -1` tween, so `isAnimating()` is true for as long
-as it runs and the loop stays awake through the endgame. That is the design's warning
-working as intended, but it does mean the last rounds cost what every round used to.
-Worth watching on the real-device pass.
+Flagged here as a caveat, then reported as "still spiking", then fixed: the deck's
+low-card warning was `repeat: -1`, so `isAnimating()` stayed true and the loop could not
+sleep from the moment a deck reached three cards until the round ended. It re-fires per
+state update now — which is when a player is looking anyway — and
+`courtContract.test.ts` fails on any `repeat: -1` in the scene.
+
+Noting a defect in a document is not fixing it. This one was written down a round before
+it was reported.
 
 ## 11. One unexplained observation
 
