@@ -610,3 +610,33 @@ Every press above went in as a **mouse**, because CDP touch injection hangs in t
 environment. So `wasTouch` was false throughout and two branches never ran: hover being
 suppressed on touch, and the 10 px drift cancel. Whether 450 ms reads as deliberate
 rather than sluggish is also a human judgement, unchanged by any of this.
+
+---
+
+## 13. Fourth round: Close scrolled away with the log
+
+> The match log can get long and the `Close` button is all the way at the bottom. The
+> player needs to scroll all the way down to close the tab.
+
+Both panels scrolled as a whole — `overflow-y: auto` on `.reference-modal` and on
+`.seat-dossier` — with Close appended last. The match log has no upper bound; it is every
+round the match has played, and §10's round history is what made it unbounded. So the
+distance to the way out grew with the length of the match.
+
+The dossier had it too, and for the same reason: its second tab renders that identical
+log. Fixing only the panel that was reported would have left the other half of the defect
+in place.
+
+Both are now a flex column that does not scroll, with a pinned header carrying the title
+and Close, the tab strip beneath it, and a single scrolling body. `min-height: 0` on that
+body is load-bearing — a flex child defaults to `min-content` and would refuse to shrink,
+pushing Close back off the panel.
+
+Measured on an emulated 390×844 handset with the body padded past the panel:
+
+| | |
+| --- | --- |
+| body overflow | 2622 px |
+| Close position | y 17–65, above the body |
+| after scrolling the body to its end | Close still on screen |
+| pressing it | dismisses the dock |

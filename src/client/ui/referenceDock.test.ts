@@ -212,6 +212,63 @@ describe('sharing the screen with the action sheet', () => {
     });
 });
 
+/**
+ * A match log grows without limit — every round the match has played, oldest
+ * first. With the whole panel scrolling and Close appended last, dismissing the
+ * dock meant scrolling to the bottom of the match's entire history first.
+ */
+describe('Close stays reachable however long the log gets', () => {
+    const LONG_HISTORY: CompletedRound[] = Array.from({ length: 12 }, (_, i) => ({
+        roundNumber: i + 1,
+        reason: 'last-survivor' as const,
+        winnerIds: ['p2'],
+        publicLog: LIVE_LOG
+    }));
+
+    function openedOnLog() {
+        const ui = mounted();
+        ui.show({ roundHistory: LONG_HISTORY, publicLog: LIVE_LOG });
+        click(ui.launcher());
+        click(ui.tabFor('log'));
+        return ui;
+    }
+
+    it('renders a log long enough to need scrolling', () => {
+        const ui = openedOnLog();
+        expect(ui.logSections().length).toBeGreaterThanOrEqual(12);
+    });
+
+    it('keeps Close outside the part that scrolls', () => {
+        const ui = openedOnLog();
+        const close = ui.root.querySelector('[data-action="close-dock"]')!;
+        const body = ui.root.querySelector('[data-role="dock-body"]')!;
+
+        expect(body).not.toBeNull();
+        expect(body.contains(close), 'Close scrolls away with the log').toBe(false);
+    });
+
+    it('scrolls the body rather than the whole panel', () => {
+        const ui = openedOnLog();
+        const body = ui.root.querySelector('[data-role="dock-body"]') as HTMLElement;
+
+        expect(getComputedStyle(body).overflowY).toBe('auto');
+        // The panel itself must not scroll, or the header goes with the content.
+        expect(getComputedStyle(ui.panel()!).overflowY).not.toBe('auto');
+    });
+
+    it('keeps the tabs reachable too, so the reference is one press away', () => {
+        const ui = openedOnLog();
+        const body = ui.root.querySelector('[data-role="dock-body"]')!;
+        expect(body.contains(ui.tabFor('reference')!)).toBe(false);
+    });
+
+    it('still closes when Close is pressed', () => {
+        const ui = openedOnLog();
+        (ui.root.querySelector('[data-action="close-dock"]') as HTMLButtonElement).click();
+        expect(ui.panel()).toBeNull();
+    });
+});
+
 describe('remembering how it was left', () => {
     it('reopens on its own across a remount', () => {
         const store = memoryStore();

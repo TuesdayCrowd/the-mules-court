@@ -169,7 +169,21 @@ export function createSeatDossier(): SeatDossier {
         dismiss.textContent = 'Close';
         dismiss.addEventListener('click', close);
 
-        dialog.append(title, tablist, tab === 'seat' ? seatPanel(seat) : logPanel(table.view), dismiss);
+        /**
+         * Title and Close on one row, above the scroll — the same reason the
+         * dock's header is pinned. This panel's second tab is that same
+         * unbounded match log, so Close appended last scrolled out of reach for
+         * exactly as long as the match had been running.
+         */
+        const header = document.createElement('div');
+        header.className = 'dossier-header';
+        header.append(title, dismiss);
+
+        const body = document.createElement('div');
+        body.dataset.role = 'dossier-body';
+        body.appendChild(tab === 'seat' ? seatPanel(seat) : logPanel(table.view));
+
+        dialog.append(header, tablist, body);
         container.replaceChildren(dialog);
     }
 

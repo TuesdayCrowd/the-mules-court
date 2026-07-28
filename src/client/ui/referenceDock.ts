@@ -225,6 +225,7 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
         }
 
         const body = document.createElement('div');
+        body.dataset.role = 'dock-body';
         body.setAttribute('role', 'tabpanel');
         body.appendChild(tab === 'reference' ? referenceTable() : logPanel());
 
@@ -234,7 +235,19 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
         dismiss.textContent = 'Close';
         dismiss.addEventListener('click', () => setOpen(false));
 
-        panel.replaceChildren(title, tablist, body, dismiss);
+        /**
+         * Title and Close on one row, above the scroll.
+         *
+         * The match log has no upper bound — it is every round the match has
+         * played — and with the whole panel scrolling and Close appended last,
+         * dismissing the dock meant scrolling past the entire history to reach
+         * the button. The header and the tabs stay put; only `body` scrolls.
+         */
+        const header = document.createElement('div');
+        header.className = 'dock-header';
+        header.append(title, dismiss);
+
+        panel.replaceChildren(header, tablist, body);
         if (panel.parentElement === null) container.appendChild(panel);
         launcher.setAttribute('aria-expanded', 'true');
 
