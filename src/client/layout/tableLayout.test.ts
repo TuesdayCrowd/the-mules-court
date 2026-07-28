@@ -390,6 +390,168 @@ describe('wide composition', () => {
     });
 });
 
+/**
+ * The reported bug: "devotion tokens for other seats are hidden under their
+ * name as text grows with screen size."
+ *
+ * The nickname was sized from the chip — `max(14, chipH * 0.13)`, no ceiling —
+ * while the token row sat at a literal `y + 26`, and the name's scrim was drawn
+ * over the medallions. One number scaled with the viewport and its neighbour did
+ * not, so the two met on any display bigger than a phone.
+ *
+ * The chip's contents are budgeted here now, the way the pip block already was,
+ * and swept rather than spot-checked — the bug was invisible at the size it was
+ * first written at.
+ */
+describe('the seat chip content budget', () => {
+    const SEAT_COUNTS = [1, 2, 3] as const;
+
+    function sweep(run: (spec: LayoutSpec, label: string) => void): void {
+        for (const viewport of VIEWPORTS) {
+            for (const opponentCount of SEAT_COUNTS) {
+                for (const maxDiscards of [0, 1, 4, MAX_DISCARDS]) {
+                    const spec = computeLayout({
+                        w: viewport.w,
+                        h: viewport.h,
+                        opponentCount,
+                        handCount: 2,
+                        showsRemovedCard: false,
+                        maxDiscards
+                    });
+                    run(spec, `${viewport.name} · ${opponentCount} seats · ${maxDiscards} discards`);
+                }
+            }
+        }
+    }
+
+    it('starts the token row below the whole name band', () => {
+        sweep((spec, label) => {
+            expect(spec.chip.tokenTop, label).toBeGreaterThanOrEqual(spec.chip.nameBandH);
+        });
+    });
+
+    it('finishes the token row before the pips begin', () => {
+        sweep((spec, label) => {
+            expect(spec.chip.tokenTop + spec.chip.medallion, label).toBeLessThanOrEqual(spec.chip.pipTop);
+        });
+    });
+
+    it('keeps the pip block inside the chip it was fitted to', () => {
+        sweep((spec, label) => {
+            expect(spec.chip.pipTop + pipBlockHeight(spec.pip), label).toBeLessThanOrEqual(spec.opponents[0].h);
+        });
+    });
+
+    it('grows the nickname with the chip rather than pinning it to a phone', () => {
+        const phone = computeLayout({
+            w: 390,
+            h: 844,
+            opponentCount: 3,
+            handCount: 1,
+            showsRemovedCard: false,
+            maxDiscards: 3
+        });
+        const desktop = computeLayout({
+            w: 1920,
+            h: 1080,
+            opponentCount: 3,
+            handCount: 1,
+            showsRemovedCard: false,
+            maxDiscards: 3
+        });
+
+        expect(desktop.chip.nameH).toBeGreaterThan(phone.chip.nameH);
+    });
+
+    it('grows the medallion too, so tokens do not shrink into a large chip', () => {
+        // The same complaint the pips had before they were fitted: one size for
+        // a 390px phone and a 1080p monitor is right for exactly one of them.
+        const phone = computeLayout({
+            w: 390,
+            h: 844,
+            opponentCount: 3,
+            handCount: 1,
+            showsRemovedCard: false,
+            maxDiscards: 3
+        });
+        const desktop = computeLayout({
+            w: 1920,
+            h: 1080,
+            opponentCount: 3,
+            handCount: 1,
+            showsRemovedCard: false,
+            maxDiscards: 3
+        });
+
+        expect(desktop.chip.medallion).toBeGreaterThan(phone.chip.medallion);
+    });
+
+    it('keeps a legible floor under both at the smallest supported screen', () => {
+        sweep((spec, label) => {
+            expect(spec.chip.nameH, label).toBeGreaterThanOrEqual(12);
+            expect(spec.chip.medallion, label).toBeGreaterThanOrEqual(8);
+        });
+    });
+
+    it('still keeps every rect inside the viewport once the chip carries a budget', () => {
+        sweep(spec => {
+            expectInsideViewport(spec);
+            expectNoOverlaps(spec);
+        });
+    });
+});
+
+/**
+ * The own row draws each discard as its card face plus its value, so unlike a
+ * seat chip's pips it cannot wrap — it is one line. Interface rule 7 still
+ * holds: the deepest pile the engine can produce has to fit, not be truncated.
+ */
+describe('the own-status row', () => {
+    function ownRowAt(w: number, h: number, maxDiscards: number): LayoutSpec {
+        return computeLayout({ w, h, opponentCount: 3, handCount: 2, showsRemovedCard: true, maxDiscards });
+    }
+
+    it('fits every discard the engine can deal, at every viewport', () => {
+        for (const viewport of VIEWPORTS) {
+            const spec = ownRowAt(viewport.w, viewport.h, MAX_DISCARDS);
+            const { ownRow, ownStatus } = spec;
+
+            const run = ownRow.medallionSpan + MAX_DISCARDS * ownRow.step;
+            expect(run, `${viewport.name}: ${MAX_DISCARDS} faces overflow the row`).toBeLessThanOrEqual(ownStatus.w);
+        }
+    });
+
+    it('keeps a face and its value inside the row’s height', () => {
+        for (const viewport of VIEWPORTS) {
+            const spec = ownRowAt(viewport.w, viewport.h, MAX_DISCARDS);
+            expect(spec.ownRow.iconH, viewport.name).toBeLessThanOrEqual(spec.ownStatus.h);
+        }
+    });
+
+    it('keeps a face recognisable rather than shrinking it to a sliver', () => {
+        for (const viewport of VIEWPORTS) {
+            const spec = ownRowAt(viewport.w, viewport.h, MAX_DISCARDS);
+            expect(spec.ownRow.iconH, viewport.name).toBeGreaterThanOrEqual(18);
+            expect(spec.ownRow.valuePx, viewport.name).toBeGreaterThanOrEqual(10);
+        }
+    });
+
+    it('keeps the card aspect, so a face is a card and not a square', () => {
+        const spec = ownRowAt(1920, 1080, 4);
+        expect(spec.ownRow.iconW / spec.ownRow.iconH).toBeCloseTo(0.75, 5);
+    });
+
+    it('reserves medallion width from the medallion size, not a fixed 60px', () => {
+        // The old literal was right for a 12px medallion and wrong the moment
+        // the medallion started scaling with the table.
+        const phone = ownRowAt(390, 844, 4);
+        const desktop = ownRowAt(1920, 1080, 4);
+
+        expect(desktop.ownRow.medallionSpan).toBeGreaterThan(phone.ownRow.medallionSpan);
+        expect(phone.ownRow.medallionSpan).toBeGreaterThanOrEqual(phone.chip.medallion * 4);
+    });
+});
+
 describe('discard pips', () => {
     it('keeps pips legible at the worst-case pile', () => {
         const spec = portrait({ maxDiscards: MAX_DISCARDS });
