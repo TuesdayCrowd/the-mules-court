@@ -46,6 +46,7 @@ export type {
     MatchMode,
     RoundState,
     RoundPlayerState,
+    CompletedRound,
     RoundResult,
     RoundEndReason,
     RedactedView,

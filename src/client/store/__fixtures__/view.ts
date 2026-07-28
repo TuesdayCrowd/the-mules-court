@@ -49,6 +49,7 @@ export function makeView(overrides: ViewOverrides = {}): RedactedView {
         currentPlayerId: 'p1',
         turnNumber: 1,
         publicLog: [],
+        roundHistory: [],
         revealed: [],
         roundResult: null,
         matchWinnerId: null,

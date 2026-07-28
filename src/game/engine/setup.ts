@@ -138,6 +138,7 @@ export function createMatch(
         mode: 'normal',
         suddenDeathPlayers: [],
         round,
+        roundHistory: [],
         matchWinnerId: null,
         actionLog: []
     };
