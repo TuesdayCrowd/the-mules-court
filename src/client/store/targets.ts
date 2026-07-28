@@ -27,7 +27,7 @@
  *    answer, not a second computation of it.
  */
 
-import { CARD_CATALOG, EFFECT_DEFS } from '../../game/engine';
+import { CARD_CATALOG, EFFECT_DEFS, cardTypeOf } from '../../game/engine';
 import type { CardInstanceId, CardTypeId, PlayerId, RedactedView } from '../../game/engine';
 
 export interface SheetTargetOption {
@@ -46,6 +46,44 @@ export interface SheetTargetOption {
  */
 export function cardTakesTarget(cardId: CardTypeId): boolean {
     return EFFECT_DEFS[CARD_CATALOG[cardId].effectType].requiresTarget;
+}
+
+/**
+ * Why the engine will not accept this card, or `undefined` if it will.
+ *
+ * There are two, and they are not interchangeable. It used to be one boolean —
+ * `legalPlays.includes(id)` — and the interface rendered "not your turn" for
+ * both, so a player holding The First Speaker beside a Darell on their own turn
+ * was told to wait for a turn they already had.
+ *
+ * **Neither branch derives a rule.** `currentPlayerId` is public board state
+ * every client already draws. The forced card is not inferred either: the
+ * engine returned exactly one legal play, and this names it. Which rule made
+ * the others illegal is the engine's business — `computeLegalPlays` is the only
+ * place that decides it, and this file stays as ignorant of it as
+ * `sheetTargetsFor` is of protection.
+ */
+export type UnplayableReason =
+    | { readonly kind: 'not-your-turn' }
+    | { readonly kind: 'forced'; readonly mustPlay: CardTypeId };
+
+export function unplayableReason(
+    view: RedactedView,
+    cardInstanceId: CardInstanceId
+): UnplayableReason | undefined {
+    if (view.own.legalPlays.includes(cardInstanceId)) return undefined;
+
+    const forced = view.own.legalPlays[0];
+
+    // Off-turn the engine sends an empty `legalPlays` on purpose, so an empty
+    // list is the ordinary off-turn case rather than a forced one. Reading a
+    // forcing card out of it would invent the rule this function exists to stop
+    // the client inventing.
+    if (forced === undefined || view.currentPlayerId !== view.own.playerId) {
+        return { kind: 'not-your-turn' };
+    }
+
+    return { kind: 'forced', mustPlay: cardTypeOf(forced) };
 }
 
 /**
