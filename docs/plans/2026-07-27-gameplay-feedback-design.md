@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-27
 **Source:** eleven items of playtest feedback, triaged against the code.
-**Status:** eleven items plus a second round of feedback, shipped on branch
+**Status:** eleven items plus two further rounds of feedback, shipped on branch
 `gameplay-feedback` ([PR #30](https://github.com/TuesdayCrowd/the-mules-court/pull/30)).
 One real-device pass outstanding.
 
@@ -307,7 +307,7 @@ happens to open on would leave the other unchecked.
 ## 7. Verification
 
 ```
-bun run test        # 1314 client/engine (was 1198) + 255 server, all passing
+bun run test        # 1335 client/engine (was 1198) + 255 server, all passing
 bunx tsc --noEmit    # clean
 bun run build        # succeeds; embedded asset manifest regenerated
 ```
@@ -386,7 +386,82 @@ player actually sees.
 `courtContract.test.ts` gained an assertion that `drawSeat` positions both lines from the
 spec and never from `seat.rect.h - 16`.
 
-## 10. One unexplained observation
+## 10. Third round: the GPU at 80%
+
+> There is an issue with resources. The GPU is at 80% utilization when the game is open
+> in the browser.
+
+**Root cause, from Phaser's own source rather than inference.** `Game.step` runs
+`preRender`, `scene.render` and `postRender` on every animation frame with no dirty
+check anywhere in the path. That is correct for a game with a simulation. This one is
+turn-based, its table is a still image between actions, and **no scene here defines
+`update()` at all** — so the renderer redrew an unchanged picture at the display's
+refresh rate for as long as the tab stayed open.
+
+Ruled out on the way, each by looking rather than guessing: no filters, post-pipelines
+or particle emitters anywhere in `src/`; textures are 512×720 and 8.1 MB in total; the
+ScaleManager sets `canvas.width` to the CSS size, so there is no devicePixelRatio
+multiplication; and the stylesheets carry no `backdrop-filter`, no blur and no
+continuous timers.
+
+`renderPolicy.ts` owns the decision, for the reason `inputPolicy.ts` does — it can be
+asserted without constructing a `Game`. **It fails awake:** every branch that cannot
+prove the game is idle keeps drawing.
+
+The failure mode that governed the design: Phaser's tween manager and clock are both
+driven by the loop, so sleeping through a tween does not pause it, it stops it
+*completing* — and `beats.ts` resolves its promise from `onComplete` while the
+presentation queue awaits that promise. One missed tween would stall the table
+permanently. So `Court.isAnimating()` names every source of motion explicitly rather
+than inferring it, the animate thunk wakes the pump before each beat, and `pause`/
+`resume` bracket the stop so the first frame back does not report the whole idle period
+as one delta. Input is wired separately: the mouse and touch managers bind to the canvas
+and *queue* what they receive, draining in the loop's pre-step, so a tap against a
+stopped loop is captured and never processed.
+
+`antialiasGL: false` alongside it. That flag is the one handed to `getContext`, and
+every edge here is an axis-aligned rect or a textured quad with text rasterised before
+it is drawn — multisampling cost a full-screen resolve per frame and smoothed nothing
+jagged. The plain `antialias` flag stays `true`; that one is texture filtering, and
+every portrait is drawn scaled.
+
+**Measured, not assumed.** Kapture's browser extension is not installed, so the first
+attempt at verification failed. Headless Edge driven over CDP worked instead — wrapping
+`requestAnimationFrame` and `drawElements` before any page script runs, then standing up
+two real clients and starting a match:
+
+| | frames/s |
+| --- | --- |
+| table idle | **0** |
+| during a mouse move | 75 |
+| idle again | **0** |
+| after a click | 71 |
+| idle once more | **0** |
+| observing client, across an opponent's play and its beat | 65 |
+| observing client, the 3 s after | **0** |
+
+No page errors on either client.
+
+### The accessibility bug the harness found
+
+With two real clients on a table it became visible that `[data-twin="hand"]` was empty —
+so a keyboard or screen-reader player had **no hand at all** on the first deal.
+
+`a11yTwin` positions its hand proxies from `court.currentLayout()`, and `renderView` is
+what sets that layout — but the subscriber updated the twin *first*. It read the previous
+push's layout, and on the first deal there was none. Confirmed by measurement: nought
+proxies, then one the instant a second state update arrived. One line of reordering; two
+proxies on the first deal now. `subscriberOrder.test.ts` reads `main.ts` as text and
+holds the order, since the composition root has no test of its own.
+
+### What this does not cover
+
+The deck's low-deck pulse is a `repeat: -1` tween, so `isAnimating()` is true for as long
+as it runs and the loop stays awake through the endgame. That is the design's warning
+working as intended, but it does mean the last rounds cost what every round used to.
+Worth watching on the real-device pass.
+
+## 11. One unexplained observation
 
 A single run of `bun test src/server` reported one failure in `roomRegistry.test.ts`
 ("a semantically corrupt actionLog fails replay on cold get"). It has not reproduced
