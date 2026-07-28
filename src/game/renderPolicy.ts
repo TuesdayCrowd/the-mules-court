@@ -18,6 +18,40 @@
  * **It fails awake.** Every branch that cannot prove the game is idle returns
  * "keep drawing". A frame drawn needlessly costs power; a frame withheld
  * wrongly is a frozen table, and those are not comparable.
+ *
+ * ---
+ *
+ * ## Why this exists, and why it stayed when its reason evaporated
+ *
+ * It was written for a report that the GPU sat at 80% with the game open. That
+ * report turned out to be **Edge's "Transparency effects" setting**, under
+ * Appearance — a full-screen backdrop blur on the browser's own chrome,
+ * recomposited continuously against whatever is behind it. Turning it off fixed
+ * it. Measured in the same window afterwards, this game idling cost 5.0% GPU
+ * against a blank page's 7.3%: indistinguishable, and already so *before* this
+ * module existed in the build under test.
+ *
+ * So the problem it was built to solve was never this codebase's. It is kept
+ * anyway, deliberately, for two reasons that never depended on that report:
+ *
+ *  1. **The waste was real and is arithmetic, not a hypothesis.** Measured in a
+ *     visible browser window: sixty to a hundred and twenty full redraws a
+ *     second of a picture that had not changed, now zero. Nothing about that
+ *     number came from the misdiagnosis.
+ *  2. **This design is touch-first** (UIX line 15). A phone holding its GPU at
+ *     refresh rate to display a still image spends battery for nothing, and a
+ *     player on a phone has no Appearance setting that would help them.
+ *
+ * Deleting it as "complexity that solved a non-problem" would restore a known
+ * waste to fix nothing. That is the reading this paragraph exists to prevent —
+ * the provenance is genuinely embarrassing, and it is written down precisely so
+ * nobody has to re-derive whether the machinery is load-bearing.
+ *
+ * **The obligation it creates:** nothing on the table may animate forever.
+ * `Court.isAnimating()` is what permits sleep, so an endless tween pins the loop
+ * awake and quietly undoes all of this — which is exactly what the deck's
+ * warning pulse did for a round, until `courtContract.test.ts` grew a guard
+ * against `repeat: -1`.
  */
 
 /**

@@ -418,6 +418,39 @@ The hypothesis was raised early and dismissed for a bad reason: `src/client/styl
 grepped for `backdrop-filter`, found clean, and compositing effects were struck off. That
 checked the page and never considered the chrome around it.
 
+### The decision: the pump stays
+
+Roughly two hundred lines — `renderPolicy.ts`, the canvas wake listeners,
+`Court.isAnimating()` — exist because of a misdiagnosis. Keeping machinery whose
+motivating problem evaporated deserves an argument, so here it is.
+
+**Kept, on two grounds that never depended on the report.**
+
+*The waste is arithmetic, not a hypothesis.* Measured in a visible browser window: sixty
+to a hundred and twenty full redraws a second of a picture that had not changed, now
+zero. That number came from reading `Game.step` and counting frames, not from a theory
+about anyone's GPU. It would be just as true if the report had never been filed.
+
+*This design is touch-first* (UIX line 15). A phone holding its GPU at refresh rate to
+display a still image spends battery for nothing, and a player on a phone has no
+Appearance setting to save them. The desktop symptom was somebody's browser chrome; the
+handset cost was always ours.
+
+**Against keeping it**, honestly stated: it is real complexity with a real failure mode.
+If `isAnimating()` ever returns a false negative the table freezes, which is far worse
+than the waste it replaces. That is why every branch of `mayIdle` fails awake, why
+`isAnimating()` enumerates its sources of motion rather than inferring them, and why the
+whole path is exercised end to end against two live clients rather than only unit-tested.
+
+**The alternative considered and rejected:** revert to the always-render loop. Simpler,
+and it would restore a known waste to fix nothing. The complexity is bounded, tested and
+documented; the waste would be permanent and invisible.
+
+**What a future reader must not do:** delete this as complexity that solved a
+non-problem. The provenance is written into `renderPolicy.ts`'s header and into
+`AGENTS.md` precisely so that reading is available before the deletion, rather than
+after it.
+
 ### What it nevertheless found
 
 Two genuine defects, both worth keeping, neither of which the report was about:
