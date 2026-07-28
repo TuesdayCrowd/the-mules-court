@@ -4,7 +4,7 @@ import { describe, expect, it } from 'vitest';
 import type { CardTypeId } from '../../game/engine';
 import { cardCopyFor } from '../content/cardCopy';
 import { loadRealStyles, makeState, makeUiRootElement } from './__fixtures__/dom';
-import type { SheetTarget } from './actionSheet';
+import type { SheetRequest, SheetTarget } from './actionSheet';
 import { createActionSheet } from './actionSheet';
 
 const PHONE = { w: 390, h: 844 } as const;
@@ -13,6 +13,18 @@ const DESKTOP = { w: 1440, h: 900 } as const;
 const THREE_TARGETS: SheetTarget[] = [
     { playerId: 'p2', nickname: 'Ana', eligible: true },
     { playerId: 'p3', nickname: 'Toran', eligible: false, reason: 'protected' },
+    { playerId: 'p4', nickname: 'Bayta', eligible: false, reason: 'eliminated' }
+];
+
+/**
+ * For tests about the player making a choice.
+ *
+ * `THREE_TARGETS` has exactly one eligible seat, which the sheet now pre-selects
+ * — so a test that means to exercise choosing has to offer more than one.
+ */
+const TWO_ELIGIBLE: SheetTarget[] = [
+    { playerId: 'p2', nickname: 'Ana', eligible: true },
+    { playerId: 'p3', nickname: 'Toran', eligible: true },
     { playerId: 'p4', nickname: 'Bayta', eligible: false, reason: 'eliminated' }
 ];
 
@@ -156,10 +168,12 @@ describe('targets', () => {
         });
 
         expect(sheet.textContent).not.toContain('This card will be discarded with no effect.');
-        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(true);
 
-        click(sheet.querySelector('[data-target="p1"]'));
-        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(false);
+        // Self is the sole eligible seat, so it arrives chosen — but Play is
+        // still a press, and the frame still carries the target. A frame without
+        // one is refused with TARGET_REQUIRED and the turn never moves.
+        expect(sheet.querySelector('[data-target="p1"]')!.getAttribute('aria-pressed')).toBe('true');
+        expect(h.played).toEqual([]);
 
         click(sheet.querySelector('[data-action="play"]'));
         expect(h.played).toEqual([{ cardInstanceId: 'toran-darell#1', target: 'p1' }]);
@@ -249,8 +263,10 @@ describe('Play stays disabled until every choice is made', () => {
     });
 
     it('needs only a target for a card that takes no guess', () => {
+        // Two eligible seats, so the choice is genuinely the player's — with one
+        // the sheet would pre-select it and Play would start enabled.
         const h = harness();
-        const sheet = h.openSheetFor('mayor-indbur', { targets: THREE_TARGETS });
+        const sheet = h.openSheetFor('mayor-indbur', { targets: TWO_ELIGIBLE });
         const play = () => sheet.querySelector('[data-action="play"]') as HTMLButtonElement;
 
         expect(play().disabled).toBe(true);
@@ -289,14 +305,18 @@ describe('cancelling', () => {
     });
 
     it('forgets the choices made, so a reopened sheet starts clean', () => {
+        // Two eligible seats, so a chosen target is the player's own and must
+        // not survive a cancel. With one, reopening legitimately re-selects it.
         const h = harness();
-        let sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+        let sheet = h.openSheetFor('informant', { targets: TWO_ELIGIBLE });
         click(sheet.querySelector('[data-target="p2"]'));
+        click(sheet.querySelector('[data-guess="5"]'));
         click(sheet.querySelector('[data-action="cancel"]'));
 
-        sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+        sheet = h.openSheetFor('informant', { targets: TWO_ELIGIBLE });
         expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(true);
         expect(sheet.querySelector('[data-target="p2"]')!.getAttribute('aria-pressed')).toBe('false');
+        expect(sheet.querySelector('[data-guess="5"]')!.getAttribute('aria-pressed')).toBe('false');
     });
 
     it('closes after a play, so the table is not left under a sheet', () => {
@@ -459,9 +479,11 @@ describe('a play the store refuses', () => {
 });
 
 describe('a card that cannot be played right now', () => {
+    const OFF_TURN = { kind: 'not-your-turn' } as const;
+
     it('still opens, because reading what a card does is an ordinary thing to want', () => {
         const h = harness();
-        h.sheet.open({ cardId: 'mule', cardInstanceId: 'mule#1', targets: [], available: PHONE, playable: false });
+        h.sheet.open({ cardId: 'mule', cardInstanceId: 'mule#1', targets: [], available: PHONE, unplayable: OFF_TURN });
 
         const sheet = h.root.querySelector('[data-role="action-sheet"]') as HTMLElement;
         expect(sheet).not.toBeNull();
@@ -470,7 +492,7 @@ describe('a card that cannot be played right now', () => {
 
     it('disables Play and says why', () => {
         const h = harness();
-        h.sheet.open({ cardId: 'mule', cardInstanceId: 'mule#1', targets: [], available: PHONE, playable: false });
+        h.sheet.open({ cardId: 'mule', cardInstanceId: 'mule#1', targets: [], available: PHONE, unplayable: OFF_TURN });
 
         const sheet = h.root.querySelector('[data-role="action-sheet"]') as HTMLElement;
         expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(true);
@@ -479,7 +501,7 @@ describe('a card that cannot be played right now', () => {
 
     it('emits nothing when Play is pressed anyway', () => {
         const h = harness();
-        h.sheet.open({ cardId: 'mule', cardInstanceId: 'mule#1', targets: [], available: PHONE, playable: false });
+        h.sheet.open({ cardId: 'mule', cardInstanceId: 'mule#1', targets: [], available: PHONE, unplayable: OFF_TURN });
         click(h.root.querySelector('[data-action="play"]'));
         expect(h.played).toEqual([]);
     });
@@ -489,6 +511,242 @@ describe('a card that cannot be played right now', () => {
         const sheet = h.openSheetFor('shielded-mind', { targets: [] });
         expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(false);
         expect(sheet.querySelector('[data-role="not-playable"]')).toBeNull();
+    });
+});
+
+/**
+ * The reported bug. Three situations shared one boolean, so the sheet described
+ * all three as the first — and printed a rule of the game that was not true.
+ */
+describe('which of the three reasons it gives', () => {
+    const PROTECTED_LINE = 'protected or eliminated';
+
+    it('names the card the First Speaker rule forces, instead of blaming the turn', () => {
+        const h = harness();
+        h.sheet.open({
+            cardId: 'toran-darell',
+            cardInstanceId: 'toran-darell#1',
+            targets: THREE_TARGETS,
+            available: PHONE,
+            unplayable: { kind: 'forced', mustPlay: 'first-speaker' }
+        });
+
+        const sheet = h.root.querySelector('[data-role="action-sheet"]') as HTMLElement;
+        const why = sheet.querySelector('[data-role="not-playable"]')!.textContent!;
+        expect(why).toContain('The First Speaker');
+        expect(why).not.toContain('Not your turn');
+    });
+
+    it('does not claim everyone is protected when the real reason is a forced play', () => {
+        const h = harness();
+        h.sheet.open({
+            cardId: 'toran-darell',
+            cardInstanceId: 'toran-darell#1',
+            targets: THREE_TARGETS,
+            available: PHONE,
+            unplayable: { kind: 'forced', mustPlay: 'first-speaker' }
+        });
+
+        expect(h.root.querySelector('[data-role="action-sheet"]')!.textContent).not.toContain(PROTECTED_LINE);
+    });
+
+    it('does not claim everyone is protected when it is simply not your turn', () => {
+        const h = harness();
+        h.sheet.open({
+            cardId: 'informant',
+            cardInstanceId: 'informant#1',
+            // Off-turn the engine sends no legal targets, so every seat reads
+            // ineligible. That is not a statement about protection.
+            targets: THREE_TARGETS.map(target => ({ ...target, eligible: false })),
+            available: PHONE,
+            unplayable: { kind: 'not-your-turn' }
+        });
+
+        expect(h.root.querySelector('[data-role="action-sheet"]')!.textContent).not.toContain(PROTECTED_LINE);
+    });
+
+    it('keeps the protected-or-eliminated line for a card that really can be played', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', {
+            targets: THREE_TARGETS.map(target => ({ ...target, eligible: false }))
+        });
+
+        expect(sheet.textContent).toContain(PROTECTED_LINE);
+    });
+});
+
+describe('when exactly one target is eligible', () => {
+    const ONE_ELIGIBLE: SheetTarget[] = [
+        { playerId: 'p2', nickname: 'Ana', eligible: false, reason: 'protected' },
+        { playerId: 'p3', nickname: 'Toran', eligible: true },
+        { playerId: 'p4', nickname: 'Bayta', eligible: false, reason: 'eliminated' }
+    ];
+
+    it('chooses it, so the player is not asked a question with one answer', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: ONE_ELIGIBLE });
+
+        expect(sheet.querySelector('[data-target="p3"]')!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('picks the eligible seat, not merely the first one listed', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: ONE_ELIGIBLE });
+
+        expect(sheet.querySelector('[data-target="p2"]')!.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('still requires Play to be pressed — nothing plays itself', () => {
+        // A card that plays itself on one tap is how a player discards The Mule
+        // by accident.
+        const h = harness();
+        h.openSheetFor('ebling-mis', { targets: ONE_ELIGIBLE });
+        expect(h.played).toEqual([]);
+    });
+
+    it('enables Play for a card that needs only a target', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('ebling-mis', { targets: ONE_ELIGIBLE });
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('leaves the Informant waiting on its guess even so', () => {
+        // Pre-selecting the target must not imply the rest of the decision.
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: ONE_ELIGIBLE });
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(true);
+
+        click(sheet.querySelector('[data-guess="5"]'));
+        expect((sheet.querySelector('[data-action="play"]') as HTMLButtonElement).disabled).toBe(false);
+    });
+
+    it('sends the pre-selected target when Play is finally pressed', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('ebling-mis', { targets: ONE_ELIGIBLE });
+        click(sheet.querySelector('[data-action="play"]'));
+
+        expect(h.played).toEqual([{ cardInstanceId: 'ebling-mis#1', target: 'p3' }]);
+    });
+
+    it('chooses nothing when two seats are eligible', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS.map(t => ({ ...t, eligible: true })) });
+
+        for (const id of ['p2', 'p3', 'p4']) {
+            expect(sheet.querySelector(`[data-target="${id}"]`)!.getAttribute('aria-pressed'), id).toBe('false');
+        }
+    });
+});
+
+describe('an open sheet when the turn arrives', () => {
+    /**
+     * The sheet used to snapshot everything at `open()` and then react only to
+     * the socket. A player who opened a card while waiting watched their turn
+     * begin with the sheet still saying "Not your turn" and Play still dead.
+     */
+    function openedOffTurn() {
+        const h = harness();
+        h.sheet.open({
+            cardId: 'informant',
+            cardInstanceId: 'informant#1',
+            targets: THREE_TARGETS.map(target => ({ ...target, eligible: false })),
+            available: PHONE,
+            unplayable: { kind: 'not-your-turn' }
+        });
+        return h;
+    }
+
+    const playable = (targets: SheetTarget[]): SheetRequest => ({
+        cardId: 'informant',
+        cardInstanceId: 'informant#1',
+        targets,
+        available: PHONE
+    });
+
+    it('reports which card it is showing, so the caller can reassemble it', () => {
+        const h = openedOffTurn();
+        expect(h.sheet.showing()).toBe('informant#1');
+
+        h.sheet.close();
+        expect(h.sheet.showing()).toBeNull();
+    });
+
+    it('drops the not-your-turn line and enables the decision', () => {
+        const h = openedOffTurn();
+
+        h.sheet.refresh(playable(THREE_TARGETS));
+
+        const sheet = h.root.querySelector('[data-role="action-sheet"]') as HTMLElement;
+        expect(sheet.querySelector('[data-role="not-playable"]')).toBeNull();
+        expect(sheet.querySelector('[data-target="p2"]')).not.toBeNull();
+    });
+
+    it('offers the guess section that was withheld off-turn', () => {
+        const h = openedOffTurn();
+        expect(h.root.querySelector('[data-guess="5"]')).toBeNull();
+
+        h.sheet.refresh(playable(THREE_TARGETS));
+
+        expect(h.root.querySelector('[data-guess="5"]')).not.toBeNull();
+    });
+
+    it('auto-selects a sole target that only becomes eligible on the new state', () => {
+        const h = openedOffTurn();
+        h.sheet.refresh(playable([THREE_TARGETS[0], THREE_TARGETS[1], THREE_TARGETS[2]]));
+
+        expect(h.root.querySelector('[data-target="p2"]')!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('ignores a refresh aimed at a different card', () => {
+        const h = openedOffTurn();
+        h.sheet.refresh({ ...playable(THREE_TARGETS), cardId: 'mule', cardInstanceId: 'mule#1' });
+
+        expect(h.root.querySelector('[data-role="action-sheet"]')!.textContent).toContain('Informant');
+    });
+
+    it('does nothing when no sheet is open', () => {
+        const h = harness();
+        expect(() => h.sheet.refresh(playable(THREE_TARGETS))).not.toThrow();
+        expect(h.root.querySelector('[data-role="action-sheet"]')).toBeNull();
+    });
+
+    it('keeps a choice already made when nothing material changed', () => {
+        // A STATE_UPDATE arrives for reasons that have nothing to do with this
+        // decision — a seat reconnecting, a pause. Discarding the player's
+        // half-made choice for one of those would be its own bug.
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+        click(sheet.querySelector('[data-target="p2"]'));
+        click(sheet.querySelector('[data-guess="5"]'));
+
+        h.sheet.refresh(playable(THREE_TARGETS));
+
+        expect(h.root.querySelector('[data-target="p2"]')!.getAttribute('aria-pressed')).toBe('true');
+        expect(h.root.querySelector('[data-guess="5"]')!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    it('forgets a chosen target that the new state made ineligible', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+        click(sheet.querySelector('[data-target="p2"]'));
+
+        // Ana just gained protection. Playing at her is no longer a choice, and
+        // carrying the selection forward would send the engine a play it refuses.
+        h.sheet.refresh(
+            playable([
+                { playerId: 'p2', nickname: 'Ana', eligible: false, reason: 'protected' },
+                { playerId: 'p3', nickname: 'Toran', eligible: true },
+                { playerId: 'p4', nickname: 'Bayta', eligible: true }
+            ])
+        );
+
+        expect(h.root.querySelector('[data-target="p2"]')!.getAttribute('aria-pressed')).toBe('false');
+    });
+
+    it('closes nothing and keeps the sheet up throughout', () => {
+        const h = openedOffTurn();
+        h.sheet.refresh(playable(THREE_TARGETS));
+        expect(h.sheet.showing()).toBe('informant#1');
     });
 });
 

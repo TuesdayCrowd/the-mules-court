@@ -35,11 +35,11 @@ import { createSeatTokenStore } from './client/store/seatTokenStore';
 import { createSocket, socketUrl } from './client/store/socket';
 import type { WebSocketLike } from './client/store/socket';
 import { createStore } from './client/store/store';
-import { sheetTargetsFor } from './client/store/targets';
+import { sheetTargetsFor, unplayableReason } from './client/store/targets';
 import type { ClientState } from './client/store/types';
 import { createA11yTwin } from './client/ui/a11yTwin';
 import { createActionSheet } from './client/ui/actionSheet';
-import type { SheetTarget } from './client/ui/actionSheet';
+import type { SheetRequest, SheetTarget } from './client/ui/actionSheet';
 import { createClipboard } from './client/ui/clipboard';
 import { createConnectionDot } from './client/ui/connectionDot';
 import { createFatalScreen } from './client/ui/fatalScreen';
@@ -333,32 +333,79 @@ function boot(): void {
         }
     }
 
-    function openSheetOrThrow(cardInstanceId: CardInstanceId): void {
+    /**
+     * The sheet's whole input, from the current table.
+     *
+     * Assembled here rather than inside the sheet because the sheet evaluates no
+     * rule about the game — and assembled fresh on every state push rather than
+     * once at open, because a card opened while waiting has to become playable
+     * the moment the turn arrives.
+     *
+     * `null` means the view could not answer.
+     */
+    function sheetRequestFor(cardInstanceId: CardInstanceId): SheetRequest | null {
         const table = store.getState().table;
-        if (table === null) return;
+        if (table === null) return null;
 
         const targets: SheetTarget[] | null = sheetTargetsFor(
             table.view,
             cardInstanceId,
             id => table.nicknames[id] ?? id
         );
+        if (targets === null) return null;
+
+        // Spread rather than assigned, because `exactOptionalPropertyTypes` and
+        // an absent reason are the same fact: the card plays.
+        const reason = unplayableReason(table.view, cardInstanceId);
+
+        return {
+            cardId: cardTypeOf(cardInstanceId),
+            cardInstanceId,
+            targets,
+            ...(reason === undefined ? {} : { unplayable: reason }),
+            available: { w: window.innerWidth, h: window.innerHeight }
+        };
+    }
+
+    function openSheetOrThrow(cardInstanceId: CardInstanceId): void {
+        // No table is not a version skew, and must not be reported as one. Two
+        // meanings behind one `null` is the mistake `sheetTargetsFor` exists to
+        // stop the client making about targeting; it is no better here.
+        if (store.getState().table === null) return;
+
+        const request = sheetRequestFor(cardInstanceId);
 
         // The view could not say who is targetable. Refusing to open is the only
         // honest option: the sheet's other branch would announce "every other
         // player is protected or eliminated", which is a rule of the game and
         // would be a lie. Say what is actually wrong instead.
-        if (targets === null) {
+        if (request === null) {
             toasts.show('The court is running an older version of the game. Reload the page.');
             return;
         }
 
-        actionSheet.open({
-            cardId: cardTypeOf(cardInstanceId),
-            cardInstanceId,
-            targets,
-            playable: table.view.own.legalPlays.includes(cardInstanceId),
-            available: { w: window.innerWidth, h: window.innerHeight }
-        });
+        actionSheet.open(request);
+    }
+
+    /**
+     * Hand an open sheet the state it is now in.
+     *
+     * The sheet decides whether anything actually changed; this only has to
+     * offer. A sheet whose card has left the hand — played, traded, redrawn —
+     * gets closed rather than refreshed, because there is no longer a play to
+     * compose.
+     */
+    function resyncOpenSheet(state: ClientState): void {
+        const showing = actionSheet.showing();
+        if (showing === null) return;
+
+        if (state.table === null || !state.table.view.own.hand.includes(showing)) {
+            actionSheet.close();
+            return;
+        }
+
+        const request = sheetRequestFor(showing);
+        if (request !== null) actionSheet.refresh(request);
     }
 
     // --- the single subscriber (interface rule 6)
@@ -375,6 +422,11 @@ function boot(): void {
         uiRoot.update(state);
         twin.update(state);
         court?.renderView(state);
+
+        // After uiRoot, which is what tells the sheet about the connection and
+        // the screen. This adds the half uiRoot cannot: the sheet's request is
+        // assembled here, so only here can it be reassembled.
+        resyncOpenSheet(state);
 
         // Animation derives from diffing (UIX §2.1). Each beat is queued so its
         // announcement waits for it — interface rule 8.

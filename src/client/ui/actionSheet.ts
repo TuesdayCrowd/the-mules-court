@@ -16,8 +16,10 @@
 import { CARD_CATALOG, EFFECT_DEFS } from '../../game/engine';
 import type { CardInstanceId, CardTypeId, GuessValue, PlayerId } from '../../game/engine';
 import { cardCopyFor, cardLabel } from '../content/cardCopy';
+import { NO_LEGAL_TARGET, NOT_YOUR_TURN, forcedPlaySentence } from '../content/playability';
 import { QUICK_REFERENCE } from '../content/quickReference';
 import { classifyTopology } from '../layout/topology';
+import type { UnplayableReason } from '../store/targets';
 import type { ClientState } from '../store/types';
 import type { Surface } from './surface';
 
@@ -34,14 +36,18 @@ export interface SheetRequest {
     readonly cardInstanceId: CardInstanceId;
     readonly targets: readonly SheetTarget[];
     /**
-     * Whether the card can actually be played right now — `legalPlays` says so,
-     * this never works it out. Absent means yes.
+     * Why the engine will not take this card, or absent when it will.
      *
-     * A card is still worth opening off-turn: reading what it does is the most
-     * ordinary thing a player wants, and refusing to open the sheet at all
-     * leaves them with no way to find out.
+     * Assembled by the caller from `legalPlays`; this never works it out. It was
+     * a boolean, and a boolean cannot tell "wait your turn" from "another card
+     * in your hand forces itself" — so the sheet gave the first answer to both,
+     * and told a player mid-turn to wait for a turn they were already having.
+     *
+     * A card is still worth opening while unplayable: reading what it does is
+     * the most ordinary thing a player wants, and it is most wanted exactly
+     * when they cannot play it.
      */
-    readonly playable?: boolean;
+    readonly unplayable?: UnplayableReason;
     /** Live viewport measurement. Never cached, never a device class. */
     readonly available: { readonly w: number; readonly h: number };
 }
@@ -60,6 +66,22 @@ export interface ActionSheetDeps {
 
 export interface ActionSheet extends Surface {
     open(request: SheetRequest): void;
+    /**
+     * The card on the sheet, or `null` when it is closed.
+     *
+     * The caller assembles requests, so it is the caller that must reassemble
+     * one when the table changes — and it needs to know there is a sheet to
+     * reassemble for.
+     */
+    showing(): CardInstanceId | null;
+    /**
+     * Re-render the open sheet from a freshly assembled request.
+     *
+     * The sheet used to snapshot everything at `open()` and then watch only the
+     * socket, so a card opened while waiting still read "Not your turn" after
+     * the turn arrived, with Play dead beneath it.
+     */
+    refresh(request: SheetRequest): void;
     close(): void;
 }
 
@@ -85,7 +107,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
     let expanded: number | null = null;
 
     /**
-     * The nodes a choice can change, held so `refresh` can update them in place.
+     * The nodes a choice can change, held so `refreshLive` can update them in place.
      *
      * Rebuilding the sheet on every tap would throw away focus: a player who
      * tabbed to a target and pressed Enter would land back at the document root
@@ -140,6 +162,11 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
 
     function needs(): { target: boolean; guess: boolean } {
         if (request === null) return { target: false, guess: false };
+        // An unplayable card asks nothing. Off-turn the engine sends no legal
+        // targets at all, so every seat reads ineligible — which is the shape of
+        // a fizzle and means nothing of the kind.
+        if (request.unplayable !== undefined) return { target: false, guess: false };
+
         const effect = EFFECT_DEFS[CARD_CATALOG[request.cardId].effectType];
         const anyEligible = request.targets.some(entry => entry.eligible);
         return {
@@ -151,7 +178,44 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         };
     }
 
-    function refresh(): void {
+    /**
+     * Choose the only eligible seat, and forget one that stopped being eligible.
+     *
+     * Pre-selecting is not playing: Play stays a deliberate press, and the
+     * Informant still waits on its guess. A card that plays itself on one tap is
+     * how a player discards The Mule by accident.
+     *
+     * Also the guard for a state push that arrives mid-decision — a seat gaining
+     * protection while the sheet is open would otherwise leave a selection the
+     * engine now refuses.
+     */
+    function autoSelect(): void {
+        if (request === null || !needs().target) return;
+
+        const stillLegal = request.targets.some(entry => entry.playerId === target && entry.eligible);
+        if (target !== null && stillLegal) return;
+
+        const eligible = request.targets.filter(entry => entry.eligible);
+        target = eligible.length === 1 ? eligible[0].playerId : null;
+    }
+
+    /**
+     * What the sheet would have to be rebuilt to show.
+     *
+     * A `STATE_UPDATE` lands for reasons that have nothing to do with this
+     * decision — a seat reconnecting, a pause — and rebuilding on each one would
+     * throw away a half-made choice and the player's focus with it. Compared
+     * rather than deep-equalled because only these fields reach the DOM.
+     */
+    function signature(next: SheetRequest): string {
+        return JSON.stringify([
+            next.cardId,
+            next.unplayable ?? null,
+            next.targets.map(entry => [entry.playerId, entry.nickname, entry.eligible, entry.reason ?? null])
+        ]);
+    }
+
+    function refreshLive(): void {
         if (live === null) return;
 
         for (const [playerId, button] of live.targets) {
@@ -167,7 +231,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         const required = needs();
         live.play.disabled =
             !connected ||
-            request?.playable === false ||
+            request?.unplayable !== undefined ||
             (required.target && target === null) ||
             (required.guess && guess === null);
 
@@ -185,8 +249,13 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
             // A legal move stated calmly, not an error. The card still plays; it
             // simply fizzles, and requiring a choice that cannot be made would
             // strand the turn (UIX §7.2).
+            //
+            // Only reachable for a card that really is playable — `build` skips
+            // this section entirely when something else is stopping the play, so
+            // the sentence can no longer be printed about a turn that has not
+            // arrived.
             const note = document.createElement('p');
-            note.textContent = 'Every other player is protected or eliminated. This card will be discarded with no effect.';
+            note.textContent = NO_LEGAL_TARGET;
             section.appendChild(note);
             return section;
         }
@@ -223,7 +292,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
 
             button.addEventListener('click', () => {
                 target = entry.playerId;
-                refresh();
+                refreshLive();
             });
             section.appendChild(button);
         }
@@ -249,7 +318,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
                 // Choosing also reveals which characters share the value.
                 // Knowing that value 5 is both Darells is the whole game.
                 expanded = value;
-                refresh();
+                refreshLive();
             });
             guesses.set(value, button);
             section.appendChild(button);
@@ -332,11 +401,15 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
 
         sheet.append(title, effectText);
 
-        if (request.playable === false) {
-            // Show-reasons applies to the Play button as much as to a target.
+        if (request.unplayable !== undefined) {
+            // Show-reasons applies to the Play button as much as to a target —
+            // and the reason has to be the real one.
             const why = document.createElement('p');
             why.dataset.role = 'not-playable';
-            why.textContent = 'Not your turn — this is what the card does.';
+            why.textContent =
+                request.unplayable.kind === 'forced'
+                    ? forcedPlaySentence(request.unplayable.mustPlay)
+                    : NOT_YOUR_TURN;
             sheet.appendChild(why);
         }
 
@@ -344,7 +417,11 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         const guesses = new Map<number, HTMLButtonElement>();
         let hint: HTMLElement | null = null;
 
-        if (effect.requiresTarget) sheet.appendChild(targetSection(targets));
+        // No decision is offered while something else is stopping the play. The
+        // reason line above is the whole answer, and a list of seats beneath it
+        // — every one of them disabled, because the engine sent no legal targets
+        // — would read as a rule about protection.
+        if (request.unplayable === undefined && effect.requiresTarget) sheet.appendChild(targetSection(targets));
         if (needs().guess) {
             const built = guessSection(guesses);
             hint = built.hint;
@@ -357,7 +434,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         live = { targets, guesses, hint, play: built.play };
         container.replaceChildren(sheet);
         announceAnchor(sheet.dataset.anchor ?? 'bottom');
-        refresh();
+        refreshLive();
     }
 
     return {
@@ -373,7 +450,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
             const up = state.connection === 'open';
             if (up === connected) return;
             connected = up;
-            refresh();
+            refreshLive();
         },
 
         open(next) {
@@ -381,6 +458,31 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
             target = null;
             guess = null;
             expanded = null;
+            autoSelect();
+            build();
+        },
+
+        showing() {
+            return request?.cardInstanceId ?? null;
+        },
+
+        refresh(next) {
+            // A refresh is for the card already open. Anything else is a stale
+            // caller, and swapping the sheet under the player's hand would be a
+            // worse answer than ignoring it.
+            if (request === null || request.cardInstanceId !== next.cardInstanceId) return;
+
+            const changed = signature(next) !== signature(request);
+            request = next;
+
+            if (!changed) {
+                // Nothing the DOM shows has moved. Rebuilding anyway would drop
+                // focus and a half-made choice for a push about something else.
+                refreshLive();
+                return;
+            }
+
+            autoSelect();
             build();
         },
 
