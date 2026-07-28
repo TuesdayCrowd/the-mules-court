@@ -99,6 +99,39 @@ describe('every field the pure layer publishes reaches the scene', () => {
     }
 });
 
+/**
+ * Nothing on the table may animate forever.
+ *
+ * `Court.isAnimating()` is true while any tween is live, and the render pump
+ * cannot stop the loop while it is — so one endless tween holds a turn-based
+ * card game at the display's refresh rate for as long as it runs. The deck's
+ * warning pulse was written `repeat: -1` and did exactly that for the back half
+ * of every round.
+ */
+describe('no animation runs without end', () => {
+    it('never asks a tween to repeat forever', () => {
+        // Code only. Unlike `purity.test.ts`, where a comment naming a banned
+        // global is itself the smell, the comments here are the record of why
+        // the endless version was removed — worth keeping, and not a violation.
+        const offenders = courtSource
+            .split('\n')
+            .map((line, index) => ({ line: line.trim(), number: index + 1 }))
+            .filter(({ line }) => !line.startsWith('*') && !line.startsWith('//') && !line.startsWith('/*'))
+            .filter(({ line }) => /repeat:\s*-1/.test(line));
+
+        expect(
+            offenders.map(o => `Court.ts:${o.number}`),
+            'an endless tween keeps isAnimating() true, so the render loop can never sleep'
+        ).toEqual([]);
+    });
+
+    it('still pulses the deck, so its state is not colour alone', () => {
+        // UIX §6.3. Bounding the pulse must not quietly delete it.
+        expect(courtSource).toContain('DECK_PULSE_REPEATS_STRONG');
+        expect(courtSource).toContain('plan.deck.pulse');
+    });
+});
+
 describe('the scene does not re-derive chip geometry', () => {
     /** `drawSeat`'s body, where the collision lived. */
     function drawSeatBody(): string {

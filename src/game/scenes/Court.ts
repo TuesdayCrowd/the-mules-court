@@ -186,6 +186,18 @@ export class Court extends Scene {
          *
          * Alpha rather than scale: the rect has `origin(0, 0)`, so scaling it
          * would grow the deck down and to the right instead of breathing.
+         *
+         * **Bounded, not endless, and that is a performance constraint rather
+         * than a taste.** This started as `repeat: -1`, which meant a tween was
+         * live for the whole of every late round — and `isAnimating()` is true
+         * while any tween is, so the render loop could never stop. A card game
+         * held at the display's refresh rate for the back half of every round,
+         * to breathe one rectangle, is not a trade worth making on a battery.
+         *
+         * It re-fires on each state update instead, which is when a player is
+         * looking anyway: the deck draws the eye every time the table changes,
+         * and the table is still between times. UIX §6.3's "never colour alone"
+         * still holds — the warning is in motion as well as in hue.
          */
         if (plan.deck.pulse !== 'none' && !this.reducedMotion()) {
             const strong = plan.deck.pulse === 'strong';
@@ -195,7 +207,7 @@ export class Court extends Scene {
                 duration: strong ? 520 : 900,
                 ease: 'Sine.easeInOut',
                 yoyo: true,
-                repeat: -1
+                repeat: strong ? DECK_PULSE_REPEATS_STRONG : DECK_PULSE_REPEATS_SUBTLE
             });
         }
 
@@ -1027,6 +1039,16 @@ const REVEALED_H = 30;
  * what `ownRow.medallionSpan` is measured with.
  */
 const MEDALLION_GAP = 2;
+
+/**
+ * How many times the deck's warning breathes per state update.
+ *
+ * Finite by requirement: an endless tween keeps `isAnimating()` true, and the
+ * render loop cannot stop while anything is animating. Strong gets more because
+ * an empty deck means the showdown is the next play.
+ */
+const DECK_PULSE_REPEATS_SUBTLE = 1;
+const DECK_PULSE_REPEATS_STRONG = 3;
 
 /**
  * How long a finger must rest on a card before it reads as "tell me about this"
