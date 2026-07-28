@@ -281,6 +281,12 @@ export class Court extends Scene {
                 this.tokenMedallions(own.tokens, own.rect.x, own.rect.y + own.rect.h / 2 - medallion / 2, medallion)
             );
 
+            // The viewer's own tokens had no hit target at all, unlike every
+            // opponent chip. Tapping a token opens the match log at the round it
+            // was won in — a token IS a round won, and that round's narration is
+            // otherwise unreachable once the next round is dealt.
+            this.table.add(this.tokenHitArea(own.rect.x, own.rect.y, spec.ownRow.medallionSpan, own.rect.h, own.playerId));
+
             /**
              * Each discard as its face plus its value.
              *
@@ -520,6 +526,18 @@ export class Court extends Scene {
         hit.on('pointerdown', () => this.events.emit(SEAT_SELECTED, seat.playerId));
         this.table.add(hit);
 
+        // Added AFTER the chip-wide rect so it wins the hit test: Phaser picks
+        // the topmost interactive object, and this one is inside the other.
+        this.table.add(
+            this.tokenHitArea(
+                seat.rect.x + chip.pad,
+                seat.rect.y + chip.tokenTop,
+                Math.min(seat.rect.w - chip.pad * 2, chip.medallion * 5),
+                chip.medallion,
+                seat.playerId
+            )
+        );
+
         // The peek marker (UIX §8.1). Only this viewer sees it, and it persists
         // until the engine stops considering the peek valid — `revealed[]` is
         // recomputed per call, so a card played, traded or redrawn simply stops
@@ -704,6 +722,23 @@ export class Court extends Scene {
     }
 
     /**
+     * A tap target over a run of devotion medallions.
+     *
+     * Built from the same numbers that placed the medallions, for the reason
+     * every hit rect here is a rectangle rather than `setInteractive()` on the
+     * art: a texture-derived hit area disagrees with where the thing appears the
+     * moment its texture fails to load.
+     */
+    private tokenHitArea(x: number, y: number, w: number, h: number, playerId: string): Phaser.GameObjects.GameObject {
+        const hit = this.add
+            .rectangle(x, y, Math.max(1, w), Math.max(1, h), 0x000000, 0)
+            .setOrigin(0, 0)
+            .setInteractive({ useHandCursor: true });
+        hit.on('pointerdown', () => this.events.emit(TOKENS_SELECTED, playerId));
+        return hit;
+    }
+
+    /**
      * Play a cinematic beat and resolve when it has finished (UIX §8.4).
      *
      * The presentation queue awaits this before releasing the announcement, so
@@ -746,6 +781,12 @@ export const CARD_SELECTED = 'card-selected';
 
 /** Emitted when a seat chip is tapped. `main.ts` opens the dossier (UIX §6.2). */
 export const SEAT_SELECTED = 'seat-selected';
+
+/**
+ * Emitted when a run of devotion medallions is tapped, on any seat including the
+ * viewer's own. `main.ts` opens the match log at the round that token was won in.
+ */
+export const TOKENS_SELECTED = 'tokens-selected';
 
 type FacePart = Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text;
 

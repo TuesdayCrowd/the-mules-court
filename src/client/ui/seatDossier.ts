@@ -13,7 +13,7 @@
 
 import type { PlayerId, RedactedView } from '../../game/engine';
 import { cardCopyFor } from '../content/cardCopy';
-import { narrate } from '../content/narration';
+import { EMPTY_MATCH_LOG, matchLogIsEmpty, matchLogSections } from '../content/matchLog';
 import type { ClientState, TableSnapshot } from '../store/types';
 import type { Surface } from './surface';
 
@@ -81,23 +81,44 @@ export function createSeatDossier(): SeatDossier {
         const panel = document.createElement('div');
         panel.setAttribute('role', 'tabpanel');
 
-        if (view.publicLog.length === 0) {
+        if (matchLogIsEmpty(view)) {
             const empty = document.createElement('p');
-            empty.textContent = 'Nothing has happened yet.';
+            empty.textContent = EMPTY_MATCH_LOG;
             panel.appendChild(empty);
             return panel;
         }
 
-        // Newest last, so the list reads in the order events occurred and a new
-        // line appears where the eye already is.
-        const list = document.createElement('ol');
-        for (const entry of view.publicLog) {
-            const item = document.createElement('li');
-            item.dataset.role = 'log-line';
-            item.textContent = narrate(entry, nameOf);
-            list.appendChild(item);
+        /**
+         * The same sections the dock's log tab renders, from the same source.
+         *
+         * Two surfaces showing the match log is two chances to disagree about
+         * what happened; `content/matchLog.ts` is the single answer, so the only
+         * difference between them is where they sit.
+         *
+         * Newest last within each round, so the list reads in the order events
+         * occurred and a new line appears where the eye already is.
+         */
+        for (const section of matchLogSections(view, nameOf)) {
+            const block = document.createElement('section');
+            block.dataset.role = 'log-section';
+            block.dataset.round = String(section.roundNumber);
+
+            const heading = document.createElement('h3');
+            heading.textContent = section.heading; // textContent: carries nicknames
+            block.appendChild(heading);
+
+            const list = document.createElement('ol');
+            for (const line of section.lines) {
+                const item = document.createElement('li');
+                item.dataset.role = 'log-line';
+                item.textContent = line;
+                list.appendChild(item);
+            }
+
+            block.appendChild(list);
+            panel.appendChild(block);
         }
-        panel.appendChild(list);
+
         return panel;
     }
 

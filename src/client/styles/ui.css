@@ -452,20 +452,52 @@ h2,
     left: var(--space-3);
 }
 
+/**
+ * The dock panel.
+ *
+ * **Top-anchored on narrow, never bottom.** It used to be `inset: 0` — full
+ * bleed — which was right for a modal and wrong the moment it stopped being one:
+ * a panel that covers the whole phone cannot "stay visible while playing",
+ * because there is no play left visible to make. Worse, the action sheet anchors
+ * to the bottom on narrow layouts and the dock outranks it at z-index 5, so a
+ * bottom drawer here would cover Cancel and Play — the same collision
+ * `#ui-root[data-sheet] .reference-tab` already exists to solve for the
+ * launcher.
+ *
+ * So the two split the screen: the sheet and the hand own the bottom, the dock
+ * takes the top and stops well short of it.
+ */
 .reference-modal {
     position: fixed;
-    inset: 0;
+    /* Longhands, not `inset`: the shorthand is what a test can read back, and a
+       vacuous assertion here is worse than none — this is the rule that keeps
+       the dock off the action sheet's buttons. */
+    top: 0;
+    right: 0;
+    bottom: auto;
+    left: 0;
     z-index: 5;
+    max-height: 55dvh;
     overflow-y: auto;
-    padding: var(--space-6);
+    padding: var(--space-4);
+    padding-top: max(var(--space-4), env(safe-area-inset-top));
+    border-radius: 0 0 var(--radius) var(--radius);
+    border: 1px solid var(--color-state-your-turn);
     background: rgb(0 0 0 / 0.96);
 }
 
-/* A side drawer where there is width for one, near-fullscreen on a phone. */
+/* A side drawer where there is width for one — the table keeps the rest. */
 @media (min-width: 60rem) {
     .reference-modal {
-        inset: 0 0 0 auto;
+        top: 0;
+        right: 0;
+        bottom: 0;
+        left: auto;
         width: min(32rem, 45vw);
+        max-height: none;
+        padding: var(--space-6);
+        border-radius: 0;
+        border: none;
         border-left: 1px solid var(--color-state-your-turn);
     }
 }
@@ -503,6 +535,46 @@ h2,
 .reference-modal th:nth-child(3),
 .reference-modal td:nth-child(3) {
     width: 30%;
+}
+
+/**
+ * The dock's two tabs.
+ *
+ * Same shape as the seat dossier's tablist — one pattern for "two panels, one
+ * area", so a player who has used one already knows this one.
+ */
+.reference-modal [role='tablist'] {
+    display: flex;
+    gap: var(--space-2);
+    margin: var(--space-3) 0;
+}
+
+.reference-modal [role='tab'][aria-selected='true'] {
+    border-color: var(--color-state-your-turn);
+    color: var(--color-state-your-turn);
+}
+
+.reference-modal [role='tab'][aria-selected='false'] {
+    border-color: var(--color-seat-other);
+    color: var(--color-text-secondary, var(--color-text-primary));
+}
+
+/* One block per round, so a round boundary is visible rather than implied. */
+.reference-modal [data-role='log-section'] {
+    margin-bottom: var(--space-4);
+}
+
+.reference-modal [data-role='log-section'] h3 {
+    margin: 0 0 var(--space-2);
+    font-size: 0.9rem;
+    color: var(--color-state-waiting);
+}
+
+.reference-modal ol {
+    margin: 0;
+    padding-left: var(--space-6);
+    display: grid;
+    gap: var(--space-1);
 }
 
 .reference-modal button {

@@ -60,6 +60,14 @@ export interface SeatPlan {
  */
 export interface OwnStatusPlan {
     readonly rect: Rect;
+    /**
+     * Whose row this is.
+     *
+     * The viewer is filtered out of `seats`, so nothing else on the plan carries
+     * their id — and the row now has a tap target of its own, which needs to
+     * name the seat it belongs to exactly as a chip's does.
+     */
+    readonly playerId: PlayerId;
     readonly tokens: number;
     /**
      * The pile in play order, each entry keeping its face as well as its value.
@@ -268,6 +276,7 @@ export function buildRenderPlan(input: RenderInput, spec: LayoutSpec): RenderPla
     const self = view.players.find(player => player.id === view.own.playerId);
     const own: OwnStatusPlan = {
         rect: spec.ownStatus,
+        playerId: view.own.playerId,
         tokens: self?.tokens ?? 0,
         // Passed through whole. The view already carries the face beside the
         // value; mapping it away here is what left the row unable to show one.
