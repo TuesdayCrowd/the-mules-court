@@ -151,12 +151,26 @@ export function startNextRound(match: MatchState): MatchState {
         match.rng
     );
 
+    const finished = match.round;
+
     return {
         ...match,
         rng,
         players: match.players.map(player =>
             player.id === starterId ? { ...player, lastStartedRound: round.roundNumber } : player
         ),
+        // Archived here rather than in `concludeRound`, because a concluded
+        // round is still `match.round` and still on screen — archiving it there
+        // would list the same round twice. It is history once it is replaced.
+        roundHistory: [
+            ...match.roundHistory,
+            {
+                roundNumber: finished.roundNumber,
+                reason: finished.roundResult?.reason ?? 'last-survivor',
+                winnerIds: finished.roundResult?.winnerIds ?? [],
+                publicLog: finished.publicLog
+            }
+        ],
         round
     };
 }

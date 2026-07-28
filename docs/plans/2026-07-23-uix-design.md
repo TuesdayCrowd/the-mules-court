@@ -288,7 +288,7 @@ The `aria-live` narration and any DOM result text hold until the matching canvas
 
 Deck-out showdown: surviving hands flip face-up staggered 150 ms (from `roundResult.revealedHands` — the only legal source of another player's hand), the reason line states the rule ("Deck ran out — highest card wins"), and tie-breaks point at the discard totals already visible on every chip. The token award follows: a medallion pip drifts onto the winner's seat with the rainbow shimmer.
 
-The five-second countdown renders from `revealDeadline` and decides nothing. After any disconnect it restarts at a full five seconds — the transport never resumes a partial window, so the UI never shows one.
+The ten-second countdown renders from `revealDeadline` and decides nothing. After any disconnect it restarts at a full ten seconds — the transport never resumes a partial window, so the UI never shows one. (It was five until playtesting found that too short to read the showdown; the number lives in `revealWindowMs` alone.)
 
 A round won by elimination skips the comparison and crowns the survivor — the eliminations were already narrated as they happened. A round that also wins the match skips this overlay entirely.
 

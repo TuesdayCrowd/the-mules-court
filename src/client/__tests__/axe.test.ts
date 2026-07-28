@@ -12,7 +12,8 @@ import { createJoinScreen } from '../ui/joinScreen';
 import { createLobbyScreen } from '../ui/lobbyScreen';
 import { createMenuScreen } from '../ui/menuScreen';
 import { createOverlays } from '../ui/overlays';
-import { createQuickReference } from '../ui/quickReference';
+import { createCardHint } from '../ui/cardHint';
+import { createReferenceDock } from '../ui/referenceDock';
 import { createSeatDossier } from '../ui/seatDossier';
 import type { Surface } from '../ui/surface';
 import { createToasts } from '../ui/toasts';
@@ -139,11 +140,53 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
         }
     ],
     [
-        'quick reference',
+        'card hint',
         root => {
-            const panel = createQuickReference();
-            drive(panel, root, makeState({ screen: 'table', table: makeTable() }));
-            (root.querySelector('[data-action="quick-reference"]') as HTMLButtonElement).click();
+            const surface = createCardHint({ viewport: () => ({ w: 1000, h: 800 }) });
+            drive(surface, root, makeState({ screen: 'table', table: makeTable() }));
+            surface.show('first-speaker', { x: 120, y: 240 });
+        }
+    ],
+    [
+        'reference dock',
+        root => {
+            const dock = createReferenceDock({
+                // A store that remembers nothing, so this case cannot depend on
+                // whatever an earlier case happened to leave behind.
+                storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} }
+            });
+            drive(dock, root, makeState({ screen: 'table', table: makeTable() }));
+            (root.querySelector('[data-action="reference-dock"]') as HTMLButtonElement).click();
+        }
+    ],
+    [
+        'reference dock — match log tab',
+        root => {
+            const dock = createReferenceDock({
+                storage: { getItem: () => null, setItem: () => {}, removeItem: () => {} }
+            });
+            drive(
+                dock,
+                root,
+                makeState({
+                    screen: 'table',
+                    table: makeTable({
+                        view: makeView({
+                            publicLog: [{ kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'informant' }],
+                            roundHistory: [
+                                {
+                                    roundNumber: 1,
+                                    reason: 'last-survivor',
+                                    winnerIds: ['p2'],
+                                    publicLog: [{ kind: 'PLAY', turn: 1, actorId: 'p2', cardId: 'mule' }]
+                                }
+                            ]
+                        })
+                    })
+                })
+            );
+            (root.querySelector('[data-action="reference-dock"]') as HTMLButtonElement).click();
+            (root.querySelector('[data-dock-tab="log"]') as HTMLButtonElement).click();
         }
     ],
     [
@@ -272,7 +315,12 @@ describe('the gate itself', () => {
     it('covers every surface the client mounts', () => {
         // A surface added to the DOM layer but not to this list would ship
         // unchecked, and nothing else in the suite would notice.
-        expect(SURFACES).toHaveLength(13);
+        //
+        // Fifteen cases across fourteen surfaces: the reference dock appears
+        // twice, because its two tabs render entirely different markup and
+        // checking only the one it happens to open on would leave the other
+        // unchecked.
+        expect(SURFACES).toHaveLength(15);
     });
 
     it('detects a violation rather than passing over it', async () => {

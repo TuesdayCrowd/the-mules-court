@@ -16,19 +16,19 @@ describe('secondsRemaining', () => {
         expect(secondsRemaining({ serverTime: 5_000, receivedAt: 1_000 }, 1_000)).toBeNull();
     });
 
-    it('shows a full five seconds again after a reconnect restarts the window', () => {
+    it('shows a full window again after a reconnect restarts it', () => {
         // The transport never resumes a partial window (UIX §9.1), so a fresh
-        // snapshot with a later deadline simply reads as five.
-        expect(secondsRemaining({ revealDeadline: 20_000, serverTime: 15_000, receivedAt: 2_000 }, 2_000)).toBe(5);
+        // snapshot with a later deadline simply reads as the whole ten seconds.
+        expect(secondsRemaining({ revealDeadline: 25_000, serverTime: 15_000, receivedAt: 2_000 }, 2_000)).toBe(10);
     });
 
     it('measures elapsed time locally but takes the deadline from the server alone', () => {
         // Interface rule 5. The local clock only ages the server's own reading;
         // it never decides when the window ends, so a client whose wall clock is
-        // an hour out still counts down five seconds.
-        const skewed = { revealDeadline: 10_000, serverTime: 5_000, receivedAt: 3_600_000 } as const;
-        expect(secondsRemaining(skewed, 3_600_000)).toBe(5);
-        expect(secondsRemaining(skewed, 3_602_000)).toBe(3);
+        // an hour out still counts down the full ten seconds.
+        const skewed = { revealDeadline: 15_000, serverTime: 5_000, receivedAt: 3_600_000 } as const;
+        expect(secondsRemaining(skewed, 3_600_000)).toBe(10);
+        expect(secondsRemaining(skewed, 3_602_000)).toBe(8);
     });
 
     it('rounds up, so a countdown shows 1 until the moment it is actually over', () => {

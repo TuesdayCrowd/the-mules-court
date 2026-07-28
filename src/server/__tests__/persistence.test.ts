@@ -121,6 +121,13 @@ describe('MatchStore', () => {
         expect(replayed!.rng).toEqual(live.rng);
         expect(replayed!.players.map(p => p.tokens)).toEqual(live.players.map(p => p.tokens));
         expect(replayed!.players.map(p => p.lastStartedRound)).toEqual(live.players.map(p => p.lastStartedRound));
+
+        // Round history is re-derived rather than stored, so it has to be a
+        // consequence of the actions alone. The drive crosses a boundary, so
+        // there is something to compare — an empty history on both sides would
+        // pass this vacuously.
+        expect(live.roundHistory.length).toBeGreaterThanOrEqual(1);
+        expect(replayed!.roundHistory).toEqual(live.roundHistory);
     });
 
     it('returns null for a corrupt log, and quarantine() then hides the row from load() while listIds() keeps it', () => {

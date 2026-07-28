@@ -3,7 +3,7 @@ import type { CardInstanceId, PlayerId, RedactedView } from '../../game/engine';
 import { createMatch, view as engineView } from '../../game/engine';
 import type { MatchState } from '../../game/engine';
 import { makeView } from './__fixtures__/view';
-import { cardTakesTarget, sheetTargetsFor } from './targets';
+import { cardTakesTarget, sheetTargetsFor, unplayableReason } from './targets';
 import type { SheetTargetOption } from './targets';
 
 /** Every test but the version-skew pair expects the view to actually answer. */
@@ -227,5 +227,66 @@ describe('agreement with the real engine', () => {
         for (const card of off.own.hand) {
             expect(offered(off, card, id => id).some(entry => entry.eligible)).toBe(false);
         }
+    });
+
+    /**
+     * The reported bug, at its source.
+     *
+     * A player holding The First Speaker beside a Darell was told "every other
+     * player is protected or eliminated" — which is a rule of the game, and was
+     * not the reason. One boolean covered three situations, so the interface
+     * described all three as the first.
+     */
+    describe('unplayableReason', () => {
+        it('says nothing about a card the engine listed as legal', () => {
+            const view = realView(['toran-darell#0', 'informant#0']);
+            expect(unplayableReason(view, 'toran-darell#0')).toBeUndefined();
+        });
+
+        it('names the forced card when the First Speaker rule takes the choice away', () => {
+            // 7 beside a 5 — the engine returns the First Speaker alone.
+            const view = realView(['first-speaker#0', 'toran-darell#0']);
+
+            expect(view.own.legalPlays).toEqual(['first-speaker#0']);
+            expect(unplayableReason(view, 'toran-darell#0')).toEqual({
+                kind: 'forced',
+                mustPlay: 'first-speaker'
+            });
+        });
+
+        it('names the forced card beside Mayor Indbur too, not only a Darell', () => {
+            const view = realView(['first-speaker#0', 'mayor-indbur#0']);
+            expect(unplayableReason(view, 'mayor-indbur#0')).toEqual({
+                kind: 'forced',
+                mustPlay: 'first-speaker'
+            });
+        });
+
+        it('leaves an unforced pair with no reason at all', () => {
+            // 7 beside a 1 does not trigger the rule; both stay legal.
+            const view = realView(['first-speaker#0', 'informant#0']);
+            expect(unplayableReason(view, 'informant#0')).toBeUndefined();
+            expect(unplayableReason(view, 'first-speaker#0')).toBeUndefined();
+        });
+
+        it('reports the turn, not a rule about targets, when it is someone else’s', () => {
+            const base = createMatch(['p0', 'p1'], 'targets-seed');
+            const off = engineView({ ...base, round: { ...base.round, currentPlayerIndex: 0 } }, 'p1');
+
+            for (const card of off.own.hand) {
+                expect(unplayableReason(off, card)).toEqual({ kind: 'not-your-turn' });
+            }
+        });
+
+        it('falls back to the turn when the engine offers no legal play at all', () => {
+            // Defensive: `legalPlays` is never empty on your own turn today, and
+            // if that changes, "not your turn" is wrong but harmless — inventing
+            // a forcing card out of an empty list would not be.
+            const view = makeView({
+                currentPlayerId: 'p1',
+                own: { playerId: 'p1', hand: ['informant#1'], legalPlays: [], legalTargets: {} }
+            });
+            expect(unplayableReason(view, 'informant#1')).toEqual({ kind: 'not-your-turn' });
+        });
     });
 });

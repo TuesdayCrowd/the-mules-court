@@ -315,7 +315,7 @@ The server writes `mules-court.sqlite` in its **working directory**, storing eac
 where that file belongs.
 
 Four environment variables configure a deployment. Everything else in
-`src/server/config.ts` is a design constant — the reveal window is five seconds on
+`src/server/config.ts` is a design constant — the reveal window is ten seconds on
 every machine because the design says so.
 
 | Variable                | Default                 | Notes                                            |

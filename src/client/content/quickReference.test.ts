@@ -48,4 +48,26 @@ describe('quick reference', () => {
             expect(row.count, `value ${row.value}`).toBe(expected);
         }
     });
+
+    it('carries one ability sentence per row', () => {
+        for (const row of QUICK_REFERENCE) {
+            expect(row.effect, `value ${row.value}`).toBe(row.cards[0].effect);
+            expect(row.effect.length, `value ${row.value}`).toBeGreaterThan(0);
+        }
+    });
+
+    /**
+     * The panel is organised by value, so a row can only carry one ability
+     * sentence. That is honest today because every character sharing a value
+     * shares an effect — both Darells redraw, both Pritcher and Channis look.
+     *
+     * If a card is ever added that breaks it, this fails rather than the panel
+     * quietly showing one character's ability under another's name.
+     */
+    it('holds characters sharing a value to a shared ability', () => {
+        for (const row of QUICK_REFERENCE) {
+            const distinct = new Set(row.cards.map(card => card.effect));
+            expect(distinct.size, `value ${row.value} — a row shows one ability`).toBe(1);
+        }
+    });
 });

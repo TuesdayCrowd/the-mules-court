@@ -73,6 +73,11 @@ export function view(match: MatchState, viewerId: PlayerId): RedactedView {
         turnNumber: round.turnNumber,
         publicLog: round.publicLog,
 
+        // Verbatim, and identical for every viewer. Each entry is a log that was
+        // already public while its round was live, so archiving discloses
+        // nothing that was not disclosed at the time.
+        roundHistory: match.roundHistory,
+
         own: {
             playerId: viewerId,
             hand: viewer?.hand ?? [],

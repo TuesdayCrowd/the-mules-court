@@ -39,6 +39,58 @@ export interface PipSpec {
     readonly rows: number;
 }
 
+/**
+ * How a seat chip's contents stack, top to bottom (UIX §6.2).
+ *
+ * Every offset is from the chip's own top edge, and every size scales with the
+ * chip — which is the point. The nickname already scaled and the token row did
+ * not: it sat at a literal `y + 26` while the name grew with the viewport, so
+ * on anything larger than a phone the name's scrim was painted over the
+ * devotion tokens and they simply vanished.
+ *
+ * Budgeting the chip here rather than in the scene is the same move `PipSpec`
+ * already represents. Vitest can then hold "these bands do not overlap" at
+ * every viewport size, which is what a literal offset could never be held to.
+ */
+export interface ChipSpec {
+    /** Breathing room from the chip's edges, and between its bands. */
+    readonly pad: number;
+    /** Font size for the nickname. */
+    readonly nameH: number;
+    /** Height of the name's scrim, measured from the chip's top edge. */
+    readonly nameBandH: number;
+    /** Edge length of one devotion medallion, on a seat chip and the own row alike. */
+    readonly medallion: number;
+    /** Where the token row starts. Always at or below `nameBandH`. */
+    readonly tokenTop: number;
+    /** Where the pip block starts. Always at or below `tokenTop + medallion`. */
+    readonly pipTop: number;
+}
+
+/**
+ * The viewer's own "tokens + discards" row (UIX §6.1).
+ *
+ * Sized here rather than in the scene for the reason `ChipSpec` exists: the row
+ * was the last place `Court.ts` still invented its own numbers, and it showed —
+ * medallions at a flat 12px with the pips pushed past a hardcoded 60px span,
+ * beside a discard list that could only render numerals.
+ *
+ * Every discard is drawn as its card face plus its value, so the row answers
+ * "what have I played" the way a seat chip's revealed card does. Interface rule
+ * 7 still holds: `iconW` is chosen so all of them fit rather than the last one
+ * being dropped.
+ */
+export interface OwnRowSpec {
+    /** Width the medallion run and its multiplier reserve on the left. */
+    readonly medallionSpan: number;
+    readonly iconH: number;
+    readonly iconW: number;
+    /** Distance between the left edges of two neighbouring discards. */
+    readonly step: number;
+    /** Font size for the value drawn under each face, and for the running total. */
+    readonly valuePx: number;
+}
+
 export interface LayoutSpec {
     readonly topology: Topology;
     readonly viewport: Rect;
@@ -57,4 +109,6 @@ export interface LayoutSpec {
      */
     readonly cardScale: number;
     readonly pip: PipSpec;
+    readonly chip: ChipSpec;
+    readonly ownRow: OwnRowSpec;
 }

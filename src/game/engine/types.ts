@@ -230,6 +230,34 @@ export interface RoundState {
 
 // ------------------------------------------------------------------ match
 
+/**
+ * A round the match has already finished and moved on from.
+ *
+ * `dealRound` starts each round with `publicLog: []`, so without this the only
+ * narration in the system at any moment is the round in progress — the previous
+ * round's ceases to exist the instant the next is dealt.
+ *
+ * It lives on the match rather than being reconstructed by a client watching the
+ * log get shorter. Which round a devotion token was won in is a fact about the
+ * match, and a client inferring it is the drift the engine's read-never-derive
+ * rule exists to prevent.
+ *
+ * Archived when the round is *replaced*, not when it concludes: a concluded
+ * round is still `match.round` and still on screen, and archiving it early would
+ * list it twice.
+ *
+ * Safe to publish whole. `publicLog` is safe by construction — peeks never enter
+ * it, reaching a viewer only through the per-viewer `revealed` — so an archived
+ * log discloses exactly what it already disclosed while it was live.
+ */
+export interface CompletedRound {
+    readonly roundNumber: number;
+    readonly reason: RoundEndReason;
+    /** More than one entry on a shared co-win, exactly as `RoundResult` had it. */
+    readonly winnerIds: readonly PlayerId[];
+    readonly publicLog: readonly PublicLogEntry[];
+}
+
 export interface MatchPlayer {
     readonly id: PlayerId;
     readonly seat: number;
@@ -254,6 +282,8 @@ export interface MatchState {
     /** Tied leaders playing sudden death. Empty in normal mode. */
     readonly suddenDeathPlayers: readonly PlayerId[];
     readonly round: RoundState;
+    /** Every round already finished and replaced, oldest first. */
+    readonly roundHistory: readonly CompletedRound[];
     readonly matchWinnerId: PlayerId | null;
     /** Canonical replay source alongside seed. */
     readonly actionLog: readonly PlayCardAction[];
@@ -344,6 +374,13 @@ export interface RedactedView {
     readonly currentPlayerId: PlayerId;
     readonly turnNumber: number;
     readonly publicLog: readonly PublicLogEntry[];
+    /**
+     * The rounds already finished, oldest first — narration that would otherwise
+     * be gone the moment the next round was dealt.
+     *
+     * Identical for every viewer: it is public log, and a public log is public.
+     */
+    readonly roundHistory: readonly CompletedRound[];
     readonly own: {
         readonly playerId: PlayerId;
         readonly hand: readonly CardInstanceId[];

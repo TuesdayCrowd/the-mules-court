@@ -3,7 +3,7 @@ import { buildRenderPlan, medallionPlan } from '../../client/layout/renderPlan';
 import type { RenderPlan, SeatPlan } from '../../client/layout/renderPlan';
 import { fitOverline } from '../../client/layout/overline';
 import { PIP_GAP_PX, computeLayout, pipBlockHeight } from '../../client/layout/tableLayout';
-import type { LayoutSpec, PipSpec, Rect } from '../../client/layout/types';
+import type { ChipSpec, LayoutSpec, PipSpec, Rect } from '../../client/layout/types';
 import type { ClientState } from '../../client/store/types';
 import { cardCopyFor, cardLabel } from '../../client/content/cardCopy';
 import type { CardTypeId } from '../../game/engine';
@@ -38,6 +38,24 @@ export class Court extends Scene {
     private beatLayer: Phaser.GameObjects.Container;
     private beats: BeatRunner;
     private spec: LayoutSpec | null = null;
+    /**
+     * The deck's warning pulse, held so a redraw can stop it.
+     *
+     * `draw` destroys everything in `this.table`, and a destroyed target ends a
+     * tween — but this one is `repeat: -1` and so never completes on its own,
+     * which is exactly the shape of leak worth being explicit about.
+     */
+    private deckPulse: Phaser.Tweens.Tween | null = null;
+    /** Matches the predicate the beat runner uses, so the two agree. */
+    private reducedMotion: () => boolean = () => false;
+    /**
+     * The pending long press, if any.
+     *
+     * One at a time — a second finger starts a new press rather than racing the
+     * first — and cleared whenever the table is rebuilt, because the card it
+     * was going to describe has just been destroyed.
+     */
+    private pressTimer: Phaser.Time.TimerEvent | null = null;
     private latest: ClientState | null = null;
     private resizeHandle: number | null = null;
 
@@ -52,14 +70,17 @@ export class Court extends Scene {
         this.fitBackground(width, height);
         this.table = this.add.container(0, 0);
         this.beatLayer = this.add.container(0, 0);
-        this.beats = createBeatRunner(this, this.beatLayer, {
-            reducedMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches
-        });
+        this.reducedMotion = () => window.matchMedia('(prefers-reduced-motion: reduce)').matches;
+        this.beats = createBeatRunner(this, this.beatLayer, { reducedMotion: this.reducedMotion });
 
         this.scale.on('resize', this.onResize, this);
 
         // Scenes can restart; a listener that outlives one leaks into the next.
         this.events.once('shutdown', () => {
+            this.deckPulse?.stop();
+            this.deckPulse = null;
+            this.pressTimer?.remove();
+            this.pressTimer = null;
             this.beats.destroy();
             this.scale.off('resize', this.onResize, this);
             if (this.resizeHandle !== null) window.clearTimeout(this.resizeHandle);
@@ -117,12 +138,20 @@ export class Court extends Scene {
      * and flag was settled by `buildRenderPlan`, which is pure and tested.
      */
     private draw(plan: RenderPlan, spec: LayoutSpec): void {
+        this.deckPulse?.stop();
+        this.deckPulse = null;
+        // The card a pending press was going to describe is about to be
+        // destroyed, and the hint that is up describes a table that no longer
+        // exists.
+        this.pressTimer?.remove();
+        this.pressTimer = null;
+        this.events.emit(CARD_HINT_CLEARED);
         this.table.removeAll(true);
 
         // The pip geometry travels with the seat rather than being read off
         // `this.spec`: the seat drawing needs the size `fitPips` proved fits,
         // and passing it makes that dependency visible instead of ambient.
-        for (const seat of plan.seats) this.drawSeat(seat, spec.pip);
+        for (const seat of plan.seats) this.drawSeat(seat, spec.pip, spec.chip);
 
         const deck = this.add
             .rectangle(plan.deck.rect.x, plan.deck.rect.y, plan.deck.rect.w, plan.deck.rect.h, plan.deck.colour, 0.85)
@@ -135,6 +164,30 @@ export class Court extends Scene {
             })
             .setOrigin(0.5);
         this.table.add([deck, deckCount]);
+
+        /**
+         * UIX §6.4: the deck warns as it empties — subtle at three cards or
+         * fewer, strong at empty, because the showdown is then one play away.
+         *
+         * `deckPlan` has computed `pulse` since the render plan existed and
+         * `renderPlan.test.ts` has asserted all three levels, and nothing ever
+         * drew it. The colour changed and the urgency did not, which makes the
+         * state colour alone — the one thing UIX §6.3 rules out.
+         *
+         * Alpha rather than scale: the rect has `origin(0, 0)`, so scaling it
+         * would grow the deck down and to the right instead of breathing.
+         */
+        if (plan.deck.pulse !== 'none' && !this.reducedMotion()) {
+            const strong = plan.deck.pulse === 'strong';
+            this.deckPulse = this.tweens.add({
+                targets: deck,
+                alpha: strong ? 0.45 : 0.7,
+                duration: strong ? 520 : 900,
+                ease: 'Sine.easeInOut',
+                yoyo: true,
+                repeat: -1
+            });
+        }
 
         // The banner is also the one piece of table text with nothing behind
         // it — the deck count has its filled rect, the card value its plate,
@@ -227,7 +280,11 @@ export class Court extends Scene {
             // and the longer phrase cannot fit there at a legible size on any
             // real burn panel — `fitOverline` would drop it everywhere. The
             // accessibility twin still announces the full "Removed from play".
-            this.table.add(this.cardFaceLabel(plan.removedCard.cardId, faceRect, 'Removed'));
+            const burnLabel = this.cardFaceLabel(plan.removedCard.cardId, faceRect, 'Removed');
+            // Overline first: the badge owns the top-left corner on every card
+            // and must sit OVER the caption band's left end, not under it.
+            this.table.add(burnLabel.overline);
+            this.table.add(burnLabel.parts);
         }
 
         // UIX §6.1's "own tokens + discards" row. The viewer is filtered out of
@@ -235,32 +292,76 @@ export class Court extends Scene {
         // standing is the player whose standing it is.
         {
             const own = plan.own;
-            this.table.add(this.tokenMedallions(own.tokens, own.rect.x, own.rect.y + own.rect.h / 2 - MEDALLION / 2));
-
-            // Sized from the row, not pinned at 13px. This row is a single line
-            // with no wrap, so it takes its own measure rather than the seat
-            // chips' `pip` — that one is fitted against a chip's width and
-            // height, which this row does not share.
-            const ownPipPx = Math.max(MIN_OWN_PIP_PX, Math.round(own.rect.h * OWN_PIP_FRACTION));
-            const ownPipStep = Math.round(ownPipPx * 1.5);
-
-            const pipsLeft = own.rect.x + MEDALLION_SPAN;
-            const ownPips = own.discardValues.map((value, index) =>
-                this.add
-                    .text(pipsLeft + index * ownPipStep, own.rect.y + own.rect.h / 2, String(value), {
-                        fontFamily: FONT_UI,
-                        fontSize: `${ownPipPx}px`,
-                        color: '#9ca3af'
-                    })
-                    .setOrigin(0, 0.5)
+            const medallion = spec.chip.medallion;
+            this.table.add(
+                this.tokenMedallions(own.tokens, own.rect.x, own.rect.y + own.rect.h / 2 - medallion / 2, medallion)
             );
-            this.table.add(ownPips);
 
-            if (own.discardValues.length > 0) {
+            // The viewer's own tokens had no hit target at all, unlike every
+            // opponent chip. Tapping a token opens the match log at the round it
+            // was won in — a token IS a round won, and that round's narration is
+            // otherwise unreachable once the next round is dealt.
+            this.table.add(this.tokenHitArea(own.rect.x, own.rect.y, spec.ownRow.medallionSpan, own.rect.h, own.playerId));
+
+            /**
+             * Each discard as its face plus its value.
+             *
+             * The row drew bare numerals while a seat chip drew a portrait for
+             * the card it revealed — not because the face was unavailable, but
+             * because `buildRenderPlan` mapped `{cardId, value}` down to the
+             * number one layer above here. It passes the pair through now.
+             *
+             * Every dimension comes from `spec.ownRow`, which is fitted so all
+             * eight possible discards fit the line. This row was the last place
+             * the scene still invented geometry, and the tokens-under-the-name
+             * bug is what that costs.
+             */
+            const row = spec.ownRow;
+            const facesLeft = own.rect.x + row.medallionSpan;
+            const faceTop = own.rect.y + (own.rect.h - row.iconH) / 2;
+
+            own.discards.forEach((discard, index) => {
+                const x = facesLeft + index * row.step;
+
+                this.table.add(
+                    this.add
+                        .image(x, faceTop, cardCopyFor(discard.cardId).portraitKey)
+                        .setOrigin(0, 0)
+                        .setDisplaySize(row.iconW, row.iconH)
+                        .setAlpha(0.85)
+                );
+
+                // The value stays. A face has to be recognised; a numeral is
+                // read, and every rule in the game is written in the numeral —
+                // the same reason a hand card carries both.
+                const plate = this.add
+                    .rectangle(x, faceTop + row.iconH, row.iconW, row.valuePx + 2, TOKENS.colorBg, 0.72)
+                    .setOrigin(0, 1);
+                const value = this.add
+                    .text(x + row.iconW / 2, faceTop + row.iconH - 1, String(discard.value), {
+                        fontFamily: FONT_DISPLAY,
+                        fontSize: `${row.valuePx}px`,
+                        color: '#f5f5f5'
+                    })
+                    .setOrigin(0.5, 1);
+
+                // Hint-only: a discard is history, so there is nothing to tap.
+                // It is also the card most worth explaining, because unlike a
+                // hand card it has no action sheet to open.
+                const hit = this.add
+                    .rectangle(x, faceTop, row.iconW, row.iconH, 0x000000, 0)
+                    .setOrigin(0, 0)
+                    .setInteractive({ useHandCursor: true });
+                this.attachCardGesture(hit, discard.cardId);
+
+                this.table.add([plate, value, hit]);
+            });
+
+            if (own.discards.length > 0) {
                 const total = this.add
                     .text(own.rect.x + own.rect.w, own.rect.y + own.rect.h / 2, `= ${own.discardTotal}`, {
                         fontFamily: FONT_UI,
-                        fontSize: '13px',
+                        fontSize: `${row.valuePx}px`,
                         color: '#9ca3af'
                     })
                     .setOrigin(1, 0.5);
@@ -278,12 +379,27 @@ export class Court extends Scene {
                 .setAlpha(card.dimmed ? 0.4 : 1);
             this.table.add(face);
 
-            // Value first, always. A hand card carrying only art has to be
-            // recognised rather than read, and two portraits in this set are
-            // close enough that recognising is not reliable.
-            const label = this.cardFaceLabel(card.cardId, card.rect);
-            for (const part of label) part.setAlpha(card.dimmed ? 0.5 : 1);
-            this.table.add(label);
+            /**
+             * Value first, always — plus, on a dimmed card, why it is dimmed.
+             *
+             * `dimCaption` computed that sentence, `renderPlan.test.ts` asserted
+             * it, and nothing ever drew it; the comment above claimed otherwise.
+             * A player holding The First Speaker beside a Darell watched the
+             * Darell fade with no explanation anywhere on the table.
+             *
+             * It rides the card's own overline band rather than floating above
+             * the card: the gap over the hand is `0.012 × height` and a plate
+             * there would sit on the own-status row.
+             */
+            const label = this.cardFaceLabel(card.cardId, card.rect, card.caption ?? undefined);
+
+            // Overline first, so the value badge lands over its left end — and
+            // at full opacity, because it is the reason for the dimming and
+            // fading it hides the one thing the player needs to read.
+            this.table.add(label.overline);
+
+            for (const part of label.parts) part.setAlpha(card.dimmed ? 0.5 : 1);
+            this.table.add(label.parts);
 
             if (card.playable) {
                 const border = this.add
@@ -292,6 +408,7 @@ export class Court extends Scene {
                     .setStrokeStyle(2, TOKENS.colorStateYourTurn);
                 this.table.add(border);
             }
+
 
             {
                 /**
@@ -316,13 +433,15 @@ export class Court extends Scene {
                     .rectangle(card.rect.x, card.rect.y, card.rect.w, card.rect.h, 0x000000, 0)
                     .setOrigin(0, 0)
                     .setInteractive({ useHandCursor: true });
-                hit.on('pointerdown', () => this.events.emit(CARD_SELECTED, card.cardInstanceId));
+                this.attachCardGesture(hit, card.cardId, () =>
+                    this.events.emit(CARD_SELECTED, card.cardInstanceId)
+                );
                 this.table.add(hit);
             }
         }
     }
 
-    private drawSeat(seat: SeatPlan, pip: PipSpec): void {
+    private drawSeat(seat: SeatPlan, pip: PipSpec, chip: ChipSpec): void {
         const border = this.add
             .rectangle(seat.rect.x, seat.rect.y, seat.rect.w, seat.rect.h)
             .setOrigin(0, 0)
@@ -331,13 +450,16 @@ export class Court extends Scene {
         // carry the same fact in shape and in words.
         border.setAlpha(seat.state === 'eliminated' ? 0.5 : 1);
 
-        // Sized from the chip rather than pinned at 14px: a seat panel on a
-        // 1080p monitor is nearly twice the height of one on a phone, and a
-        // fixed size made the nickname shrink into it.
-        const nameH = Math.max(MIN_SEAT_NAME_PX, Math.round(seat.rect.h * SEAT_NAME_FRACTION));
-        const name = this.add.text(seat.rect.x + 6, seat.rect.y + 6, seat.nickname, {
+        // Every offset below comes from `chip`, and none of them is a literal.
+        // The nickname scaled with the chip while the token row sat at a fixed
+        // `y + 26`, so on anything larger than a phone the name's scrim was
+        // painted straight over the devotion tokens — `computeLayout` now
+        // budgets the bands and `tableLayout.test.ts` sweeps every viewport to
+        // prove they stay apart. Re-deriving any of it here is what would put
+        // the bug back, exactly as this method once did with the pip packing.
+        const name = this.add.text(seat.rect.x + chip.pad, seat.rect.y + chip.pad, seat.nickname, {
             fontFamily: FONT_UI,
-            fontSize: `${nameH}px`,
+            fontSize: `${chip.nameH}px`,
             color: '#f5f5f5'
         });
 
@@ -347,20 +469,22 @@ export class Court extends Scene {
         // width of the screen, and a full-width scrim there is a black bar
         // across the table rather than a legibility aid.
         const nameScrim = this.add
-            .rectangle(seat.rect.x, seat.rect.y, name.width + 12, nameH + 12, TOKENS.colorBg, 0.6)
+            .rectangle(seat.rect.x, seat.rect.y, name.width + chip.pad * 2, chip.nameBandH, TOKENS.colorBg, 0.6)
             .setOrigin(0, 0);
 
         // UIX §6.2: the chip carries a card-back marker while the seat holds a
         // card. Its absence on an eliminated seat is information too.
         if (seat.holdsCard) {
             const back = this.add
-                .image(seat.rect.x + seat.rect.w - 6, seat.rect.y + 6, TEXTURES.cardBack)
+                .image(seat.rect.x + seat.rect.w - chip.pad, seat.rect.y + chip.pad, TEXTURES.cardBack)
                 .setOrigin(1, 0)
                 .setDisplaySize(CARD_BACK_H * CARD_ASPECT, CARD_BACK_H);
             this.table.add(back);
         }
 
-        this.table.add(this.tokenMedallions(seat.tokens, seat.rect.x + 6, seat.rect.y + 26));
+        this.table.add(
+            this.tokenMedallions(seat.tokens, seat.rect.x + chip.pad, seat.rect.y + chip.tokenTop, chip.medallion)
+        );
 
         // Interface rule 7: every value, never a truncation. The pip geometry
         // was sized for the worst case the engine can actually produce — and
@@ -370,7 +494,7 @@ export class Court extends Scene {
         // comment claimed a guarantee the code was not honouring.
         const pipStep = pip.size + PIP_GAP_PX;
         const pipBlockH = pipBlockHeight(pip);
-        const pipsTop = seat.rect.y + seat.rect.h - pipBlockH - 6;
+        const pipsTop = seat.rect.y + chip.pipTop;
 
         // Only as wide as the values it backs, and absent entirely when the
         // seat has discarded nothing — an empty scrim is a bar over the art
@@ -381,13 +505,13 @@ export class Court extends Scene {
                 ? []
                 : [
                       this.add
-                          .rectangle(seat.rect.x, pipsTop - 4, pipsAcross * pipStep + 8, pipBlockH + 10, TOKENS.colorBg, 0.6)
+                          .rectangle(seat.rect.x, pipsTop - 4, pipsAcross * pipStep + chip.pad * 2, pipBlockH + 10, TOKENS.colorBg, 0.6)
                           .setOrigin(0, 0)
                   ];
 
         const pips = seat.discardValues.map((value, index) =>
             this.add.text(
-                seat.rect.x + 6 + (index % pip.perRow) * pipStep,
+                seat.rect.x + chip.pad + (index % pip.perRow) * pipStep,
                 pipsTop + Math.floor(index / pip.perRow) * pipStep,
                 String(value),
                 { fontFamily: FONT_UI, fontSize: `${pip.size}px`, color: '#9ca3af' }
@@ -401,7 +525,7 @@ export class Court extends Scene {
         // already carries the value, and this carries the face.
         if (seat.revealedCard !== null) {
             const revealed = this.add
-                .image(seat.rect.x + seat.rect.w - 6, seat.rect.y + seat.rect.h - 6, cardCopyFor(seat.revealedCard).portraitKey)
+                .image(seat.rect.x + seat.rect.w - chip.pad, seat.rect.y + seat.rect.h - chip.pad, cardCopyFor(seat.revealedCard).portraitKey)
                 .setOrigin(1, 1)
                 .setDisplaySize(REVEALED_H * CARD_ASPECT, REVEALED_H);
             this.table.add(revealed);
@@ -410,8 +534,8 @@ export class Court extends Scene {
             // datum anyway — the pip row beside it already carries the history.
             const value = this.add
                 .text(
-                    seat.rect.x + seat.rect.w - 6 - REVEALED_H * CARD_ASPECT - 2,
-                    seat.rect.y + seat.rect.h - 6,
+                    seat.rect.x + seat.rect.w - chip.pad - REVEALED_H * CARD_ASPECT - 2,
+                    seat.rect.y + seat.rect.h - chip.pad,
                     String(cardCopyFor(seat.revealedCard).value),
                     { fontFamily: FONT_DISPLAY, fontSize: '15px', color: '#f5f5f5' }
                 )
@@ -429,6 +553,44 @@ export class Court extends Scene {
         hit.on('pointerdown', () => this.events.emit(SEAT_SELECTED, seat.playerId));
         this.table.add(hit);
 
+        /**
+         * The revealed card gets its own gesture, added AFTER the chip-wide
+         * rect so it wins the hit test — Phaser picks the topmost interactive
+         * object, and added first it would never see a pointer at all.
+         *
+         * It still opens the dossier on a tap, because tapping anywhere on a
+         * chip always has. Only the hover is new.
+         */
+        if (seat.revealedCard !== null) {
+            const revealedHit = this.add
+                .rectangle(
+                    seat.rect.x + seat.rect.w - chip.pad - REVEALED_H * CARD_ASPECT,
+                    seat.rect.y + seat.rect.h - chip.pad - REVEALED_H,
+                    REVEALED_H * CARD_ASPECT,
+                    REVEALED_H,
+                    0x000000,
+                    0
+                )
+                .setOrigin(0, 0)
+                .setInteractive({ useHandCursor: true });
+            this.attachCardGesture(revealedHit, seat.revealedCard, () =>
+                this.events.emit(SEAT_SELECTED, seat.playerId)
+            );
+            this.table.add(revealedHit);
+        }
+
+        // Added AFTER the chip-wide rect so it wins the hit test: Phaser picks
+        // the topmost interactive object, and this one is inside the other.
+        this.table.add(
+            this.tokenHitArea(
+                seat.rect.x + chip.pad,
+                seat.rect.y + chip.tokenTop,
+                Math.min(seat.rect.w - chip.pad * 2, chip.medallion * 5),
+                chip.medallion,
+                seat.playerId
+            )
+        );
+
         // The peek marker (UIX §8.1). Only this viewer sees it, and it persists
         // until the engine stops considering the peek valid — `revealed[]` is
         // recomputed per call, so a card played, traded or redrawn simply stops
@@ -437,8 +599,8 @@ export class Court extends Scene {
             // Below the medallion row rather than beside the nickname: the
             // top-right corner now belongs to the card-back marker.
             const known = this.add.text(
-                seat.rect.x + 6,
-                seat.rect.y + 26 + MEDALLION + 4,
+                seat.rect.x + chip.pad,
+                seat.rect.y + chip.tokenTop + chip.medallion + chip.pad,
                 // Value first, like every other card label on the table. This
                 // marker is the standing record of a peek — it outlives the
                 // reveal — so it is the one a player actually reads back when
@@ -452,7 +614,7 @@ export class Court extends Scene {
         }
 
         if (seat.caption !== null) {
-            const caption = this.add.text(seat.rect.x + 6, seat.rect.y + seat.rect.h - 16, seat.caption, {
+            const caption = this.add.text(seat.rect.x + chip.pad, seat.rect.y + seat.rect.h - 16, seat.caption, {
                 fontFamily: FONT_UI,
                 fontSize: '11px',
                 color: hex(SEAT_COLOURS[seat.state])
@@ -474,7 +636,7 @@ export class Court extends Scene {
         cardId: CardTypeId,
         rect: Rect,
         overline?: string
-    ): (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text)[] {
+    ): FaceLabel {
         const copy = cardCopyFor(cardId);
         const badge = Math.max(MIN_BADGE, Math.round(Math.min(rect.w, rect.h) * BADGE_FRACTION));
 
@@ -509,7 +671,11 @@ export class Court extends Scene {
         // rule in the game is written in.
         if (name.width > rect.w - LABEL_PAD) name.setScale((rect.w - LABEL_PAD) / name.width);
 
-        const parts: (Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text)[] = [scrim, name];
+        const parts: FacePart[] = [scrim, name];
+        // Returned apart from `parts` so a caller can hold it to a different
+        // opacity: on a dimmed hand card the overline IS the reason for the
+        // dimming, and fading it hides the one thing worth reading.
+        const overlineParts: FacePart[] = [];
 
         // Drawn INSIDE the card rather than above it, so it cannot collide with
         // the deck in either composition — portrait stacks the burn panel under
@@ -549,12 +715,15 @@ export class Court extends Scene {
                 caption.destroy();
             } else {
                 caption.setScale(scale);
-                parts.push(this.add.rectangle(rect.x, rect.y, rect.w, bandH, TOKENS.colorBg, 0.72).setOrigin(0, 0), caption);
+                overlineParts.push(
+                    this.add.rectangle(rect.x, rect.y, rect.w, bandH, TOKENS.colorBg, 0.72).setOrigin(0, 0),
+                    caption
+                );
             }
         }
 
         parts.push(plate, value);
-        return parts;
+        return { parts, overline: overlineParts };
     }
 
     /**
@@ -564,7 +733,12 @@ export class Court extends Scene {
      * nothing as a numeral, so past four this becomes one medallion and a
      * multiplier — the rule that lets discard values stay uncollapsed forever.
      */
-    private tokenMedallions(tokens: number, x: number, y: number): Phaser.GameObjects.GameObject[] {
+    private tokenMedallions(
+        tokens: number,
+        x: number,
+        y: number,
+        size: number
+    ): Phaser.GameObjects.GameObject[] {
         // `medallionPlan` decides; this only draws what it was told to. Nothing
         // here may be constructed and then dropped: `this.add.*` puts an object
         // on the scene's display list immediately, and `draw()` destroys only
@@ -572,22 +746,25 @@ export class Court extends Scene {
         // every redraw AND renders above the container that replaced it.
         const plan = medallionPlan(tokens);
         const objects: Phaser.GameObjects.GameObject[] = [];
+        const step = size + MEDALLION_GAP;
 
         for (let index = 0; index < plan.medallions; index++) {
             objects.push(
                 this.add
-                    .image(x + index * (MEDALLION + 2), y, TEXTURES.devotionToken)
+                    .image(x + index * step, y, TEXTURES.devotionToken)
                     .setOrigin(0, 0)
-                    .setDisplaySize(MEDALLION, MEDALLION)
+                    .setDisplaySize(size, size)
             );
         }
 
         if (plan.countLabel !== null) {
             objects.push(
                 this.add
-                    .text(x + MEDALLION + 3, y + MEDALLION / 2, plan.countLabel, {
+                    .text(x + step, y + size / 2, plan.countLabel, {
                         fontFamily: FONT_UI,
-                        fontSize: '12px',
+                        // Sized from the medallion beside it, so the multiplier
+                        // cannot dwarf the token it multiplies on a large chip.
+                        fontSize: `${Math.max(11, Math.round(size * 0.9))}px`,
                         color: '#f5f5f5'
                     })
                     .setOrigin(0, 0.5)
@@ -595,6 +772,103 @@ export class Court extends Scene {
         }
 
         return objects;
+    }
+
+    /**
+     * Hover and long-press on one card's hit area.
+     *
+     * **Hover is an enhancement, never a dependency** (UIX §349). Every sentence
+     * it shows is already reachable by tapping the card or opening the dock, so
+     * a touch device loses nothing — and gains the long press, which is the same
+     * affordance for a player with no pointer.
+     *
+     * The hint itself is DOM. Nothing about it may be stored on a Phaser object:
+     * `draw` destroys every one of them on each `STATE_UPDATE`, so hover state
+     * held here would have its owner deleted mid-gesture the moment an opponent
+     * plays a card.
+     *
+     * `onTap` fires on pointer**up**, not down. A long press has to be able to
+     * decide the gesture was not a tap, and it cannot do that after the tap has
+     * already been dispatched — which is what firing on pointerdown meant. It is
+     * also better tap semantics: a press that slides off the card no longer
+     * counts as choosing it.
+     */
+    private attachCardGesture(
+        hit: Phaser.GameObjects.Rectangle,
+        cardId: CardTypeId,
+        onTap?: () => void
+    ): void {
+        let pressedAt: { x: number; y: number } | null = null;
+        let longPressed = false;
+
+        const cancelTimer = (): void => {
+            this.pressTimer?.remove();
+            this.pressTimer = null;
+        };
+
+        hit.on('pointerover', (pointer: Phaser.Input.Pointer) => {
+            // A touch "hover" is really the finger already down; the long press
+            // owns that case, and honouring both makes a tap flash a hint.
+            if (pointer.wasTouch) return;
+            this.events.emit(CARD_HINTED, cardId, { x: pointer.x, y: pointer.y });
+        });
+
+        hit.on('pointermove', (pointer: Phaser.Input.Pointer) => {
+            if (pointer.wasTouch) {
+                // Sliding a finger is a scroll or a mis-aim, not a press.
+                if (pressedAt !== null && Phaser.Math.Distance.BetweenPoints(pointer, pressedAt) > MOVE_CANCEL_PX) {
+                    cancelTimer();
+                    pressedAt = null;
+                }
+                return;
+            }
+            this.events.emit(CARD_HINTED, cardId, { x: pointer.x, y: pointer.y });
+        });
+
+        hit.on('pointerout', () => {
+            cancelTimer();
+            pressedAt = null;
+            this.events.emit(CARD_HINT_CLEARED);
+        });
+
+        hit.on('pointerdown', (pointer: Phaser.Input.Pointer) => {
+            pressedAt = { x: pointer.x, y: pointer.y };
+            longPressed = false;
+            cancelTimer();
+
+            this.pressTimer = this.time.delayedCall(LONG_PRESS_MS, () => {
+                this.pressTimer = null;
+                if (pressedAt === null) return;
+                longPressed = true;
+                this.events.emit(CARD_HINTED, cardId, pressedAt);
+            });
+        });
+
+        hit.on('pointerup', () => {
+            cancelTimer();
+            const wasTap = pressedAt !== null && !longPressed;
+            pressedAt = null;
+            // A long press showed the hint; dispatching the tap as well would
+            // open the sheet over the thing the player pressed to read.
+            if (wasTap) onTap?.();
+        });
+    }
+
+    /**
+     * A tap target over a run of devotion medallions.
+     *
+     * Built from the same numbers that placed the medallions, for the reason
+     * every hit rect here is a rectangle rather than `setInteractive()` on the
+     * art: a texture-derived hit area disagrees with where the thing appears the
+     * moment its texture fails to load.
+     */
+    private tokenHitArea(x: number, y: number, w: number, h: number, playerId: string): Phaser.GameObjects.GameObject {
+        const hit = this.add
+            .rectangle(x, y, Math.max(1, w), Math.max(1, h), 0x000000, 0)
+            .setOrigin(0, 0)
+            .setInteractive({ useHandCursor: true });
+        hit.on('pointerdown', () => this.events.emit(TOKENS_SELECTED, playerId));
+        return hit;
     }
 
     /**
@@ -641,6 +915,36 @@ export const CARD_SELECTED = 'card-selected';
 /** Emitted when a seat chip is tapped. `main.ts` opens the dossier (UIX §6.2). */
 export const SEAT_SELECTED = 'seat-selected';
 
+/**
+ * Emitted when a run of devotion medallions is tapped, on any seat including the
+ * viewer's own. `main.ts` opens the match log at the round that token was won in.
+ */
+export const TOKENS_SELECTED = 'tokens-selected';
+
+/**
+ * A card wants its ability shown — pointer hover, or a long press on touch.
+ * Carries viewport coordinates, because the hint is a DOM surface.
+ */
+export const CARD_HINTED = 'card-hinted';
+
+/** The hint should go away. */
+export const CARD_HINT_CLEARED = 'card-hint-cleared';
+
+type FacePart = Phaser.GameObjects.Rectangle | Phaser.GameObjects.Text;
+
+/**
+ * A drawn card face, with its overline kept apart from the rest.
+ *
+ * They are separated because callers treat them differently on both axes: the
+ * overline goes on FIRST so the value badge lands over its left end, and it
+ * keeps full opacity on a dimmed card because it is what explains the dimming.
+ */
+interface FaceLabel {
+    readonly parts: FacePart[];
+    /** Empty unless an overline was asked for and something legible fit. */
+    readonly overline: FacePart[];
+}
+
 /** Card art is 512×720 (`portraits.ts`), and every card drawn here keeps that ratio. */
 const CARD_ASPECT = 512 / 720;
 
@@ -648,9 +952,25 @@ const CARD_ASPECT = 512 / 720;
 const CARD_BACK_H = 26;
 const REVEALED_H = 30;
 
-/** One devotion medallion, and the width the own-status row reserves for them. */
-const MEDALLION = 12;
-const MEDALLION_SPAN = MEDALLION * 4 + 12;
+/**
+ * The gap between two medallions. The medallion's own size is
+ * `LayoutSpec.chip.medallion`, which scales with the table — a flat 12px was
+ * right for a phone and lost on a monitor, the same complaint the pips had.
+ *
+ * Kept in step with `tableLayout.ts`'s own constant of the same name, which is
+ * what `ownRow.medallionSpan` is measured with.
+ */
+const MEDALLION_GAP = 2;
+
+/**
+ * How long a finger must rest on a card before it reads as "tell me about this"
+ * rather than "play this". Long enough not to fire on a deliberate tap, short
+ * enough that a player who is waiting does not give up first.
+ */
+const LONG_PRESS_MS = 450;
+
+/** A press that travels this far was a scroll or a mis-aim, not a press. */
+const MOVE_CANCEL_PX = 10;
 
 /** The value badge, as a fraction of the card's short edge, with a legible floor. */
 const BADGE_FRACTION = 0.28;
@@ -669,10 +989,6 @@ const LABEL_PAD = 6;
  */
 const MIN_BANNER_PX = 20;
 const BANNER_PLATE_PAD = 14;
-const MIN_SEAT_NAME_PX = 14;
-const SEAT_NAME_FRACTION = 0.13;
-const MIN_OWN_PIP_PX = 13;
-const OWN_PIP_FRACTION = 0.4;
 
 /** The name strip along the card's bottom edge. */
 const NAME_FRACTION = 0.16;

@@ -16,7 +16,7 @@
 
 import { classifyTopology } from './topology';
 import type { Topology } from './topology';
-import type { LayoutInput, LayoutSpec, PipSpec, Rect } from './types';
+import type { ChipSpec, LayoutInput, LayoutSpec, OwnRowSpec, PipSpec, Rect } from './types';
 
 // --------------------------------------------------------------- proportions
 
@@ -156,6 +156,76 @@ function chipHeightFor(spec: PipSpec): number {
     return pipBlockHeight(spec) / PIP_AREA_H;
 }
 
+// --------------------------------------------------------------- chip contents
+
+/** Breathing room from a chip's edges, and between the bands inside it. */
+const CHIP_PAD = 6;
+
+/** The nickname, as a share of chip height with a legible floor. */
+const MIN_SEAT_NAME_PX = 14;
+const SEAT_NAME_FRACTION = 0.13;
+
+/**
+ * A devotion medallion, sized the same way.
+ *
+ * It used to be a flat 12px — the exact complaint the pips already answered: one
+ * size is right for a 390px phone or for a 1080p monitor, never both.
+ */
+const MIN_MEDALLION_PX = 10;
+const MEDALLION_FRACTION = 0.06;
+
+/**
+ * Where a chip's bands sit, for a chip of this height.
+ *
+ * Stacked strictly: name band, then tokens, then pips against the bottom edge.
+ * The bug this replaces was a token row at a literal `y + 26` beneath a name
+ * that grew with the viewport, so this derives every offset from the one before
+ * it and no two can drift apart.
+ */
+function chipBands(chipH: number, pip: PipSpec): ChipSpec {
+    const nameH = Math.max(MIN_SEAT_NAME_PX, Math.round(chipH * SEAT_NAME_FRACTION));
+    const medallion = Math.max(MIN_MEDALLION_PX, Math.round(chipH * MEDALLION_FRACTION));
+    const nameBandH = nameH + CHIP_PAD * 2;
+
+    return {
+        pad: CHIP_PAD,
+        nameH,
+        nameBandH,
+        medallion,
+        tokenTop: nameBandH,
+        // Against the bottom edge, so the pile grows upward into the space the
+        // tokens are guaranteed to have left.
+        pipTop: chipH - pipBlockHeight(pip) - CHIP_PAD
+    };
+}
+
+/** Whether a chip of this height can hold all three bands without them meeting. */
+function bandsFit(chipH: number, pip: PipSpec): boolean {
+    const bands = chipBands(chipH, pip);
+    return bands.tokenTop + bands.medallion + CHIP_PAD <= bands.pipTop;
+}
+
+/**
+ * The smallest chip that holds name, tokens and pips at once.
+ *
+ * Iterated rather than solved: `nameH` and `medallion` are both `max(floor,
+ * fraction × chipH)`, so the requirement is piecewise linear and a closed form
+ * would be a rounding bug waiting to happen. It converges — the bands claim
+ * about a fifth of any growth — and the loop is bounded so a future proportion
+ * that did not converge would give a slightly small chip rather than hang.
+ */
+function chipHeightForBands(floor: number, pip: PipSpec): number {
+    let chipH = floor;
+
+    for (let attempt = 0; attempt < 8 && !bandsFit(chipH, pip); attempt++) {
+        const bands = chipBands(chipH, pip);
+        // Exactly the shortfall, so growth stops as soon as the bands clear.
+        chipH += bands.tokenTop + bands.medallion + CHIP_PAD - bands.pipTop;
+    }
+
+    return chipH;
+}
+
 /**
  * The largest legible pip size that shows every value in the pile (UIX §6.2).
  *
@@ -226,6 +296,50 @@ function handStarts(count: number, cardW: number, margin: number, contentW: numb
     return Array.from({ length: count }, (_, i) => startX + i * (cardW + gapPx));
 }
 
+// ------------------------------------------------------------- own status row
+
+/** Share of the row's height a discard face may claim. */
+const OWN_ICON_H_FRACTION = 0.86;
+/** Below this a card face stops being recognisable and is just a rectangle. */
+const MIN_OWN_ICON_H = 18;
+const OWN_ICON_GAP = 4;
+/** Room kept at the right end for the `= 14` running total. */
+const OWN_TOTAL_RESERVE = 52;
+
+/**
+ * How the own row packs medallions, discard faces and a total across one line.
+ *
+ * Width is the binding constraint, not height: eight faces at the row's full
+ * height overflow a phone long before they overflow the row. So the face is the
+ * smaller of what the height allows and what the remaining width allows, with a
+ * floor — and `tableLayout.test.ts` holds the whole run inside the row at every
+ * viewport, the same promise `fitPips` makes for a chip.
+ */
+function fitOwnRow(row: Rect, count: number, medallion: number): OwnRowSpec {
+    const medallionSpan = medallion * 4 + MEDALLION_GAP * 3 + 12;
+    const slots = Math.max(1, count);
+    const available = Math.max(0, row.w - medallionSpan - OWN_TOTAL_RESERVE);
+
+    const byHeight = row.h * OWN_ICON_H_FRACTION;
+    const byWidth = (available - OWN_ICON_GAP * (slots - 1)) / slots / CARD_ASPECT;
+
+    const iconH = Math.max(MIN_OWN_ICON_H, Math.min(byHeight, byWidth));
+    const iconW = iconH * CARD_ASPECT;
+
+    return {
+        medallionSpan,
+        iconH,
+        iconW,
+        step: iconW + OWN_ICON_GAP,
+        // The value rides under the face, so it takes what the face left over.
+        valuePx: Math.max(MIN_OWN_VALUE_PX, Math.round(Math.min(row.h - iconH, iconH * 0.4)))
+    };
+}
+
+/** The gap between two devotion medallions, shared with the scene's drawing. */
+const MEDALLION_GAP = 2;
+const MIN_OWN_VALUE_PX = 10;
+
 // ------------------------------------------------------------------- layout
 
 export function computeLayout(input: LayoutInput): LayoutSpec {
@@ -242,14 +356,14 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
     // Pips are fitted before the chip height is final, because on a very small
     // phone even floor-sized pips need more rows than the nominal chip affords —
     // and then the chip is what gives way, never a discard value.
-    // Pips are fitted before the chip height is final, because on a very small
-    // phone even floor-sized pips need more rows than the nominal chip affords —
-    // and then the chip is what gives way, never a discard value.
     const chipGap = CHIP_GAP * w;
     const chipW = (contentW - chipGap * (input.opponentCount - 1)) / input.opponentCount;
     const nominalChipH = p.chipH * h;
     const pip = fitPips(input.maxDiscards, { w: chipW, h: nominalChipH }, comfortablePipPx(h));
-    const chipH = Math.max(nominalChipH, chipHeightFor(pip));
+    // Then the same again for the nickname and the token row, which had no
+    // budget at all and so collided with each other instead.
+    const chipH = chipHeightForBands(Math.max(nominalChipH, chipHeightFor(pip)), pip);
+    const chip = chipBands(chipH, pip);
 
     const chipTop = statusStrip.y + statusStrip.h + gap;
     const arcDepth = p.arcDepth * h;
@@ -339,6 +453,8 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
         ownStatus,
         hand,
         cardScale: cardW / CARD_ART_WIDTH,
-        pip
+        pip,
+        chip,
+        ownRow: fitOwnRow(ownStatus, input.maxDiscards, chip.medallion)
     };
 }

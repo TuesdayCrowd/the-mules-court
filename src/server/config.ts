@@ -8,7 +8,7 @@ export interface TransportConfig {
     readonly port: number;
     readonly publicBaseUrl: string;          // joinUrl prefix
     readonly dbPath: string;                 // ':memory:' in tests
-    readonly revealWindowMs: number;         // 5000 — fixed by design
+    readonly revealWindowMs: number;         // 10_000 — fixed by design
     readonly lobbyDisconnectGraceMs: number; // 60_000
     readonly lobbyTtlMs: number;             // 15 * 60_000
     readonly activeGraceMs: number;          // 120_000
@@ -37,7 +37,7 @@ export const DEFAULT_CONFIG: TransportConfig = {
     port: 3000,
     publicBaseUrl: 'http://localhost:3000',
     dbPath: 'mules-court.sqlite',
-    revealWindowMs: 5000,
+    revealWindowMs: 10_000,
     lobbyDisconnectGraceMs: 60_000,
     lobbyTtlMs: 15 * 60_000,
     activeGraceMs: 120_000,
@@ -61,7 +61,7 @@ export function makeConfig(overrides: Partial<TransportConfig> = {}): TransportC
  * The four tunables a *deployment* sets, read from the environment.
  *
  * Separate from the rest of `DEFAULT_CONFIG` because those are design constants
- * — the reveal window is five seconds because the design says so, on every
+ * — the reveal window is ten seconds because the design says so, on every
  * machine. These four are the ones that differ between this repo's `serve`
  * script and a binary someone downloaded, which cannot assume :3000 is free or
  * that its working directory is the one you meant.
