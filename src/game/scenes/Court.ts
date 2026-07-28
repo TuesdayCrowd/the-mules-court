@@ -56,6 +56,16 @@ export class Court extends Scene {
      * was going to describe has just been destroyed.
      */
     private pressTimer: Phaser.Time.TimerEvent | null = null;
+    /**
+     * Beats currently mid-flight.
+     *
+     * The render pump asks before it stops the loop, and a beat is the one piece
+     * of motion it cannot see for itself: `playBeat` resolves from a tween's
+     * completion, and the presentation queue awaits that promise before
+     * releasing the next announcement. Sleeping through one stalls the table
+     * permanently, so this is counted rather than inferred.
+     */
+    private beatsInFlight = 0;
     private latest: ClientState | null = null;
     private resizeHandle: number | null = null;
 
@@ -917,7 +927,24 @@ export class Court extends Scene {
      * the accessible channel can never run ahead of the visible one.
      */
     playBeat(beat: Parameters<BeatRunner['run']>[0], context?: Parameters<BeatRunner['run']>[1]): Promise<void> {
-        return this.beats.run(beat, context);
+        this.beatsInFlight++;
+        // `finally`, not `then`: a beat that throws must still release the
+        // counter, or the loop never sleeps again for the rest of the session.
+        return this.beats.run(beat, context).finally(() => {
+            this.beatsInFlight--;
+        });
+    }
+
+    /**
+     * Whether anything on this scene is still moving.
+     *
+     * Read by the render pump before it stops the loop. Every source of motion
+     * is named explicitly rather than guessed at, because the cost of a false
+     * negative is a frozen table and the cost of a false positive is a few
+     * wasted frames.
+     */
+    isAnimating(): boolean {
+        return this.beatsInFlight > 0 || this.pressTimer !== null || this.tweens.getTweens().length > 0;
     }
 
     /** The spec the table was last drawn from, for the accessibility twin's hand proxies. */

@@ -56,6 +56,7 @@ import { createUiRoot } from './client/ui/uiRoot';
 import { CARD_HINTED, CARD_HINT_CLEARED, CARD_SELECTED, SEAT_SELECTED, TOKENS_SELECTED } from './game/scenes/Court';
 import type { Court } from './game/scenes/Court';
 import StartGame from './game/main';
+import { WAKE_EVENTS, createRenderPump } from './game/renderPolicy';
 
 /**
  * The real `WebSocket`, adapted to the shape the client tests against.
@@ -231,6 +232,60 @@ function boot(): void {
 
     // --- the canvas, and the accessibility twin that shadows it
     const game = StartGame('game-container');
+
+    /**
+     * Draw only when there is something to draw.
+     *
+     * Phaser's `Game.step` renders unconditionally on every animation frame —
+     * right for a game with a simulation, wrong for a turn-based card game whose
+     * table is a still image between actions and whose scenes define no
+     * `update()` at all. Left alone it redrew an unchanged picture at the
+     * display's refresh rate for as long as the tab was open.
+     *
+     * The pump only ever *asks* to sleep; `court.isAnimating()` is what answers,
+     * and it names every source of motion explicitly. See `renderPolicy.ts`.
+     */
+    const pump = createRenderPump({
+        // `pause`/`resume` are the timing bookkeeping either side of a real
+        // stop — `resume` resets the delta and shifts `startTime` by however
+        // long the loop was down. Without them the first frame back reports the
+        // whole idle period as one enormous delta, and every tween created just
+        // before it jumps most of the way to its end.
+        startLoop: () => {
+            game.loop.wake();
+            game.loop.resume();
+        },
+        stopLoop: () => {
+            game.loop.pause();
+            game.loop.sleep();
+        },
+        animating: () => court?.isAnimating() ?? true,
+        // Boot and Preloader advance on the loop — the loading bar and
+        // `document.fonts.ready` both do — so nothing may sleep before Court.
+        ready: () => court !== null,
+        now: () => Date.now(),
+        schedule: (fn, ms) => window.setInterval(fn, ms),
+        cancel: handle => window.clearInterval(handle)
+    });
+
+    /**
+     * Phaser's mouse and touch managers bind to the canvas and QUEUE what they
+     * receive; the queue drains in the loop's pre-step. So a tap that lands
+     * while the loop is stopped is captured and never processed — the card does
+     * nothing. Listening on the same element, in the capture phase, brings the
+     * loop back before that queue matters.
+     *
+     * Passive: none of these are cancelled here, and saying so keeps the
+     * listener off the browser's scroll-blocking path.
+     */
+    const container = document.getElementById('game-container');
+    const wake = (): void => pump.wake();
+    for (const event of WAKE_EVENTS) {
+        container?.addEventListener(event, wake, { capture: true, passive: true });
+    }
+    // The table follows the viewport, so a resize is a reason to draw even
+    // though no pointer touched the canvas.
+    window.addEventListener('resize', wake);
     let court: Court | null = null;
 
     const twin = createA11yTwin({
@@ -267,6 +322,9 @@ function boot(): void {
             referenceDock.open('log', ...(latest === undefined ? [] : [{ round: latest.roundNumber }]));
         });
         court.renderView(store.getState());
+        // Court exists now, so the pump may finally consider sleeping — and the
+        // first frame of the real table still has to be drawn.
+        pump.wake();
     });
 
     /**
@@ -447,9 +505,24 @@ function boot(): void {
         // seconds. Only "Take over here" reopens it.
         if (state.fatal !== null && previous.fatal === null) socket?.close();
 
+        // Before anything else: `renderView` builds the objects, and the loop
+        // has to be running to put them on screen.
+        pump.wake();
+
         uiRoot.update(state);
-        twin.update(state);
+
+        /**
+         * The scene before the twin, and that order is load-bearing.
+         *
+         * `a11yTwin` positions its hand proxies from `court.currentLayout()`,
+         * which `renderView` is what sets. Updated first, the twin read the
+         * layout from the PREVIOUS push — so on the first deal there was no
+         * layout at all and a keyboard or screen-reader player was handed an
+         * empty hand. Measured in a browser: nought proxies until some second
+         * state update happened along, then one.
+         */
         court?.renderView(state);
+        twin.update(state);
 
         // After uiRoot, which is what tells the sheet about the connection and
         // the screen. This adds the half uiRoot cannot: the sheet's request is
@@ -475,7 +548,20 @@ function boot(): void {
                 queue.enqueue({
                     ...(beat === null
                         ? {}
-                        : { animate: () => court?.playBeat(beat, beatContext(event)) ?? Promise.resolve() }),
+                        : {
+                              animate: () => {
+                                  // The queue releases a beat only when the one
+                                  // before it has finished, which can be long
+                                  // after the state push that queued it — and
+                                  // between beats nothing is animating, so the
+                                  // loop is entitled to have stopped. A beat
+                                  // started against a stopped loop never
+                                  // advances, never resolves, and stalls the
+                                  // queue behind it forever.
+                                  pump.wake();
+                                  return court?.playBeat(beat, beatContext(event)) ?? Promise.resolve();
+                              }
+                          }),
                     ...(line === null ? {} : { announce: line })
                 });
             }
