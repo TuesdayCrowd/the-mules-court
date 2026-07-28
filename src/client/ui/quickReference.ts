@@ -55,7 +55,13 @@ export function createQuickReference(): Surface {
         const names = document.createElement('td');
         names.textContent = reference.cards.map(card => card.displayName).join(', ');
 
-        row.append(value, count, names);
+        // What the value does, beside who holds it. A panel that answers "what
+        // is still out there" and not "what does it do" sends the player away
+        // to find the other half.
+        const ability = document.createElement('td');
+        ability.textContent = reference.effect;
+
+        row.append(value, count, names, ability);
         return row;
     }
 
@@ -76,7 +82,7 @@ export function createQuickReference(): Surface {
         const table = document.createElement('table');
         const head = document.createElement('thead');
         const headRow = document.createElement('tr');
-        for (const heading of ['Value', 'In deck', 'Characters']) {
+        for (const heading of ['Value', 'In deck', 'Characters', 'Ability']) {
             const cell = document.createElement('th');
             cell.scope = 'col';
             cell.textContent = heading;

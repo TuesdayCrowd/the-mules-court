@@ -16,6 +16,16 @@ export interface QuickReferenceRow {
     readonly count: number;
     /** Every character holding this value, in catalog order. */
     readonly cards: readonly CardCopy[];
+    /**
+     * What this value does, once.
+     *
+     * A row is a value, so it can carry one ability sentence — which is honest
+     * because every character sharing a value shares an effect: both Darells
+     * redraw, Pritcher and Channis both look. A test holds that invariant, so a
+     * card added later that breaks it fails the suite rather than quietly
+     * showing one character's ability beneath another's name.
+     */
+    readonly effect: string;
     /** False for the Informant's own value alone, which it may never guess. */
     readonly guessable: boolean;
 }
@@ -31,12 +41,16 @@ function buildRows(): QuickReferenceRow[] {
 
     return [...byValue.entries()]
         .sort(([a], [b]) => b - a) // 8 down to 1: the panel reads highest-first
-        .map(([value, ids]) => ({
-            value,
-            count: ids.reduce((sum, id) => sum + CARD_CATALOG[id].count, 0),
-            cards: ids.map(cardCopyFor),
-            guessable: value !== INFORMANT_VALUE
-        }));
+        .map(([value, ids]) => {
+            const cards = ids.map(cardCopyFor);
+            return {
+                value,
+                count: ids.reduce((sum, id) => sum + CARD_CATALOG[id].count, 0),
+                cards,
+                effect: cards[0].effect,
+                guessable: value !== INFORMANT_VALUE
+            };
+        });
 }
 
 /** UIX §10's table, derived from the catalog so a new card cannot be forgotten. */

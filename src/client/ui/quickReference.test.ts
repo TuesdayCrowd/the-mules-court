@@ -88,6 +88,28 @@ describe('the table of values', () => {
         expect(five.textContent).toContain('Toran Darell');
     });
 
+    it('states what each value does, not only who holds it', () => {
+        // The panel exists to answer "what is still out there"; a player who has
+        // to remember what a 5 does has to leave the panel to find out.
+        const ui = mounted();
+        ui.show();
+        ui.tab()!.click();
+
+        for (const reference of QUICK_REFERENCE) {
+            const row = ui.rows().find(node => Number(node.getAttribute('data-value')) === reference.value)!;
+            expect(row.textContent, `value ${reference.value}`).toContain(reference.effect);
+        }
+    });
+
+    it('heads the ability column', () => {
+        const ui = mounted();
+        ui.show();
+        ui.tab()!.click();
+
+        const headings = [...ui.root.querySelectorAll('th[scope="col"]')].map(cell => cell.textContent);
+        expect(headings).toContain('Ability');
+    });
+
     it('accounts for all sixteen cards', () => {
         const ui = mounted();
         ui.show();
