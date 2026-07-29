@@ -92,6 +92,12 @@ The redaction guard borrows the transport suite's technique: ban forbidden subst
 
 **Goal:** One test drives three MCP seats and a fourth scripted player to a winner.
 **Success criteria:** The match ends with a `matchWinnerId`; no seat ever reads another's view.
-**Status:** Not Started — and **not blocked by 3b.** It drives `MatchSession` directly against a real server, using `chooseFallbackPlay` as each seat's policy, so it proves everything except stdio without waiting on the dependency.
+**Status:** Complete — `wholeMatch.test.ts`, ~1,700 assertions per run, ten consecutive clean runs.
 
-This is the only test that proves the boundary holds under the real protocol rather than a stub, and it is the one to write before believing any of the rest.
+This is the only test that proves the boundary holds under the real protocol rather than a stub, and it is the one to write before believing any of the rest. It earned that description immediately: it found a real product bug and a real test bug, both of the same kind.
+
+**What it caught.** `session.signal()` routed turns from whichever seat's frame arrived first, so it could announce `your_turn` for p3 on p2's word — while `getView(h3)` still returned p3's previous frame, whose `own.legalPlays` is empty because that array is populated only for the viewer holding the turn. The seat was handed a turn with no legal move in it. Fixed by making each seat's own frame the only authority on its own turn, which makes signal and view the same commit by construction. A regression test in `session.test.ts` pins it.
+
+The test's own first draft then made the mirror-image mistake, comparing `matchWinnerId` across seats at the instant `match_over` was first observed. That invariant is *eventual*, not instantaneous. It now reads the winner from the `MATCH_ENDED` broadcast and waits for each seat to converge, bounded.
+
+**The lesson worth carrying into 3b.** Three sockets have no ordering guarantee at the consuming process's event loop. Any check or decision that spans two seats' frames is wrong unless it is either synchronised to one commit or explicitly written as convergence.

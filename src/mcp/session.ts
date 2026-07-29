@@ -251,18 +251,54 @@ export class MatchSession {
         return null;
     }
 
+    /**
+     * Whose turn it is, and whether we may act on it.
+     *
+     * **A seat's own frame is the only authority on that seat's turn**, and
+     * that is not a nicety — it is the fix for a race this got wrong first
+     * time. Three sockets have no ordering guarantee at this process's event
+     * loop, so seat p2's fresh frame can announce that p3 is up before p3's
+     * own frame has arrived. Routing from whichever frame landed first then
+     * says `your_turn` for p3 while `getView(h3)` still returns p3's previous
+     * frame — and `own.legalPlays` is populated only in the frame where its
+     * viewer holds the turn, so the seat is handed a turn with no legal move
+     * in sight. Stage 4 caught exactly that, as a null from
+     * `chooseFallbackPlay` on a seat's own turn.
+     *
+     * Checking each seat against its own frame makes the signal and the view
+     * the same commit by construction, so there is no window to lose.
+     */
     private signal(): TurnSignal {
-        const state = this.anyState();
+        const table = this.anyState();
         // Before the first push there is no phase to report. `waiting` is the
         // honest answer: no seat we hold has the turn, because no turn exists.
-        if (state === null) return { status: 'waiting', turnNumber: 0, phase: 'active' };
+        if (table === null) return { status: 'waiting', turnNumber: 0, phase: 'active' };
 
+        for (const seat of this.seats.values()) {
+            const state = seat.lastState;
+            if (state === null) continue;
+
+            const routed = routeTurn({
+                // This seat alone: the question is whether *its* frame says it
+                // may act, not whether some frame says someone might.
+                heldPlayerIds: [seat.identity.playerId],
+                currentPlayerId: state.view.currentPlayerId,
+                turnNumber: state.view.turnNumber,
+                phase: state.phase,
+                paused: state.paused
+            });
+            if (routed.status === 'your_turn') return routed;
+        }
+
+        // No held seat can act. Report the table's own state — and pass an
+        // empty held set deliberately, so this call cannot resurrect a
+        // `your_turn` from the stale frame the loop above just rejected.
         return routeTurn({
-            heldPlayerIds: this.registry.heldPlayerIds(),
-            currentPlayerId: state.view.currentPlayerId,
-            turnNumber: state.view.turnNumber,
-            phase: state.phase,
-            paused: state.paused
+            heldPlayerIds: [],
+            currentPlayerId: table.view.currentPlayerId,
+            turnNumber: table.view.turnNumber,
+            phase: table.phase,
+            paused: table.paused
         });
     }
 

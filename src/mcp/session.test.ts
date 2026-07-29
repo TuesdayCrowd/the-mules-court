@@ -197,6 +197,25 @@ describe('awaitTurn', () => {
         fakes.forEach(f => f.push(makeState(f.identity.playerId, { phase: 'ended' })));
         expect((await session.awaitTurn(500)).status).toBe('match_over');
     });
+
+    it('will not hand a seat its turn on another seat\'s word', async () => {
+        // The cross-socket race Stage 4 caught. p2's frame has landed and says
+        // p3 is up; p3's own frame for that commit has not arrived, so its
+        // view still carries the previous turn — and own.legalPlays is
+        // populated only in the frame where its viewer holds the turn. Acting
+        // here hands p3 a turn with no legal move in it.
+        const { session, fakes } = await seatedSession();
+        fakes[0]!.push(makeState('p2', {}, { currentPlayerId: 'p3' }));
+        fakes[1]!.push(makeState('p3', {}, { currentPlayerId: 'p1' }));
+
+        expect((await session.awaitTurn(30)).status).toBe('waiting');
+
+        // Once p3's own frame lands, the turn is real and the view can back it.
+        fakes[1]!.push(makeState('p3', {}, { currentPlayerId: 'p3' }));
+        const signal = await session.awaitTurn(30);
+        expect(signal.status).toBe('your_turn');
+        expect(signal.seat).toBe('p3');
+    });
 });
 
 describe('notebooks', () => {
