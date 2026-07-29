@@ -70,11 +70,19 @@ Given a `RedactedView`, choose a play from `own.legalPlays` and a target from `o
 
 ---
 
-## Stage 3: The MCP surface
+## Stage 3a: The tool surface, without MCP
 
-**Goal:** Seven tools over stdio, registered in `.mcp.json`.
-**Success criteria:** Every seat-scoped tool refuses a call with no handle; no tool output contains a seed, an action log, or another seat's hand.
-**Status:** Not Started
+**Goal:** All seven tools decided in one session object, testable against a fake seat.
+**Success criteria:** Every seat-scoped tool refuses a call with no handle; `tableStatus` carries no hand; `joinMatch` is the only tool that returns one.
+**Status:** Complete — 13 tests.
+
+`session.ts` holds every decision the tool surface makes, so the MCP layer above it can be glue thin enough to review by reading — the split `Court` keeps with `buildRenderPlan` and `computeLayout`. That is also what let this stage land without taking the dependency named above: the whole surface is exercised against a fake seat, with no stdio and no SDK.
+
+## Stage 3b: The MCP transport
+
+**Goal:** `session.ts` exposed over stdio, registered in `.mcp.json`.
+**Success criteria:** A real MCP client lists seven tools and drives a match through them.
+**Status:** Blocked — on the `@modelcontextprotocol/sdk` decision above, and on *Design §7*, which sets `awaitTurn`'s default (currently 60s, in `session.ts`).
 
 The redaction guard borrows the transport suite's technique: ban forbidden substrings from every tool result rather than asserting field by field, because a blunt guard catches the serialization mistake a precise one misses.
 
@@ -84,6 +92,6 @@ The redaction guard borrows the transport suite's technique: ban forbidden subst
 
 **Goal:** One test drives three MCP seats and a fourth scripted player to a winner.
 **Success criteria:** The match ends with a `matchWinnerId`; no seat ever reads another's view.
-**Status:** Not Started
+**Status:** Not Started — and **not blocked by 3b.** It drives `MatchSession` directly against a real server, using `chooseFallbackPlay` as each seat's policy, so it proves everything except stdio without waiting on the dependency.
 
 This is the only test that proves the boundary holds under the real protocol rather than a stub, and it is the one to write before believing any of the rest.
