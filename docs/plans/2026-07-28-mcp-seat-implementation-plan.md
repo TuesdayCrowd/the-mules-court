@@ -64,7 +64,7 @@ Given a `RedactedView`, choose a play from `own.legalPlays` and a target from `o
 
 **Goal:** Three sockets, claimed and resumed, delivering per-seat views.
 **Success criteria:** An integration test boots a real server in-process, claims three seats, and receives three distinct `RedactedView`s.
-**Status:** Not Started
+**Status:** Complete — four tests, including a redaction cross-check across all three seats.
 
 `seatClient.ts` wraps one WebSocket: `CLAIM_SEAT`, store the `SEAT_CLAIMED` token, hold the socket open, reconnect with `RESUME_SEAT`. Sockets stay open for the life of the match — a reconnect during a round-over re-arms the reveal deadline for every player (`room.ts:380`).
 
