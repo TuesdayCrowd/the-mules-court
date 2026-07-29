@@ -40,8 +40,8 @@ function mounted(store: KeyValueStore = memoryStore()) {
 
     const q = <T extends Element>(selector: string) => root.querySelector(selector) as T | null;
 
-    function tableState(overrides: Parameters<typeof makeView>[0] = {}) {
-        return makeState({ screen: 'table', table: makeTable({ view: makeView(overrides) }) });
+    function tableState(overrides: Parameters<typeof makeView>[0] = {}, matchId = 'MATCH-1') {
+        return makeState({ screen: 'table', matchId, table: makeTable({ view: makeView(overrides) }) });
     }
 
     return {
@@ -53,7 +53,8 @@ function mounted(store: KeyValueStore = memoryStore()) {
         rows: () => [...root.querySelectorAll('[data-role="reference-row"]')],
         logSections: () => [...root.querySelectorAll('[data-role="log-section"]')],
         logLines: () => [...root.querySelectorAll('[data-role="log-line"]')],
-        show: (overrides: Parameters<typeof makeView>[0] = {}) => dock.update(tableState(overrides)),
+        show: (overrides: Parameters<typeof makeView>[0] = {}, matchId = 'MATCH-1') =>
+            dock.update(tableState(overrides, matchId)),
         tableState
     };
 }
@@ -270,7 +271,8 @@ describe('Close stays reachable however long the log gets', () => {
 });
 
 describe('remembering how it was left', () => {
-    it('reopens on its own across a remount', () => {
+    it('reopens on its own across a remount of the same match', () => {
+        // The case the persistence is for: a reload mid-game.
         const store = memoryStore();
         const first = mounted(store);
         first.show();
@@ -281,6 +283,42 @@ describe('remembering how it was left', () => {
         second.show();
 
         expect(second.panel()).not.toBeNull();
+    });
+
+    /**
+     * Reported: "when host starts the round, the Reference dialog is open."
+     * Keyed globally, a dock left open in any earlier match reopened over a
+     * brand-new table — covering the top 55dvh of a hand not yet seen.
+     */
+    it('starts closed in a match it has never been opened in', () => {
+        const store = memoryStore();
+        const first = mounted(store);
+        first.show({}, 'MATCH-1');
+        click(first.launcher());
+        expect(first.panel()).not.toBeNull();
+        first.dock.destroy();
+
+        const second = mounted(store);
+        second.show({}, 'MATCH-2');
+
+        expect(second.panel(), 'a new match inherited the last one’s open dock').toBeNull();
+    });
+
+    it('keeps each match’s answer apart', () => {
+        const store = memoryStore();
+        const a = mounted(store);
+        a.show({}, 'MATCH-1');
+        click(a.launcher());
+        a.dock.destroy();
+
+        const b = mounted(store);
+        b.show({}, 'MATCH-2');
+        expect(b.panel()).toBeNull();
+        b.dock.destroy();
+
+        const backToA = mounted(store);
+        backToA.show({}, 'MATCH-1');
+        expect(backToA.panel()).not.toBeNull();
     });
 
     it('stays shut across a remount when it was shut', () => {
@@ -296,6 +334,8 @@ describe('remembering how it was left', () => {
     });
 
     it('reopens on the tab that was showing', () => {
+        // The tab is a taste and travels with the player, unlike being open,
+        // which is a fact about one table.
         const store = memoryStore();
         const first = mounted(store);
         first.show();
@@ -303,8 +343,12 @@ describe('remembering how it was left', () => {
         click(first.tabFor('log'));
         first.dock.destroy();
 
+        // A different match, so it starts closed and the tab is the only thing
+        // carried over — which is the distinction being asserted.
         const second = mounted(store);
-        second.show();
+        second.show({}, 'MATCH-2');
+        expect(second.panel()).toBeNull();
+        click(second.launcher());
 
         expect(second.tabFor('log')!.getAttribute('aria-selected')).toBe('true');
     });

@@ -45,7 +45,21 @@ export interface ReferenceDockDeps {
 }
 
 const TITLE_ID = 'reference-dock-title';
-const OPEN_KEY = 'mules-court:dock:open';
+/**
+ * Whether the dock is up is remembered **per match**; which tab it shows is
+ * remembered outright.
+ *
+ * They are different kinds of preference. A tab is a taste and travels with the
+ * player. Being open is a fact about one table — and keyed globally it meant a
+ * dock left open in some earlier match reopened over a brand-new one, covering
+ * the top 55dvh of a hand the player had not seen yet. Reported as "when host
+ * starts the round, the Reference dialog is open."
+ *
+ * Namespaced per match exactly as `seatTokenStore` namespaces a seat, so
+ * reloading mid-match still restores it — which is the case the persistence was
+ * for.
+ */
+const openKey = (matchId: string): string => `mules-court:dock:open:${matchId}`;
 const TAB_KEY = 'mules-court:dock:tab';
 
 const TABS: ReadonlyArray<readonly [DockTab, string]> = [
@@ -86,7 +100,11 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
 
     const storedTab = recall(TAB_KEY);
     let tab: DockTab = isTab(storedTab) ? storedTab : 'reference';
-    let open = recall(OPEN_KEY) === '1';
+    // Closed until a match says otherwise. The match is not known at
+    // construction, so the stored answer is adopted on the first update that
+    // names one.
+    let open = false;
+    let knownMatch: string | null = null;
     /** A round to bring into view on the next render, then forgotten. */
     let focusRound: number | null = null;
     let table: TableSnapshot | null = null;
@@ -266,7 +284,7 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
 
     function setOpen(next: boolean): void {
         open = next;
-        remember(OPEN_KEY, next ? '1' : '0');
+        if (knownMatch !== null) remember(openKey(knownMatch), next ? '1' : '0');
         render();
         // Focus is deliberately left alone. Taking it on open is what made the
         // panel feel like a modal interruption; returning it on close would
@@ -282,6 +300,15 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
 
         update(state: ClientState) {
             table = state.table;
+
+            // A match this dock has not seen before starts closed unless that
+            // match itself recorded otherwise — a reload mid-game restores it, a
+            // new game does not inherit it.
+            if (state.matchId !== null && state.matchId !== knownMatch) {
+                knownMatch = state.matchId;
+                open = recall(openKey(state.matchId)) === '1';
+            }
+
             const wanted = state.screen === 'table';
 
             if (wanted !== onTable) {
