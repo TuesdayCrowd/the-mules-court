@@ -26,7 +26,9 @@
 
 **AGENTS.md is not edited until this merges.** `package.json` gains `test:mcp` in Stage 1 so the suite runs under `bun run test` rather than rotting outside the gate, but AGENTS.md's testing section still describes two runners. Correct it to three in the merge commit — not before, because a rejected design should leave no trace in the file every agent reads first.
 
-**The one new dependency.** `@modelcontextprotocol/sdk` is the first runtime dependency this repo adds beyond Phaser, and the transport plan's "no new runtime dependencies" line was written before an MCP existed. Hand-rolling is possible — MCP is JSON-RPC over stdio — but the surface is wider than `protocol.ts`'s seven variants: an initialize handshake, capability negotiation, notifications, content blocks, and an error taxonomy. That is past the threshold `protocol.ts` names for taking a library. Stage 3 is where it lands; Stages 1 and 2 add nothing.
+**No new dependency, decided.** This plan first recommended `@modelcontextprotocol/sdk`, reasoning from the protocol's surface — an initialize handshake, capability negotiation, notifications, content blocks, an error taxonomy — and calling it past the threshold `protocol.ts` names for taking a library. Then the actual package was inspected: **17 transitive dependencies, 4.32 MB unpacked**, among them `express`, `hono`, `@hono/node-server`, `cors`, `express-rate-limit`, `jose` and `pkce-challenge`. That is an HTTP server stack and an OAuth implementation, present for the HTTP/SSE transport and remote-auth flows — none of which a **stdio** server ever reaches.
+
+So the threshold argument reversed on the evidence, and reversed toward this repo's own precedent: one runtime dependency (`phaser`), and a hand-written wire parser in `protocol.ts` rather than a schema library. `rpc.ts` is the whole protocol layer. If it ever fights back, taking the SDK costs one `bun add` and a rewrite of that one file, because nothing above the transport depends on it.
 
 **Tool descriptions state when to call, not just what they do.** A description reading "Blocks until one of the held seats holds the turn; call it again immediately after playing" produces a materially better call rate than "Waits for a turn". This costs nothing and belongs in the first draft.
 
@@ -82,9 +84,13 @@ Given a `RedactedView`, choose a play from `own.legalPlays` and a target from `o
 
 **Goal:** `session.ts` exposed over stdio, registered in `.mcp.json`.
 **Success criteria:** A real MCP client lists seven tools and drives a match through them.
-**Status:** Blocked — on the `@modelcontextprotocol/sdk` decision above, and on *Design §7*, which sets `awaitTurn`'s default (currently 60s, in `session.ts`).
+**Status:** Complete — hand-rolled in `rpc.ts` + `tools.ts` + `main.ts`. `stdio.test.ts` spawns `main.ts` as a real subprocess and plays a match to a winner using nothing but `tools/call`.
 
-The redaction guard borrows the transport suite's technique: ban forbidden substrings from every tool result rather than asserting field by field, because a blunt guard catches the serialization mistake a precise one misses.
+*Design §7* is settled: the continuous loop. `DEFAULT_AWAIT_MS` is 90s, sized against the **two-minute automatic-backgrounding threshold** rather than the wall-clock limit — Claude Code's per-call limit defaults to ~28 hours and the stdio idle timeout to 30 minutes, so neither binds, but a main-conversation call passing two minutes is moved to a background task, which would pull the referee out of its own loop mid-match.
+
+**What this stage caught.** `playCard` confirmed a move on an *event* ("a push arrived") rather than a *condition* ("the view advanced"). Any queued frame satisfied it, so `playCard` could return while the seat still held the turn — the referee looped, `await_turn` handed the same seat the same turn again, and `get_view` then reported no legal plays. Both `awaitTurn` and `playCard` are now condition-based, which also makes them safe to overlap on one seat. Regression tests in `session.test.ts`.
+
+`rpc.ts` earns its own file for one rule: **a notification is never answered.** Replying to an id-less frame, even with an error, leaves a client reconciling a response it has no request for. Transport failures are JSON-RPC errors; tool failures are successful responses carrying `isError`.
 
 ---
 

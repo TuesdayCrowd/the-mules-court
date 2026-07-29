@@ -231,6 +231,33 @@ describe('notebooks', () => {
 });
 
 describe('playCard', () => {
+    it('does not confirm until the seat\'s own view has moved on', async () => {
+        // The bug the stdio suite caught. Confirming on "a push arrived" is
+        // satisfied by a repaint of the same turn — and the referee then loops,
+        // gets handed the same turn again, and finds no legal plays.
+        const { session, fakes, joined } = await seatedSession();
+        fakes.forEach(f => f.push(makeState(f.identity.playerId, {}, { currentPlayerId: 'p2', turnNumber: 3 })));
+
+        const pending = session.playCard(joined[0]!.handle, { cardInstanceId: 'informant#0' }, 400);
+
+        // A repaint of the SAME turn must not count as confirmation.
+        setTimeout(() => fakes[0]!.push(makeState('p2', { paused: true }, { currentPlayerId: 'p2', turnNumber: 3 })), 10);
+        // Only the turn actually advancing does.
+        setTimeout(() => fakes[0]!.push(makeState('p2', {}, { currentPlayerId: 'p3', turnNumber: 4 })), 60);
+
+        expect((await pending).ok).toBe(true);
+        const view = session.getView(joined[0]!.handle);
+        expect(view.ok === true && view.view.currentPlayerId).toBe('p3');
+    });
+
+    it('reports NO_RESPONSE when the table never moves on', async () => {
+        const { session, fakes, joined } = await seatedSession();
+        fakes.forEach(f => f.push(makeState(f.identity.playerId, {}, { currentPlayerId: 'p2', turnNumber: 3 })));
+
+        const result = await session.playCard(joined[0]!.handle, { cardInstanceId: 'informant#0' }, 60);
+        expect(result.ok === false && result.error).toBe('NO_RESPONSE');
+    });
+
     it('sends the move on the socket that handle authorises', async () => {
         const { session, fakes, joined } = await seatedSession();
         fakes.forEach(f => f.push(makeState(f.identity.playerId)));

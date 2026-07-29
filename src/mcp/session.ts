@@ -84,14 +84,25 @@ export interface TableStatus {
 const LOG_TAIL = 12;
 
 /**
- * `awaitTurn`'s default. **This is the one number Design §7 sets.** A
- * continuous referee loop wants it just under the harness's tool-call ceiling,
- * so a human's think time resolves inside a single blocked call instead of
- * churning through re-entries; a nudge-driven referee barely touches it,
- * because it only calls when a move is already pending. Sixty seconds is the
- * conservative middle until that question is answered.
+ * `awaitTurn`'s default, and the one number Design §7 sets.
+ *
+ * §7 chose the continuous loop: the referee stays running for a whole match, so
+ * this call blocks on a human's think time and wants to be as long as the
+ * harness will tolerate.
+ *
+ * Ninety seconds — and the binding constraint is not the one it looks like.
+ * Claude Code's per-call wall-clock limit (`MCP_TOOL_TIMEOUT`) defaults to
+ * roughly 28 hours, and the idle timeout for a stdio server to 30 minutes;
+ * neither is anywhere near the horizon here. What bites first is **automatic
+ * backgrounding**: a main-conversation tool call that runs past two minutes is
+ * moved to a background task. Right for a long build, wrong for a turn-based
+ * game, where it would tear the referee out of its own loop mid-match.
+ *
+ * So the target is "comfortably under two minutes", not "as long as possible".
+ * A human who thinks for more than ninety seconds costs one extra re-entry,
+ * which is the cheap failure; a backgrounded referee costs the loop.
  */
-const DEFAULT_AWAIT_MS = 60_000;
+const DEFAULT_AWAIT_MS = 90_000;
 
 const PLAY_CONFIRM_MS = 5_000;
 
@@ -198,24 +209,48 @@ export class MatchSession {
     }
 
     /**
-     * Sends a move and waits for the push that confirms it.
+     * Sends a move and waits until the table has actually moved on.
      *
-     * The waiter is registered *before* the frame goes out, so a fast server
-     * cannot answer into a gap. One constraint the referee loop already
-     * respects: this must not overlap with `awaitTurn` on the same seat, since
-     * a single push resolves a single waiter — play, then await.
+     * Confirmation is a **condition**, not an event, and that distinction was a
+     * real bug. Waiting for "a push arrived" is satisfied by any push —
+     * including one already sitting in the socket's queue from before the move
+     * was sent. `playCard` then returned while the seat's view still showed its
+     * own turn, the referee looped, `await_turn` handed the same seat the same
+     * turn a second time, and `get_view` — by then holding the post-play frame
+     * — reported no legal plays. That is precisely how the stdio suite failed.
+     *
+     * Waiting for the view to *advance* cannot be fooled that way: a stale
+     * queued frame simply fails the check and the loop waits again. It also
+     * makes overlapping with `awaitTurn` harmless, since both now re-read
+     * `lastState` rather than depending on which waiter a push woke.
      */
     async playCard(handle: string, move: SeatPlay, timeoutMs = PLAY_CONFIRM_MS): Promise<AckResult> {
         const seat = this.seats.get(handle);
         if (seat === undefined) return { ok: false, error: 'UNKNOWN_HANDLE' };
 
-        const confirmed = seat.nextState(timeoutMs).then(
-            () => true,
-            () => false
-        );
+        const startedAt = seat.lastState?.view.turnNumber ?? -1;
+        const moved = (state: StateUpdate | null): boolean =>
+            state !== null &&
+            (state.view.turnNumber !== startedAt ||
+                state.phase !== 'active' ||
+                state.view.currentPlayerId !== seat.identity.playerId);
+
         seat.play(move);
 
-        return (await confirmed) ? { ok: true } : { ok: false, error: 'NO_RESPONSE' };
+        const deadline = this.now() + timeoutMs;
+        for (;;) {
+            if (moved(seat.lastState)) return { ok: true };
+
+            const remaining = deadline - this.now();
+            if (remaining <= 0) return { ok: false, error: 'NO_RESPONSE' };
+
+            // A rejection here is only "nothing arrived in time"; the condition
+            // above is the authority, so it is swallowed and re-checked.
+            await seat.nextState(remaining).then(
+                () => undefined,
+                () => undefined
+            );
+        }
     }
 
     readNotebook(handle: string): NotebookResult {

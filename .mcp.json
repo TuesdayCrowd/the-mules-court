@@ -1,0 +1,12 @@
+{
+    "mcpServers": {
+        "mules-court-seats": {
+            "command": "bun",
+            "args": ["src/mcp/main.ts"],
+            "env": {
+                "MULES_MCP_SERVER_URL": "ws://localhost:3000"
+            },
+            "timeout": 120000
+        }
+    }
+}

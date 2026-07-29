@@ -1,7 +1,7 @@
 # The Mule's Court — MCP Seat Design
 
 **Date:** 2026-07-28
-**Status:** Draft. One open question, marked in §7.
+**Status:** Decided. §7 settled in favour of the continuous loop.
 **Scope:** An MCP server that lets a language model occupy seats at a live table.
 **Depends on:** `docs/plans/2026-07-22-transport-design.md`
 
@@ -184,13 +184,34 @@ and plays again.
 
 ---
 
-## 7. Open question
+## 7. Decided: the continuous loop
 
-Whether the referee runs a whole match in one turn or stops after each catch-up
-is still undecided. Both use these seven tools and differ only in whether the
-referee re-enters the loop, so the answer changes the prompt rather than the
-build. This design assumes the continuous loop, and nothing below §5 depends on
-it.
+The referee runs a whole match in one turn — `await_turn` → dispatch → play →
+`await_turn`, for as long as the match lasts. The human plays in the browser and
+never has to address the terminal.
+
+Handing the floor back after each catch-up was the alternative, and was
+rejected. Both use the same seven tools and the same seat agents, differing only
+in whether the referee re-enters its own loop, so this settles one constant and
+one prompt rather than any structure.
+
+**The constant is `DEFAULT_AWAIT_MS` in `session.ts`, and it is ninety
+seconds.** The binding constraint is not the obvious one. Claude Code's per-call
+wall-clock limit defaults to about 28 hours, and the idle timeout for a stdio
+server to 30 minutes; neither is close. What bites first is **automatic
+backgrounding**, which moves a main-conversation tool call to a background task
+once it passes two minutes. That is right for a long build and wrong for a
+turn-based game, because it would pull the referee out of its own loop
+mid-match. So the target is "comfortably under two minutes" rather than "as long
+as possible": a human who thinks for more than ninety seconds costs one extra
+re-entry, and that is the cheap failure.
+
+**What makes the continuous loop affordable is that interrupting it is
+lossless.** Each seat's notebook lives in the MCP process rather than in a model
+context (§4), so breaking in to ask a question and resuming afterwards costs
+nothing — no seat forgets its read of the table. Without that property this
+would be a much worse trade, since talking to a running referee is otherwise an
+interruption rather than a turn.
 
 ---
 
