@@ -70,7 +70,11 @@ describe('seats', () => {
         const seats = plan({ ...view, players: [view.players[0], seat('p2', { protected: true }), view.players[2], view.players[3]] }).seats;
 
         expect(seats[0].state).toBe('protected');
-        expect(seats[0].caption).toBe('Protected — cannot be targeted');
+        // The word, not the sentence. A chip is contentW/opponentCount wide —
+        // about 110px on a three-opponent phone — and the full wording ran off
+        // its right edge. `seatDossier.ts` keeps the sentence, where there is
+        // room for it.
+        expect(seats[0].caption).toBe('Protected');
     });
 
     it("reveals an eliminated seat's held card atop their discard pile", () => {

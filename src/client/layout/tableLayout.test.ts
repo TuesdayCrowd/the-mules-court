@@ -371,7 +371,17 @@ describe('wide composition', () => {
             const spec = monitor();
 
             expect(spec.deck.h / MONITOR.h).toBeGreaterThan(phoneish.deck.h / 390);
-            expect(spec.opponents[0].h / MONITOR.h).toBeGreaterThan(phoneish.opponents[0].h / 390);
+
+            /**
+             * Seats compared in pixels, not as a share of height.
+             *
+             * The share stopped being the right measure once the chip carried a
+             * budget: a rotated phone is 390px tall and its chip has the same
+             * five bands to hold as a monitor's, so landscape-narrow now claims
+             * a LARGER fraction of a much smaller screen. "Roomier" is what a
+             * player sees, and that is absolute.
+             */
+            expect(spec.opponents[0].h).toBeGreaterThan(phoneish.opponents[0].h);
         });
     });
 
@@ -430,9 +440,34 @@ describe('the seat chip content budget', () => {
         });
     });
 
-    it('finishes the token row before the pips begin', () => {
+    it('finishes the token row before the peek marker begins', () => {
         sweep((spec, label) => {
-            expect(spec.chip.tokenTop + spec.chip.medallion, label).toBeLessThanOrEqual(spec.chip.pipTop);
+            expect(spec.chip.tokenTop + spec.chip.medallion, label).toBeLessThanOrEqual(spec.chip.markerTop);
+        });
+    });
+
+    it('finishes the peek marker before the state caption begins', () => {
+        sweep((spec, label) => {
+            expect(spec.chip.markerTop + spec.chip.smallH, label).toBeLessThanOrEqual(spec.chip.captionTop);
+        });
+    });
+
+    /**
+     * The second reported collision. "Protected — cannot be targeted" was drawn
+     * at a literal `seat.rect.h - 16` while the pip block was budgeted against
+     * the bottom edge, so the caption landed inside the discard values at every
+     * viewport — and unlike the nickname and the pips it carried no scrim, so it
+     * was bare text over both the nebula and the numerals underneath.
+     */
+    it('finishes the state caption before the pips begin', () => {
+        sweep((spec, label) => {
+            expect(spec.chip.captionTop + spec.chip.smallH, label).toBeLessThanOrEqual(spec.chip.pipTop);
+        });
+    });
+
+    it('keeps every band inside the chip', () => {
+        sweep((spec, label) => {
+            expect(spec.chip.captionTop + spec.chip.smallH, label).toBeLessThanOrEqual(spec.opponents[0].h);
         });
     });
 
@@ -486,11 +521,22 @@ describe('the seat chip content budget', () => {
         expect(desktop.chip.medallion).toBeGreaterThan(phone.chip.medallion);
     });
 
-    it('keeps a legible floor under both at the smallest supported screen', () => {
+    it('keeps a legible floor under every band at the smallest supported screen', () => {
         sweep((spec, label) => {
             expect(spec.chip.nameH, label).toBeGreaterThanOrEqual(12);
             expect(spec.chip.medallion, label).toBeGreaterThanOrEqual(8);
+            expect(spec.chip.smallPx, label).toBeGreaterThanOrEqual(10);
         });
+    });
+
+    it('grows the marker and caption with the chip, like every other band', () => {
+        // Both were pinned at 11px. A seat panel on a 1080p monitor is nearly
+        // twice the height of one on a phone, and the same text in both is
+        // right for exactly one of them.
+        const at = (w: number, h: number) =>
+            computeLayout({ w, h, opponentCount: 3, handCount: 1, showsRemovedCard: false, maxDiscards: 3 }).chip;
+
+        expect(at(1920, 1080).smallPx).toBeGreaterThan(at(390, 844).smallPx);
     });
 
     it('still keeps every rect inside the viewport once the chip carries a budget', () => {

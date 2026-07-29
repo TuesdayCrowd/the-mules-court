@@ -218,6 +218,57 @@ describe('the match log tab', () => {
     });
 });
 
+/**
+ * The dossier's second tab is the same match log the dock shows — every round
+ * the match has played. With the whole panel scrolling and Close appended last,
+ * dismissing it meant scrolling past the match's entire history first.
+ */
+describe('Close stays reachable however long the log gets', () => {
+    function openedOnLog() {
+        const ui = mounted(
+            viewWithDiscards({
+                publicLog: LOG,
+                roundHistory: Array.from({ length: 10 }, (_, i) => ({
+                    roundNumber: i + 1,
+                    reason: 'last-survivor' as const,
+                    winnerIds: ['p1'],
+                    publicLog: LOG
+                }))
+            })
+        );
+        ui.dossier.open('p2');
+        ui.tabs().find(t => t.textContent === 'Match log')!.click();
+        return ui;
+    }
+
+    it('renders a log long enough to need scrolling', () => {
+        expect(openedOnLog().logLines().length).toBeGreaterThanOrEqual(30);
+    });
+
+    it('keeps Close outside the part that scrolls', () => {
+        const ui = openedOnLog();
+        const close = ui.root.querySelector('[data-action="close-dossier"]')!;
+        const body = ui.root.querySelector('[data-role="dossier-body"]')!;
+
+        expect(body).not.toBeNull();
+        expect(body.contains(close), 'Close scrolls away with the log').toBe(false);
+    });
+
+    it('scrolls the body rather than the whole panel', () => {
+        const ui = openedOnLog();
+        const body = ui.root.querySelector('[data-role="dossier-body"]') as HTMLElement;
+
+        expect(getComputedStyle(body).overflowY).toBe('auto');
+        expect(getComputedStyle(ui.panel()!).overflowY).not.toBe('auto');
+    });
+
+    it('still closes when Close is pressed', () => {
+        const ui = openedOnLog();
+        (ui.root.querySelector('[data-action="close-dossier"]') as HTMLButtonElement).click();
+        expect(ui.panel()).toBeNull();
+    });
+});
+
 describe('dismissal', () => {
     it('closes on Escape', () => {
         const ui = mounted();

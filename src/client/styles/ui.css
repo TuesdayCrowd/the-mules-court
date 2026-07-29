@@ -509,12 +509,33 @@ h2,
     left: 0;
     z-index: 5;
     max-height: 55dvh;
-    overflow-y: auto;
+    /* The PANEL does not scroll — its body does. A trailing Close inside a
+       scrolling panel is unreachable for as long as the match log is, and that
+       log has no upper bound. */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     padding: var(--space-4);
     padding-top: max(var(--space-4), env(safe-area-inset-top));
     border-radius: 0 0 var(--radius) var(--radius);
     border: 1px solid var(--color-state-your-turn);
     background: rgb(0 0 0 / 0.96);
+}
+
+/**
+ * A bottom sheet shortens the dock, on narrow layouts only.
+ *
+ * The dock takes the top 55dvh and the sheet anchors to the bottom, which is
+ * enough to keep them apart on their own — until a tall sheet is open. Measured
+ * on a 390x844 phone with a card raised: the dock ran to 464px and the sheet
+ * began at 393px, so the dock's last 71px sat over the sheet's title and effect
+ * line, and the dock wins at z-index 5 against the sheet's 3.
+ *
+ * Same trigger as the tab's corner swap directly above, for the same reason: one
+ * attribute, no measurement, and no coupling beyond it.
+ */
+#ui-root[data-sheet='bottom'] .reference-modal {
+    max-height: 42dvh;
 }
 
 /* A side drawer where there is width for one — the table keeps the rest. */
@@ -552,6 +573,38 @@ h2,
     text-align: left;
     border-bottom: 1px solid var(--color-seat-other);
     vertical-align: top;
+}
+
+/**
+ * The pinned header: the panel's name and its way out, always in reach.
+ */
+.dock-header,
+.dossier-header {
+    display: flex;
+    align-items: baseline;
+    justify-content: space-between;
+    gap: var(--space-3);
+    flex: none;
+}
+
+.dock-header h2,
+.dossier-header h2 {
+    margin: 0;
+}
+
+/* The only part that scrolls. `min-height: 0` because a flex child defaults to
+   min-content, which would refuse to shrink and push Close off the panel again. */
+[data-role='dock-body'],
+[data-role='dossier-body'] {
+    flex: 1;
+    min-height: 0;
+    overflow-y: auto;
+}
+
+/* The tab strip sits between header and body, and scrolls with neither. */
+.reference-modal [role='tablist'],
+.seat-dossier [role='tablist'] {
+    flex: none;
 }
 
 /* Value and count take only the width their digits need; the two prose columns
@@ -628,7 +681,10 @@ h2,
     inset: auto 0 0 0;
     z-index: 5;
     max-height: 80dvh;
-    overflow-y: auto;
+    /* As with the dock: the panel holds still, the body scrolls. */
+    display: flex;
+    flex-direction: column;
+    overflow: hidden;
     padding: var(--space-4);
     padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
     border-radius: var(--radius) var(--radius) 0 0;
@@ -663,6 +719,56 @@ h2,
     padding-left: var(--space-6);
     display: grid;
     gap: var(--space-1);
+}
+
+/**
+ * "You are out, and here is why" (UIX §9, extended).
+ *
+ * Above the round-over overlay at z-index 7, because going out is very often
+ * what ended the round and both arrive in the same state push. Stacked rather
+ * than competing: why you are out, then what became of the round, in the order
+ * they happened.
+ *
+ * Its own box rather than `.overlay`'s, because it is not the same kind of
+ * thing — this one is addressed to one player and is dismissed by them, so it
+ * is sized to a sentence and led by its button.
+ */
+.elimination-notice {
+    position: fixed;
+    inset: auto 0 auto 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 7;
+    margin: 0 auto;
+    width: min(92%, 30rem);
+    max-height: 80dvh;
+    overflow-y: auto;
+    padding: var(--space-6);
+    border-radius: var(--radius);
+    background: rgb(0 0 0 / 0.96);
+    border: 1px solid var(--color-seat-eliminated);
+    text-align: center;
+}
+
+.elimination-notice h2 {
+    margin: 0 0 var(--space-3);
+    color: var(--color-seat-eliminated);
+}
+
+.elimination-notice p {
+    margin: 0 0 var(--space-6);
+    line-height: 1.45;
+}
+
+.elimination-notice button {
+    min-height: var(--tap-min);
+    padding: 0 var(--space-6);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-your-turn);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
 }
 
 /**

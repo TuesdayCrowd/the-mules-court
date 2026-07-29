@@ -2,7 +2,10 @@
 
 **Date:** 2026-07-27
 **Source:** eleven items of playtest feedback, triaged against the code.
-**Status:** all eleven shipped on branch `gameplay-feedback` ([PR #30](https://github.com/TuesdayCrowd/the-mules-court/pull/30)). One real-device pass outstanding.
+**Status:** eleven items plus two further rounds of feedback, shipped on branch
+`gameplay-feedback` ([PR #30](https://github.com/TuesdayCrowd/the-mules-court/pull/30)).
+One real-device pass outstanding. The third round's reported symptom — high GPU — turned
+out not to be this codebase at all; see §10.
 
 This is both the plan the work followed and the record of what it found. The two are
 one document on purpose: three of the defects fixed here were *already* described
@@ -305,7 +308,7 @@ happens to open on would leave the other unchecked.
 ## 7. Verification
 
 ```
-bun run test        # 1309 client/engine (was 1198) + 255 server, all passing
+bun run test        # 1335 client/engine (was 1198) + 255 server, all passing
 bunx tsc --noEmit    # clean
 bun run build        # succeeds; embedded asset manifest regenerated
 ```
@@ -314,15 +317,11 @@ Test files went from 64 to 69. New suites: `content/playability.test.ts`,
 `content/matchLog.test.ts`, `ui/referenceDock.test.ts`, `ui/cardHint.test.ts`,
 `engine/roundHistory.test.ts`, `scenes/courtContract.test.ts`.
 
-**Not verified on hardware.** `docs/plans/2026-07-24-uix-qa-checklist.md` still wants a
-real-device pass (Task 34 of the UIX plan), and this branch adds two things that only a
-phone can confirm:
-
-- **Long-press.** 450 ms with a 10px movement cancel. Whether that reads as deliberate
-  rather than sluggish is a judgement no test makes.
-- **The dock at phone width.** It takes the top 55dvh; whether that leaves enough table
-  visible to keep playing is the whole point of the change and cannot be asserted in
-  jsdom, which has no layout.
+**Both phone items were driven and both were broken.** An emulated 390×844 handset over
+CDP settled them — see §12. Long-press never fired at all, and the dock sat on the action
+sheet. What remains unverified is narrower than it was: the touch-specific branches, and
+whether 450 ms *feels* deliberate rather than sluggish, which is a judgement no test
+makes.
 
 Worth a look too: the pointer-up change to hand-card selection is the one behaviour
 players will feel immediately.
@@ -339,7 +338,205 @@ players will feel immediately.
   `NOT_DRAWN` with that reason rather than left silent.
 - **The screenshots in `docs/gameplay/` are uncommitted**, at the author's instruction.
 
-## 9. One unexplained observation
+## 9. Second round of feedback
+
+> When a player is protected by a `4`, or a `2` was played against them, the text is
+> hard to read. The text for being protected is drawn over the same area of an
+> opponent's discard.
+
+The same class as item 1, one band further down. The state caption was drawn at a
+literal `seat.rect.h - 16` while the pip block is measured up from the bottom edge, so
+it landed inside the discard values at **every** viewport:
+
+| Viewport | pips | caption |
+| --- | --- | --- |
+| phone 390×844 | 87–104 | 94–107 |
+| tablet 1024×768 | 133–148 | 138–151 |
+| desktop 1920×1080 | 188–210 | 200–213 |
+
+Measuring it turned up two more faults nobody had reported:
+
+- **The peek marker was colliding too.** `you know: 3 · Ebling Mis` was placed at
+  `tokenTop + medallion + pad`, which on a rotated phone put it at 42–55 against a pip
+  block at 43–56. The chip had always been too short for its contents there; it simply
+  overlapped rather than growing.
+- **Both lines carried no scrim, and neither scaled.** The chip's border is stroke-only,
+  so the nickname and the pips have scrims. These two were the last table text without
+  one — bare 11px over the nebula and over the numerals at once — and the only text left
+  pinned to a phone's pixel count.
+- **The caption was too wide for a chip.** "Protected — cannot be targeted" sets to
+  roughly 165px at this size; a three-opponent phone chip is about 110px. It ran off the
+  right edge.
+
+`ChipSpec` now budgets all five bands — name, tokens, marker, caption, pips — and
+`chipHeightForBands` grows the chip when they will not fit. The chip caption is shortened
+to `Protected`; the sentence stays in `seatDossier.ts`, where there is room for it, and
+matches what `a11yTwin.ts` already said. One `chipLine` method draws both small lines,
+each on a scrim sized to its own text and clamped to the chip's width.
+
+The only viewport that grows is the rotated phone, 62 → 90px, and that is the honest
+cost of a band it was already drawing over. One composition test changed its measure as
+a result: a landscape-narrow chip now claims a larger *fraction* of a much smaller
+screen than a monitor's does, so "roomier seats" is asserted in pixels, which is what a
+player actually sees.
+
+`courtContract.test.ts` gained an assertion that `drawSeat` positions both lines from the
+spec and never from `seat.rect.h - 16`.
+
+## 10. Third round: the GPU at 80% — *and it was not the game*
+
+> There is an issue with resources. The GPU is at 80% utilization when the game is open
+> in the browser.
+
+**Resolved, and not here.** It was Edge's **Transparency effects** setting, under
+Appearance. That is a full-screen backdrop blur on the browser's own chrome,
+recomposited continuously against whatever sits behind it — browser furniture, not page
+content. Turning it off fixed it.
+
+This section is kept because the investigation was wrong in an instructive way and
+because two real defects came out of it. What it is *not* is the explanation for the
+report.
+
+**The measurements said so before the cause was known, and were misread anyway:**
+
+| | |
+| --- | --- |
+| Visible window, menu idle, frames per 500 ms | `0 0 0 0 0 0 0 0 0 0 5 62 3 0 0 0` |
+| Same window, blank page | 7.3% mean, 47% max |
+| Same window, game at menu | **5.0% mean, 56% max** |
+
+A page costing *less* than `about:blank`, and a GPU busy while the render loop sat at
+zero frames, are both the same signal: the load was outside the page. An earlier reading
+of "45% with no browser" turned out to have been taken with Edge still running, which is
+the sort of error that keeps a wrong theory alive.
+
+The hypothesis was raised early and dismissed for a bad reason: `src/client/styles/` was
+grepped for `backdrop-filter`, found clean, and compositing effects were struck off. That
+checked the page and never considered the chrome around it.
+
+### The decision: the pump stays
+
+Roughly two hundred lines — `renderPolicy.ts`, the canvas wake listeners,
+`Court.isAnimating()` — exist because of a misdiagnosis. Keeping machinery whose
+motivating problem evaporated deserves an argument, so here it is.
+
+**Kept, on two grounds that never depended on the report.**
+
+*The waste is arithmetic, not a hypothesis.* Measured in a visible browser window: sixty
+to a hundred and twenty full redraws a second of a picture that had not changed, now
+zero. That number came from reading `Game.step` and counting frames, not from a theory
+about anyone's GPU. It would be just as true if the report had never been filed.
+
+*This design is touch-first* (UIX line 15). A phone holding its GPU at refresh rate to
+display a still image spends battery for nothing, and a player on a phone has no
+Appearance setting to save them. The desktop symptom was somebody's browser chrome; the
+handset cost was always ours.
+
+**Against keeping it**, honestly stated: it is real complexity with a real failure mode.
+If `isAnimating()` ever returns a false negative the table freezes, which is far worse
+than the waste it replaces. That is why every branch of `mayIdle` fails awake, why
+`isAnimating()` enumerates its sources of motion rather than inferring them, and why the
+whole path is exercised end to end against two live clients rather than only unit-tested.
+
+**The alternative considered and rejected:** revert to the always-render loop. Simpler,
+and it would restore a known waste to fix nothing. The complexity is bounded, tested and
+documented; the waste would be permanent and invisible.
+
+**What a future reader must not do:** delete this as complexity that solved a
+non-problem. The provenance is written into `renderPolicy.ts`'s header and into
+`AGENTS.md` precisely so that reading is available before the deletion, rather than
+after it.
+
+### What it nevertheless found
+
+Two genuine defects, both worth keeping, neither of which the report was about:
+
+1. **The render loop never stopped.** Phaser renders unconditionally and this game has no
+   per-frame logic, so a static table was redrawn at the display's refresh rate forever.
+   Real waste on a battery, and this design is touch-first — but not what pegged the GPU.
+2. **The deck warning was an endless tween**, added unprompted in the previous round, so
+   the pump above could never sleep for the back half of any round. An infinite tween and
+   a sleep-when-idle loop cannot both be right.
+
+And one unrelated bug the two-client harness exposed, described below.
+
+### The original reasoning, kept for the record
+
+**From Phaser's own source rather than inference.** `Game.step` runs
+`preRender`, `scene.render` and `postRender` on every animation frame with no dirty
+check anywhere in the path. That is correct for a game with a simulation. This one is
+turn-based, its table is a still image between actions, and **no scene here defines
+`update()` at all** — so the renderer redrew an unchanged picture at the display's
+refresh rate for as long as the tab stayed open.
+
+Ruled out on the way, each by looking rather than guessing: no filters, post-pipelines
+or particle emitters anywhere in `src/`; textures are 512×720 and 8.1 MB in total; the
+ScaleManager sets `canvas.width` to the CSS size, so there is no devicePixelRatio
+multiplication; and the stylesheets carry no `backdrop-filter`, no blur and no
+continuous timers.
+
+`renderPolicy.ts` owns the decision, for the reason `inputPolicy.ts` does — it can be
+asserted without constructing a `Game`. **It fails awake:** every branch that cannot
+prove the game is idle keeps drawing.
+
+The failure mode that governed the design: Phaser's tween manager and clock are both
+driven by the loop, so sleeping through a tween does not pause it, it stops it
+*completing* — and `beats.ts` resolves its promise from `onComplete` while the
+presentation queue awaits that promise. One missed tween would stall the table
+permanently. So `Court.isAnimating()` names every source of motion explicitly rather
+than inferring it, the animate thunk wakes the pump before each beat, and `pause`/
+`resume` bracket the stop so the first frame back does not report the whole idle period
+as one delta. Input is wired separately: the mouse and touch managers bind to the canvas
+and *queue* what they receive, draining in the loop's pre-step, so a tap against a
+stopped loop is captured and never processed.
+
+`antialiasGL: false` alongside it. That flag is the one handed to `getContext`, and
+every edge here is an axis-aligned rect or a textured quad with text rasterised before
+it is drawn — multisampling cost a full-screen resolve per frame and smoothed nothing
+jagged. The plain `antialias` flag stays `true`; that one is texture filtering, and
+every portrait is drawn scaled.
+
+**Measured, not assumed.** Kapture's browser extension is not installed, so the first
+attempt at verification failed. Headless Edge driven over CDP worked instead — wrapping
+`requestAnimationFrame` and `drawElements` before any page script runs, then standing up
+two real clients and starting a match:
+
+| | frames/s |
+| --- | --- |
+| table idle | **0** |
+| during a mouse move | 75 |
+| idle again | **0** |
+| after a click | 71 |
+| idle once more | **0** |
+| observing client, across an opponent's play and its beat | 65 |
+| observing client, the 3 s after | **0** |
+
+No page errors on either client.
+
+### The accessibility bug the harness found
+
+With two real clients on a table it became visible that `[data-twin="hand"]` was empty —
+so a keyboard or screen-reader player had **no hand at all** on the first deal.
+
+`a11yTwin` positions its hand proxies from `court.currentLayout()`, and `renderView` is
+what sets that layout — but the subscriber updated the twin *first*. It read the previous
+push's layout, and on the first deal there was none. Confirmed by measurement: nought
+proxies, then one the instant a second state update arrived. One line of reordering; two
+proxies on the first deal now. `subscriberOrder.test.ts` reads `main.ts` as text and
+holds the order, since the composition root has no test of its own.
+
+### The pulse that undid it
+
+Flagged here as a caveat, then reported as "still spiking", then fixed: the deck's
+low-card warning was `repeat: -1`, so `isAnimating()` stayed true and the loop could not
+sleep from the moment a deck reached three cards until the round ended. It re-fires per
+state update now — which is when a player is looking anyway — and
+`courtContract.test.ts` fails on any `repeat: -1` in the scene.
+
+Noting a defect in a document is not fixing it. This one was written down a round before
+it was reported.
+
+## 11. One unexplained observation
 
 A single run of `bun test src/server` reported one failure in `roomRegistry.test.ts`
 ("a semantically corrupt actionLog fails replay on cold get"). It has not reproduced
@@ -357,3 +554,89 @@ whether the twin needed the same fact. It is not separate work.
 
 `purity.test.ts` reads raw file text, so `layout/`, `content/`, `store/` and `tokens/`
 may not so much as name a DOM global in a comment.
+
+---
+
+## 12. The phone pass
+
+Driven on an emulated 390×844 handset (DPR 3) over CDP, with a desktop opponent, against
+a real dealt table. Both outstanding QA items were broken.
+
+### Long-press never fired
+
+A 700 ms hold opened the action sheet exactly as a tap does, and no hint ever appeared.
+Three causes, found in this order:
+
+**The timer was on Phaser's clock.** `this.time.delayedCall` only advances while the
+render loop runs — and the loop is asleep *precisely* when a player holds a finger still
+and nothing is moving. Meanwhile input kept working, because Phaser dispatches that
+immediately. The measurement that pinned it: a tap opened the sheet with **zero frames
+rendered**. Taps worked, holds could not.
+
+It is a `window` timer now, which is also the honest unit. It measures how long a finger
+has rested — nothing to do with game time — and what it raises is a DOM surface needing
+no frame drawn. `isAnimating()` no longer counts a pending press, for the same reason.
+
+**`WAKE_EVENTS` listed only pointer events.** Phaser's `TouchManager` binds
+`touchstart`/`touchmove`/`touchend`/`touchcancel` to the canvas directly, and those are
+what a finger is queued from. Browsers emit pointer events for touch as well, so the old
+list happened to work — by coincidence, and deaf to any touch arriving without one.
+
+**And the harness lied twice before the code did.** A synthetic `MouseEvent('mousedown')`
+produces no `pointerdown`, so it could never wake the loop; and reading the sheet's state
+*after* a press rather than during one showed a hint that had already been cleared. Two
+false readings that each looked like a product bug.
+
+### The dock sat on the action sheet
+
+Measured with a card raised: the dock ran to 464 px and the sheet began at 393 px, so the
+dock's last **71 px** covered the sheet's title and effect line — and the dock wins at
+z-index 5 against the sheet's 3. It shortens now while a bottom sheet is open, keyed on
+the same `data-sheet` attribute the tab's corner swap already uses. Re-measured: overlap
+**0**, Play still visible.
+
+### After the fixes
+
+| | |
+| --- | --- |
+| 150 ms tap | opens the sheet |
+| 700 ms hold | suppresses the tap, hint reads *"4 · Shielded Mind — Until your next turn, ignore effects from other players."* |
+| dock alone | 0–464 px, hand at 614 — clear |
+| dock + sheet | dock ends 354, sheet starts 393 — overlap 0 |
+
+### Still unverified
+
+Every press above went in as a **mouse**, because CDP touch injection hangs in this
+environment. So `wasTouch` was false throughout and two branches never ran: hover being
+suppressed on touch, and the 10 px drift cancel. Whether 450 ms reads as deliberate
+rather than sluggish is also a human judgement, unchanged by any of this.
+
+---
+
+## 13. Fourth round: Close scrolled away with the log
+
+> The match log can get long and the `Close` button is all the way at the bottom. The
+> player needs to scroll all the way down to close the tab.
+
+Both panels scrolled as a whole — `overflow-y: auto` on `.reference-modal` and on
+`.seat-dossier` — with Close appended last. The match log has no upper bound; it is every
+round the match has played, and §10's round history is what made it unbounded. So the
+distance to the way out grew with the length of the match.
+
+The dossier had it too, and for the same reason: its second tab renders that identical
+log. Fixing only the panel that was reported would have left the other half of the defect
+in place.
+
+Both are now a flex column that does not scroll, with a pinned header carrying the title
+and Close, the tab strip beneath it, and a single scrolling body. `min-height: 0` on that
+body is load-bearing — a flex child defaults to `min-content` and would refuse to shrink,
+pushing Close back off the panel.
+
+Measured on an emulated 390×844 handset with the body padded past the panel:
+
+| | |
+| --- | --- |
+| body overflow | 2622 px |
+| Close position | y 17–65, above the body |
+| after scrolling the body to its end | Close still on screen |
+| pressing it | dismisses the dock |

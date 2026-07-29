@@ -13,6 +13,7 @@ import { createLobbyScreen } from '../ui/lobbyScreen';
 import { createMenuScreen } from '../ui/menuScreen';
 import { createOverlays } from '../ui/overlays';
 import { createCardHint } from '../ui/cardHint';
+import { createEliminationNotice } from '../ui/eliminationNotice';
 import { createReferenceDock } from '../ui/referenceDock';
 import { createSeatDossier } from '../ui/seatDossier';
 import type { Surface } from '../ui/surface';
@@ -136,6 +137,17 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
                     { playerId: 'p4', nickname: 'Bayta', eligible: false, reason: 'eliminated' }
                 ],
                 available: { w: 390, h: 844 }
+            });
+        }
+    ],
+    [
+        'elimination notice',
+        root => {
+            const notice = createEliminationNotice();
+            drive(notice, root, makeState({ screen: 'table', table: makeTable() }));
+            notice.show({
+                headline: 'You are out of the round.',
+                detail: 'Ana compared hands with you. You held 3 · Ebling Mis; they held 5 · Bayta Darell. The lower card is out.'
             });
         }
     ],
@@ -316,11 +328,11 @@ describe('the gate itself', () => {
         // A surface added to the DOM layer but not to this list would ship
         // unchecked, and nothing else in the suite would notice.
         //
-        // Fifteen cases across fourteen surfaces: the reference dock appears
+        // Sixteen cases across fifteen surfaces: the reference dock appears
         // twice, because its two tabs render entirely different markup and
         // checking only the one it happens to open on would leave the other
         // unchecked.
-        expect(SURFACES).toHaveLength(15);
+        expect(SURFACES).toHaveLength(16);
     });
 
     it('detects a violation rather than passing over it', async () => {

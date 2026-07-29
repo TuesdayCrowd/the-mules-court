@@ -135,6 +135,27 @@ Boot → Preloader → Court
 
 **`input.windowEvents` is off** (`src/game/inputPolicy.ts`), also load-bearing. With Phaser's default, `MouseManager` binds `mousedown` to `window.top` and processes it precisely when `event.target !== canvas` — so a tap on the DOM layer hit-tests the table beneath it, and every tap on the action sheet also selected the card under it.
 
+**The render loop stops when the table is still** (`src/game/renderPolicy.ts`), and this
+one looks removable in a way the others do not. Phaser's `Game.step` renders
+unconditionally on every animation frame and no scene here defines `update()`, so a
+turn-based card game was redrawing an unchanged picture at the display's refresh rate
+for as long as the tab was open. `createRenderPump` stops the loop once nothing is
+animating and `main.ts` wakes it on state pushes, canvas input and every beat.
+
+It was built for a report of 80% GPU that turned out to be **Edge's "Transparency
+effects" setting** — browser chrome, not this page — and it is kept anyway. The waste it
+removes is arithmetic rather than a hypothesis (measured in a visible window: 60–120
+redraws a second of an unchanged picture, now zero), and this design is touch-first, so
+a phone otherwise spends battery holding a still image on screen. The full provenance is
+in the module header; do not delete it as complexity that solved a non-problem without
+reading that first.
+
+Two obligations follow. **Nothing may animate forever** — `Court.isAnimating()` is what
+permits sleep, so a `repeat: -1` tween pins the loop awake and silently undoes all of it
+(`courtContract.test.ts` guards this; the deck's warning pulse broke it for exactly one
+round). And **`isAnimating()` must stay honest**: a false positive wastes frames, a false
+negative freezes the table, and those are not comparable.
+
 `MainMenu`, `Game`, and `GameOver` were **deleted**, not replaced — a deliberate deviation from this file's former "keep the Scene chain as the skeleton" guidance, recorded in *UIX §2.5* rather than decided ad hoc. Menu and game-over are DOM surfaces now (`src/client/ui/menuScreen.ts`, `overlays.ts`), and an empty Phaser scene behind each would be dead weight.
 
 When adding gameplay, put the *decision* in a pure module and let `Court` walk the result. `buildRenderPlan` and `computeLayout` are both tested without a WebGL context; the scene is glue thin enough to review by reading, and that is the property to preserve.

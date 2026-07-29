@@ -40,8 +40,8 @@ function mounted(store: KeyValueStore = memoryStore()) {
 
     const q = <T extends Element>(selector: string) => root.querySelector(selector) as T | null;
 
-    function tableState(overrides: Parameters<typeof makeView>[0] = {}) {
-        return makeState({ screen: 'table', table: makeTable({ view: makeView(overrides) }) });
+    function tableState(overrides: Parameters<typeof makeView>[0] = {}, matchId = 'MATCH-1') {
+        return makeState({ screen: 'table', matchId, table: makeTable({ view: makeView(overrides) }) });
     }
 
     return {
@@ -53,7 +53,8 @@ function mounted(store: KeyValueStore = memoryStore()) {
         rows: () => [...root.querySelectorAll('[data-role="reference-row"]')],
         logSections: () => [...root.querySelectorAll('[data-role="log-section"]')],
         logLines: () => [...root.querySelectorAll('[data-role="log-line"]')],
-        show: (overrides: Parameters<typeof makeView>[0] = {}) => dock.update(tableState(overrides)),
+        show: (overrides: Parameters<typeof makeView>[0] = {}, matchId = 'MATCH-1') =>
+            dock.update(tableState(overrides, matchId)),
         tableState
     };
 }
@@ -175,6 +176,28 @@ describe('sharing the screen with the action sheet', () => {
         expect(getComputedStyle(ui.panel()!).maxHeight).not.toBe('none');
     });
 
+    it('gets shorter still while a bottom sheet is open', () => {
+        /**
+         * Measured on an emulated 390×844 phone with a card raised: the dock ran
+         * to 464px and the sheet began at 393px, so the dock's last 71px sat over
+         * the sheet's title and its effect line — and the dock wins at z-index 5
+         * against the sheet's 3.
+         *
+         * `data-sheet` is the attribute the sheet already sets for the tab's
+         * corner swap, so this costs no measurement and no new coupling.
+         */
+        const ui = mounted();
+        ui.show();
+        click(ui.launcher());
+
+        const alone = getComputedStyle(ui.panel()!).maxHeight;
+        ui.root.setAttribute('data-sheet', 'bottom');
+        const withSheet = getComputedStyle(ui.panel()!).maxHeight;
+
+        expect(withSheet).not.toBe(alone);
+        expect(Number.parseFloat(withSheet)).toBeLessThan(Number.parseFloat(alone));
+    });
+
     it('layers above an open action sheet, so it stays readable while composing a play', () => {
         const ui = mounted();
         ui.show();
@@ -190,8 +213,66 @@ describe('sharing the screen with the action sheet', () => {
     });
 });
 
+/**
+ * A match log grows without limit — every round the match has played, oldest
+ * first. With the whole panel scrolling and Close appended last, dismissing the
+ * dock meant scrolling to the bottom of the match's entire history first.
+ */
+describe('Close stays reachable however long the log gets', () => {
+    const LONG_HISTORY: CompletedRound[] = Array.from({ length: 12 }, (_, i) => ({
+        roundNumber: i + 1,
+        reason: 'last-survivor' as const,
+        winnerIds: ['p2'],
+        publicLog: LIVE_LOG
+    }));
+
+    function openedOnLog() {
+        const ui = mounted();
+        ui.show({ roundHistory: LONG_HISTORY, publicLog: LIVE_LOG });
+        click(ui.launcher());
+        click(ui.tabFor('log'));
+        return ui;
+    }
+
+    it('renders a log long enough to need scrolling', () => {
+        const ui = openedOnLog();
+        expect(ui.logSections().length).toBeGreaterThanOrEqual(12);
+    });
+
+    it('keeps Close outside the part that scrolls', () => {
+        const ui = openedOnLog();
+        const close = ui.root.querySelector('[data-action="close-dock"]')!;
+        const body = ui.root.querySelector('[data-role="dock-body"]')!;
+
+        expect(body).not.toBeNull();
+        expect(body.contains(close), 'Close scrolls away with the log').toBe(false);
+    });
+
+    it('scrolls the body rather than the whole panel', () => {
+        const ui = openedOnLog();
+        const body = ui.root.querySelector('[data-role="dock-body"]') as HTMLElement;
+
+        expect(getComputedStyle(body).overflowY).toBe('auto');
+        // The panel itself must not scroll, or the header goes with the content.
+        expect(getComputedStyle(ui.panel()!).overflowY).not.toBe('auto');
+    });
+
+    it('keeps the tabs reachable too, so the reference is one press away', () => {
+        const ui = openedOnLog();
+        const body = ui.root.querySelector('[data-role="dock-body"]')!;
+        expect(body.contains(ui.tabFor('reference')!)).toBe(false);
+    });
+
+    it('still closes when Close is pressed', () => {
+        const ui = openedOnLog();
+        (ui.root.querySelector('[data-action="close-dock"]') as HTMLButtonElement).click();
+        expect(ui.panel()).toBeNull();
+    });
+});
+
 describe('remembering how it was left', () => {
-    it('reopens on its own across a remount', () => {
+    it('reopens on its own across a remount of the same match', () => {
+        // The case the persistence is for: a reload mid-game.
         const store = memoryStore();
         const first = mounted(store);
         first.show();
@@ -202,6 +283,42 @@ describe('remembering how it was left', () => {
         second.show();
 
         expect(second.panel()).not.toBeNull();
+    });
+
+    /**
+     * Reported: "when host starts the round, the Reference dialog is open."
+     * Keyed globally, a dock left open in any earlier match reopened over a
+     * brand-new table — covering the top 55dvh of a hand not yet seen.
+     */
+    it('starts closed in a match it has never been opened in', () => {
+        const store = memoryStore();
+        const first = mounted(store);
+        first.show({}, 'MATCH-1');
+        click(first.launcher());
+        expect(first.panel()).not.toBeNull();
+        first.dock.destroy();
+
+        const second = mounted(store);
+        second.show({}, 'MATCH-2');
+
+        expect(second.panel(), 'a new match inherited the last one’s open dock').toBeNull();
+    });
+
+    it('keeps each match’s answer apart', () => {
+        const store = memoryStore();
+        const a = mounted(store);
+        a.show({}, 'MATCH-1');
+        click(a.launcher());
+        a.dock.destroy();
+
+        const b = mounted(store);
+        b.show({}, 'MATCH-2');
+        expect(b.panel()).toBeNull();
+        b.dock.destroy();
+
+        const backToA = mounted(store);
+        backToA.show({}, 'MATCH-1');
+        expect(backToA.panel()).not.toBeNull();
     });
 
     it('stays shut across a remount when it was shut', () => {
@@ -217,6 +334,8 @@ describe('remembering how it was left', () => {
     });
 
     it('reopens on the tab that was showing', () => {
+        // The tab is a taste and travels with the player, unlike being open,
+        // which is a fact about one table.
         const store = memoryStore();
         const first = mounted(store);
         first.show();
@@ -224,8 +343,12 @@ describe('remembering how it was left', () => {
         click(first.tabFor('log'));
         first.dock.destroy();
 
+        // A different match, so it starts closed and the tab is the only thing
+        // carried over — which is the distinction being asserted.
         const second = mounted(store);
-        second.show();
+        second.show({}, 'MATCH-2');
+        expect(second.panel()).toBeNull();
+        click(second.launcher());
 
         expect(second.tabFor('log')!.getAttribute('aria-selected')).toBe('true');
     });

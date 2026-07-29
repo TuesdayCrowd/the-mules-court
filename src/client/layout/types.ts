@@ -63,7 +63,30 @@ export interface ChipSpec {
     readonly medallion: number;
     /** Where the token row starts. Always at or below `nameBandH`. */
     readonly tokenTop: number;
-    /** Where the pip block starts. Always at or below `tokenTop + medallion`. */
+    /**
+     * Font size for the two small lines — the peek marker and the state caption.
+     *
+     * One value, not two, because they are drawn by one method and a chip with
+     * its marker and its caption at different sizes would read as an accident.
+     * Both were pinned at 11px and neither scaled with the chip.
+     */
+    readonly smallPx: number;
+    /** Height one small line occupies, scrim included. */
+    readonly smallH: number;
+    /** Where the peek marker starts. Always at or below `tokenTop + medallion`. */
+    readonly markerTop: number;
+    /**
+     * Where the state caption starts. Always at or below `markerTop + markerH`,
+     * and always finishing before `pipTop`.
+     *
+     * It used to be drawn at a literal `rect.h - 16`, which put "Protected —
+     * cannot be targeted" straight through the discard pips at every viewport —
+     * the same collision the token row had with the nickname, one band further
+     * down. Bare text, too: the nickname and the pips both carry scrims and this
+     * did not, so it sat on the nebula and on the numerals at once.
+     */
+    readonly captionTop: number;
+    /** Where the pip block starts. Always at or below `captionTop + smallH`. */
     readonly pipTop: number;
 }
 

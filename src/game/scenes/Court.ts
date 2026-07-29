@@ -51,11 +51,33 @@ export class Court extends Scene {
     /**
      * The pending long press, if any.
      *
+     * A **window** timer, not `this.time.delayedCall`, and that is the whole of
+     * why long-press works. Phaser dispatches input the moment the browser hands
+     * it over, but its Clock only advances while the render loop runs — and the
+     * loop is asleep precisely when a player is holding a finger still on a card
+     * and nothing is moving. Measured on an emulated handset: a tap opened the
+     * sheet with the loop stopped, and a 700ms hold did nothing at all, because
+     * the 450ms timer sat in a clock that was not ticking.
+     *
+     * Wall-clock is also the honest unit here. This measures how long a finger
+     * has rested, which has nothing to do with game time, and what it raises is
+     * a DOM surface that needs no frame drawn to appear.
+     *
      * One at a time — a second finger starts a new press rather than racing the
      * first — and cleared whenever the table is rebuilt, because the card it
      * was going to describe has just been destroyed.
      */
-    private pressTimer: Phaser.Time.TimerEvent | null = null;
+    private pressTimer: number | null = null;
+    /**
+     * Beats currently mid-flight.
+     *
+     * The render pump asks before it stops the loop, and a beat is the one piece
+     * of motion it cannot see for itself: `playBeat` resolves from a tween's
+     * completion, and the presentation queue awaits that promise before
+     * releasing the next announcement. Sleeping through one stalls the table
+     * permanently, so this is counted rather than inferred.
+     */
+    private beatsInFlight = 0;
     private latest: ClientState | null = null;
     private resizeHandle: number | null = null;
 
@@ -79,7 +101,7 @@ export class Court extends Scene {
         this.events.once('shutdown', () => {
             this.deckPulse?.stop();
             this.deckPulse = null;
-            this.pressTimer?.remove();
+            if (this.pressTimer !== null) window.clearTimeout(this.pressTimer);
             this.pressTimer = null;
             this.beats.destroy();
             this.scale.off('resize', this.onResize, this);
@@ -143,7 +165,7 @@ export class Court extends Scene {
         // The card a pending press was going to describe is about to be
         // destroyed, and the hint that is up describes a table that no longer
         // exists.
-        this.pressTimer?.remove();
+        if (this.pressTimer !== null) window.clearTimeout(this.pressTimer);
         this.pressTimer = null;
         this.events.emit(CARD_HINT_CLEARED);
         this.table.removeAll(true);
@@ -176,6 +198,18 @@ export class Court extends Scene {
          *
          * Alpha rather than scale: the rect has `origin(0, 0)`, so scaling it
          * would grow the deck down and to the right instead of breathing.
+         *
+         * **Bounded, not endless, and that is a performance constraint rather
+         * than a taste.** This started as `repeat: -1`, which meant a tween was
+         * live for the whole of every late round — and `isAnimating()` is true
+         * while any tween is, so the render loop could never stop. A card game
+         * held at the display's refresh rate for the back half of every round,
+         * to breathe one rectangle, is not a trade worth making on a battery.
+         *
+         * It re-fires on each state update instead, which is when a player is
+         * looking anyway: the deck draws the eye every time the table changes,
+         * and the table is still between times. UIX §6.3's "never colour alone"
+         * still holds — the warning is in motion as well as in hue.
          */
         if (plan.deck.pulse !== 'none' && !this.reducedMotion()) {
             const strong = plan.deck.pulse === 'strong';
@@ -185,7 +219,7 @@ export class Court extends Scene {
                 duration: strong ? 520 : 900,
                 ease: 'Sine.easeInOut',
                 yoyo: true,
-                repeat: -1
+                repeat: strong ? DECK_PULSE_REPEATS_STRONG : DECK_PULSE_REPEATS_SUBTLE
             });
         }
 
@@ -596,31 +630,70 @@ export class Court extends Scene {
         // recomputed per call, so a card played, traded or redrawn simply stops
         // appearing here. The client mirrors that and decides nothing.
         if (seat.knownCard !== null) {
-            // Below the medallion row rather than beside the nickname: the
-            // top-right corner now belongs to the card-back marker.
-            const known = this.add.text(
-                seat.rect.x + chip.pad,
-                seat.rect.y + chip.tokenTop + chip.medallion + chip.pad,
-                // Value first, like every other card label on the table. This
-                // marker is the standing record of a peek — it outlives the
-                // reveal — so it is the one a player actually reads back when
-                // deciding a guess, and a name alone makes them recall the
-                // number instead of read it.
+            // Value first, like every other card label on the table. This marker
+            // is the standing record of a peek — it outlives the reveal — so it
+            // is the one a player actually reads back when deciding a guess, and
+            // a name alone makes them recall the number instead of read it.
+            this.chipLine(
+                seat,
+                chip,
+                chip.markerTop,
                 `you know: ${cardLabel(seat.knownCard)}`,
-                { fontFamily: FONT_UI, fontSize: '11px', color: hex(TOKENS.colorSeatProtected) }
+                hex(TOKENS.colorSeatProtected)
             );
-            known.setOrigin(0, 0);
-            this.table.add(known);
         }
 
+        /**
+         * The seat's state, in words (UIX §6.3 — never colour alone).
+         *
+         * Drawn from `chip.captionTop`, which is budgeted between the marker and
+         * the pips. It used to sit at a literal `rect.h - 16` while the pip block
+         * was measured up from the bottom edge, so it landed inside the discard
+         * values at every viewport — reported as "the text for being protected is
+         * drawn over the same area of an opponent's discard".
+         */
         if (seat.caption !== null) {
-            const caption = this.add.text(seat.rect.x + chip.pad, seat.rect.y + seat.rect.h - 16, seat.caption, {
-                fontFamily: FONT_UI,
-                fontSize: '11px',
-                color: hex(SEAT_COLOURS[seat.state])
-            });
-            this.table.add(caption);
+            this.chipLine(seat, chip, chip.captionTop, seat.caption, hex(SEAT_COLOURS[seat.state]));
         }
+    }
+
+    /**
+     * One small labelled line inside a seat chip, on its own scrim.
+     *
+     * Both callers previously drew bare text at a fixed 11px. The nickname and
+     * the pips have carried scrims for a while — the chip's border is
+     * stroke-only, so anything without one sits straight on the nebula — and
+     * these two were the last table text that did not.
+     *
+     * Scrim sized to the text rather than the chip, for the reason the nickname's
+     * is: a two-player table gives one opponent the full width of the screen, and
+     * a full-width bar there is a black stripe across the table rather than a
+     * legibility aid.
+     */
+    private chipLine(seat: SeatPlan, chip: ChipSpec, top: number, text: string, colour: string): void {
+        const y = seat.rect.y + top;
+
+        const label = this.add
+            .text(seat.rect.x + chip.pad, y, text, {
+                fontFamily: FONT_UI,
+                fontSize: `${chip.smallPx}px`,
+                color: colour
+            })
+            .setOrigin(0, 0);
+
+        // Measured, then clamped. Only Phaser knows how wide a string actually
+        // set, and a chip is `contentW / opponentCount` — narrow enough that a
+        // state caption used to run off its right edge.
+        const room = seat.rect.w - chip.pad * 2;
+        if (label.width > room) label.setScale(room / label.width);
+
+        const scrim = this.add
+            .rectangle(seat.rect.x, y - 1, label.displayWidth + chip.pad * 2, chip.smallH, TOKENS.colorBg, 0.6)
+            .setOrigin(0, 0);
+
+        // Scrim first: it is a backdrop, and added second it would cover the
+        // text it exists to make readable.
+        this.table.add([scrim, label]);
     }
 
     /**
@@ -802,7 +875,7 @@ export class Court extends Scene {
         let longPressed = false;
 
         const cancelTimer = (): void => {
-            this.pressTimer?.remove();
+            if (this.pressTimer !== null) window.clearTimeout(this.pressTimer);
             this.pressTimer = null;
         };
 
@@ -836,12 +909,12 @@ export class Court extends Scene {
             longPressed = false;
             cancelTimer();
 
-            this.pressTimer = this.time.delayedCall(LONG_PRESS_MS, () => {
+            this.pressTimer = window.setTimeout(() => {
                 this.pressTimer = null;
                 if (pressedAt === null) return;
                 longPressed = true;
                 this.events.emit(CARD_HINTED, cardId, pressedAt);
-            });
+            }, LONG_PRESS_MS);
         });
 
         hit.on('pointerup', () => {
@@ -878,7 +951,27 @@ export class Court extends Scene {
      * the accessible channel can never run ahead of the visible one.
      */
     playBeat(beat: Parameters<BeatRunner['run']>[0], context?: Parameters<BeatRunner['run']>[1]): Promise<void> {
-        return this.beats.run(beat, context);
+        this.beatsInFlight++;
+        // `finally`, not `then`: a beat that throws must still release the
+        // counter, or the loop never sleeps again for the rest of the session.
+        return this.beats.run(beat, context).finally(() => {
+            this.beatsInFlight--;
+        });
+    }
+
+    /**
+     * Whether anything on this scene is still moving.
+     *
+     * Read by the render pump before it stops the loop. Every source of motion
+     * is named explicitly rather than guessed at, because the cost of a false
+     * negative is a frozen table and the cost of a false positive is a few
+     * wasted frames.
+     */
+    isAnimating(): boolean {
+        // A pending long press is deliberately NOT here. It is a window timer
+        // raising a DOM hint, so it needs no frame drawn and must not hold the
+        // loop open while a player rests a finger on a card.
+        return this.beatsInFlight > 0 || this.tweens.getTweens().length > 0;
     }
 
     /** The spec the table was last drawn from, for the accessibility twin's hand proxies. */
@@ -961,6 +1054,16 @@ const REVEALED_H = 30;
  * what `ownRow.medallionSpan` is measured with.
  */
 const MEDALLION_GAP = 2;
+
+/**
+ * How many times the deck's warning breathes per state update.
+ *
+ * Finite by requirement: an endless tween keeps `isAnimating()` true, and the
+ * render loop cannot stop while anything is animating. Strong gets more because
+ * an empty deck means the showdown is the next play.
+ */
+const DECK_PULSE_REPEATS_SUBTLE = 1;
+const DECK_PULSE_REPEATS_STRONG = 3;
 
 /**
  * How long a finger must rest on a card before it reads as "tell me about this"

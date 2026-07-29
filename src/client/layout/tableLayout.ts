@@ -175,6 +175,29 @@ const MIN_MEDALLION_PX = 10;
 const MEDALLION_FRACTION = 0.06;
 
 /**
+ * The two small lines under the tokens: the peek marker and the state caption.
+ *
+ * Both were pinned at 11px and neither had any space reserved for it — the
+ * caption was positioned from the chip's bottom edge, which is where the pip
+ * block already lives.
+ */
+const MIN_SMALL_LINE_PX = 10;
+const SMALL_LINE_FRACTION = 0.075;
+
+/**
+ * What one line of text actually occupies, as a multiple of its size.
+ *
+ * Generous on purpose: this budget is what keeps two bands apart, and only
+ * Phaser knows exactly how tall a string set, so the reserve has to be at least
+ * as large as the tallest it could be. A little slack costs a few pixels; too
+ * little puts the caption back in the pips.
+ */
+const LINE_HEIGHT = 1.3;
+
+/** Between the two small lines, which are close kin and need less air than a band. */
+const SMALL_GAP = 3;
+
+/**
  * Where a chip's bands sit, for a chip of this height.
  *
  * Stacked strictly: name band, then tokens, then pips against the bottom edge.
@@ -187,22 +210,39 @@ function chipBands(chipH: number, pip: PipSpec): ChipSpec {
     const medallion = Math.max(MIN_MEDALLION_PX, Math.round(chipH * MEDALLION_FRACTION));
     const nameBandH = nameH + CHIP_PAD * 2;
 
+    const smallPx = Math.max(MIN_SMALL_LINE_PX, Math.round(chipH * SMALL_LINE_FRACTION));
+    const smallH = Math.round(smallPx * LINE_HEIGHT);
+
+    const tokenTop = nameBandH;
+    const markerTop = tokenTop + medallion + SMALL_GAP;
+    const captionTop = markerTop + smallH + SMALL_GAP;
+
     return {
         pad: CHIP_PAD,
         nameH,
         nameBandH,
         medallion,
-        tokenTop: nameBandH,
+        tokenTop,
+        smallPx,
+        smallH,
+        markerTop,
+        captionTop,
         // Against the bottom edge, so the pile grows upward into the space the
-        // tokens are guaranteed to have left.
+        // bands above are guaranteed to have left.
         pipTop: chipH - pipBlockHeight(pip) - CHIP_PAD
     };
 }
 
-/** Whether a chip of this height can hold all three bands without them meeting. */
+/**
+ * Whether a chip of this height holds every band without them meeting.
+ *
+ * The caption is the lowest, so clearing the pips clears everything above it —
+ * each band's top is derived from the one before, which is the property that
+ * makes one comparison enough.
+ */
 function bandsFit(chipH: number, pip: PipSpec): boolean {
     const bands = chipBands(chipH, pip);
-    return bands.tokenTop + bands.medallion + CHIP_PAD <= bands.pipTop;
+    return bands.captionTop + bands.smallH + SMALL_GAP <= bands.pipTop;
 }
 
 /**
@@ -220,7 +260,7 @@ function chipHeightForBands(floor: number, pip: PipSpec): number {
     for (let attempt = 0; attempt < 8 && !bandsFit(chipH, pip); attempt++) {
         const bands = chipBands(chipH, pip);
         // Exactly the shortfall, so growth stops as soon as the bands clear.
-        chipH += bands.tokenTop + bands.medallion + CHIP_PAD - bands.pipTop;
+        chipH += bands.captionTop + bands.smallH + SMALL_GAP - bands.pipTop;
     }
 
     return chipH;
