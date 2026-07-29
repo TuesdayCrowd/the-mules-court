@@ -36,7 +36,7 @@
 
 **Goal:** The capability boundary, the turn router, and the fallback policy exist and are tested, with no socket and no MCP.
 **Success criteria:** `bun test src/mcp` green; the public roster provably carries no handle; a handle resolves only its own seat.
-**Status:** In Progress
+**Status:** Complete — 39 tests across three files.
 
 ### Task 1: Seat registry — the capability table
 
