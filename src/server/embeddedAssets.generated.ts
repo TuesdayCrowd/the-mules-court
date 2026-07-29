@@ -23,8 +23,8 @@ import a4 from '../../dist/assets/card-front/card_front_3.png' with { type: 'fil
 import a5 from '../../dist/assets/ebling-mis/portrait_0.png' with { type: 'file' };
 import a6 from '../../dist/assets/first-speaker/portrait_0.png' with { type: 'file' };
 import a7 from '../../dist/assets/han-pritcher/portrait_0.png' with { type: 'file' };
-import a8 from '../../dist/assets/index-BtEXKq5B.js' with { type: 'file' };
-import a9 from '../../dist/assets/index-YfIbg807.css' with { type: 'file' };
+import a8 from '../../dist/assets/index-B_DZWN3o.css' with { type: 'file' };
+import a9 from '../../dist/assets/index-BcXOfH1l.js' with { type: 'file' };
 import a10 from '../../dist/assets/informant/portrait_0.png' with { type: 'file' };
 import a11 from '../../dist/assets/magnifico/portrait_0.png' with { type: 'file' };
 import a12 from '../../dist/assets/mayor-indbur/portrait_0.png' with { type: 'file' };
@@ -55,8 +55,8 @@ export const EMBEDDED: ReadonlyMap<string, string> = new Map([
     ['/assets/ebling-mis/portrait_0.png', a5],
     ['/assets/first-speaker/portrait_0.png', a6],
     ['/assets/han-pritcher/portrait_0.png', a7],
-    ['/assets/index-BtEXKq5B.js', a8],
-    ['/assets/index-YfIbg807.css', a9],
+    ['/assets/index-B_DZWN3o.css', a8],
+    ['/assets/index-BcXOfH1l.js', a9],
     ['/assets/informant/portrait_0.png', a10],
     ['/assets/magnifico/portrait_0.png', a11],
     ['/assets/mayor-indbur/portrait_0.png', a12],

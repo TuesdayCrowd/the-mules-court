@@ -188,6 +188,69 @@ describe('Room — round advancement (Design §6, §12.4)', () => {
         }
     });
 
+    /**
+     * Reported from play: an opponent went out to a correct Informant guess and
+     * the countdown sat at zero without advancing. A round that ends by
+     * ELIMINATION rather than by the deck running out takes the same path, and
+     * this pins that: the guess is forced to hit, so the round ends the way the
+     * report describes rather than however the seed happened to end it.
+     */
+    it('a round ended by a correct guess still advances when the window elapses', async () => {
+        const { room, conns } = makeConnectedLobby(fixedSeedDeps(SEED));
+        try {
+            room.startMatch(conns[0]);
+
+            // Play Informants, guessing the value the target is actually holding,
+            // until somebody goes out. White-box on purpose: the point is to
+            // reach an elimination-ended round deterministically.
+            let eliminated = false;
+            for (let i = 0; i < 200 && !eliminated; i++) {
+                const match = liveMatch(room);
+                if (match.round.phase === 'round-over' || isMatchOver(match)) break;
+
+                const actorId = match.round.seatOrder[match.round.currentPlayerIndex];
+                const legal = computeLegalPlays(match.round, actorId);
+                const informant = legal.find(id => cardTypeOf(id) === 'informant');
+                const cardInstanceId = informant ?? legal[0];
+                const effectDef = EFFECT_DEFS[CARD_CATALOG[cardTypeOf(cardInstanceId)].effectType];
+                const targets = computeLegalTargets(match.round, actorId, effectDef);
+                const actingConn = conns[Number(actorId.slice(1)) - 1];
+
+                // When we hold an Informant, guess what the target really has.
+                let guess: GuessValue | undefined;
+                if (effectDef.requiresGuess && targets.length > 0) {
+                    const held = match.round.players[targets[0]].hand[0];
+                    const value = held === undefined ? 2 : CARD_CATALOG[cardTypeOf(held)].value;
+                    guess = (value === 1 ? 2 : value) as GuessValue;
+                }
+
+                room.playCard(actingConn, {
+                    type: 'PLAY_CARD',
+                    matchId: room.matchId,
+                    cardInstanceId,
+                    ...(targets.length > 0 ? { target: targets[0] } : {}),
+                    ...(guess === undefined ? {} : { guess })
+                });
+
+                eliminated = liveMatch(room).round.publicLog.some(
+                    entry => entry.kind === 'ELIMINATED' && entry.cause === 'guard'
+                );
+            }
+
+            const ended = liveMatch(room);
+            if (isMatchOver(ended)) return; // a match win legitimately arms nothing
+            expect(ended.round.phase).toBe('round-over');
+            expect(latestStateUpdate(conns[0]).revealDeadline, 'no reveal window was armed').toBeDefined();
+            expect(latestStateUpdate(conns[0]).paused, 'the room paused itself').toBe(false);
+
+            // The whole complaint: the window elapses and nothing happens.
+            await waitForElapsed(() => latestStateUpdate(conns[0]).phase === 'active', 200);
+            expect(liveMatch(room).round.roundNumber).toBeGreaterThan(ended.round.roundNumber);
+        } finally {
+            room.dispose();
+        }
+    });
+
     it('a match-winning round never arms the timer: no further push, and no throw, across the window', async () => {
         // The Task 8 idiom, made the true precedence stress test: only force
         // matchWinnerId when the underlying reduce() ALSO ended the round, so

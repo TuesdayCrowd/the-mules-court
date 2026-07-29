@@ -722,6 +722,56 @@ h2,
 }
 
 /**
+ * "You are out, and here is why" (UIX §9, extended).
+ *
+ * Above the round-over overlay at z-index 7, because going out is very often
+ * what ended the round and both arrive in the same state push. Stacked rather
+ * than competing: why you are out, then what became of the round, in the order
+ * they happened.
+ *
+ * Its own box rather than `.overlay`'s, because it is not the same kind of
+ * thing — this one is addressed to one player and is dismissed by them, so it
+ * is sized to a sentence and led by its button.
+ */
+.elimination-notice {
+    position: fixed;
+    inset: auto 0 auto 0;
+    top: 50%;
+    transform: translateY(-50%);
+    z-index: 7;
+    margin: 0 auto;
+    width: min(92%, 30rem);
+    max-height: 80dvh;
+    overflow-y: auto;
+    padding: var(--space-6);
+    border-radius: var(--radius);
+    background: rgb(0 0 0 / 0.96);
+    border: 1px solid var(--color-seat-eliminated);
+    text-align: center;
+}
+
+.elimination-notice h2 {
+    margin: 0 0 var(--space-3);
+    color: var(--color-seat-eliminated);
+}
+
+.elimination-notice p {
+    margin: 0 0 var(--space-6);
+    line-height: 1.45;
+}
+
+.elimination-notice button {
+    min-height: var(--tap-min);
+    padding: 0 var(--space-6);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-state-your-turn);
+    background: transparent;
+    color: var(--color-text-primary);
+    font: inherit;
+    cursor: pointer;
+}
+
+/**
  * Round over, match over, paused (UIX §9). The table stays visible beneath —
  * the round result only makes sense against the seats that produced it.
  */

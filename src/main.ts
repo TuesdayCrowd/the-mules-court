@@ -42,6 +42,7 @@ import { createActionSheet } from './client/ui/actionSheet';
 import type { SheetRequest, SheetTarget } from './client/ui/actionSheet';
 import { createClipboard } from './client/ui/clipboard';
 import { createCardHint } from './client/ui/cardHint';
+import { createEliminationNotice } from './client/ui/eliminationNotice';
 import { createConnectionDot } from './client/ui/connectionDot';
 import { createFatalScreen } from './client/ui/fatalScreen';
 import { createJoinScreen } from './client/ui/joinScreen';
@@ -168,6 +169,7 @@ function boot(): void {
     // needs the same storage the seat token uses — injected, never reached for.
     const referenceDock = createReferenceDock({ storage: window.localStorage });
     const cardHint = createCardHint({ viewport: () => ({ w: window.innerWidth, h: window.innerHeight }) });
+    const eliminationNotice = createEliminationNotice();
 
     uiRoot.add(createConnectionDot());
     uiRoot.add(
@@ -212,6 +214,7 @@ function boot(): void {
     );
     uiRoot.add(referenceDock);
     uiRoot.add(cardHint);
+    uiRoot.add(eliminationNotice);
     uiRoot.add(seatDossier);
     uiRoot.add(actionSheet);
     uiRoot.add(
