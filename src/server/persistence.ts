@@ -48,6 +48,14 @@ export interface StoredSeat {
     readonly playerId: PlayerId;
     readonly nickname: string;
     readonly tokenHash: string;
+    /**
+     * True for a seat the host filled with a computer opponent.
+     *
+     * Optional, and therefore needs no migration: `seats` is a JSON column, so
+     * a row written before bots existed simply parses without the field and
+     * reads as a human seat — which is what it was.
+     */
+    readonly bot?: boolean;
 }
 
 export interface MatchRecord {

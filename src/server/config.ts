@@ -9,6 +9,7 @@ export interface TransportConfig {
     readonly publicBaseUrl: string;          // joinUrl prefix
     readonly dbPath: string;                 // ':memory:' in tests
     readonly revealWindowMs: number;         // 10_000 — fixed by design
+    readonly botThinkMs: number;             // 1_200 — pacing, not compute
     readonly lobbyDisconnectGraceMs: number; // 60_000
     readonly lobbyTtlMs: number;             // 15 * 60_000
     readonly activeGraceMs: number;          // 120_000
@@ -37,6 +38,11 @@ export const DEFAULT_CONFIG: TransportConfig = {
     port: 3000,
     publicBaseUrl: 'http://localhost:3000',
     dbPath: 'mules-court.sqlite',
+    // Deliberate pacing, not the time a decision takes. The heuristic answers
+    // in well under a millisecond, and a bot that replies instantly reads as a
+    // scripted cutscene rather than an opponent — it also outruns the client's
+    // own beat cadence, so cards would move before the last animation landed.
+    botThinkMs: 1_200,
     revealWindowMs: 10_000,
     lobbyDisconnectGraceMs: 60_000,
     lobbyTtlMs: 15 * 60_000,

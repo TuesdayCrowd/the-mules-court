@@ -26,22 +26,45 @@
  */
 
 import {
+    CARD_CATALOG,
+    cardTypeOf,
     createMatch as engineCreateMatch,
+    INFORMANT_VALUE,
     isMatchOver as engineIsMatchOver,
     reduce as engineReduce,
     startNextRound as engineStartNextRound,
     view as engineView
 } from '../game/engine';
-import type { MatchState, PlayCardAction, PlayerId, ReduceResult, RedactedView } from '../game/engine';
+import type {
+    CardInstanceId,
+    GuessValue,
+    MatchState,
+    PlayCardAction,
+    PlayerId,
+    ReduceResult,
+    RedactedView
+} from '../game/engine';
 import type { TransportConfig } from './config';
 import type { EndReason, MatchPhase, MatchRecord, StoredSeat } from './persistence';
 import { MatchStore, replayMatch } from './persistence';
 import type { ClientMessage, ErrorCode, ServerMessage, SeatStatus } from './protocol';
 import { hashToken, mintMatchId, mintSeed, mintToken, tokenMatches } from './seatTokens';
+import { heuristicPolicy } from '../game/ai/heuristic';
+import { makeRng } from '../game/ai/rng';
 
 /** The fixed seat pool: index 0 is always the host, minted before any join (Design §2, §13). */
 const HOST_SEAT_INDEX = 0;
 const HOST_PLAYER_ID: PlayerId = 'p1';
+
+/**
+ * Display names for computer opponents, indexed by seat.
+ *
+ * Minted here because `nickname` is a `StoredSeat` field and a bot has no
+ * client to supply one — the same reason the host seat's nickname is adopted
+ * over the wire rather than invented. Every name is a Foundation character who
+ * is NOT a card, so a seat label can never be mistaken for a revealed hand.
+ */
+const BOT_NICKNAMES: readonly string[] = ['Preem Palver', 'Arkady Darell', 'Lathan Devers', 'Ducem Barr'];
 
 /** index.ts adapts a `ServerWebSocket` to this; RecordingConn in tests implements it directly. */
 export interface SeatConnection {
@@ -62,6 +85,16 @@ interface Seat {
     tokenHash: string | null; // null = open
     conn: SeatConnection | null;
     disconnectedAt: number | null;
+    /**
+     * A computer opponent the host seated (Computer Opponent Design §8).
+     *
+     * A bot seat holds a token and never holds a socket, which is precisely
+     * the shape `missingSeats` was written to detect — so every derivation
+     * built on "claimed but not connected" has to exclude it explicitly.
+     * There are four: `missingSeats`, `canStart`, the lobby reaper's seat
+     * reopening, and `sweepActive`'s zero-connection check.
+     */
+    bot: boolean;
 }
 
 /**
@@ -77,6 +110,52 @@ export interface RoomDeps {
     startNextRound?: (match: MatchState) => MatchState;
     view?: (match: MatchState, viewerId: PlayerId) => RedactedView;
     isMatchOver?: (match: MatchState) => boolean;
+    /**
+     * What a computer opponent plays, given only its own redacted view.
+     *
+     * Injected for the same reason every other engine call here is: a test can
+     * force a specific line of play. The signature is the real defence, though
+     * — it takes a `RedactedView`, so a bot cannot be handed the deck even by
+     * a caller trying to.
+     */
+    chooseBotPlay?: (view: RedactedView) => BotPlay | null;
+}
+
+/** A bot's move, shaped like `PLAY_CARD`'s payload minus the routing. */
+export interface BotPlay {
+    readonly cardInstanceId: CardInstanceId;
+    readonly target?: PlayerId;
+    readonly guess?: GuessValue;
+}
+
+/**
+ * The default policy: the trained-structure heuristic from `src/game/ai/`.
+ *
+ * One generator per room, seeded from the match id so a room's bots replay
+ * identically. It cannot affect the deal — the engine's own RNG is a separate
+ * stream — so this only ever decides how a tie between equally-scored moves
+ * falls.
+ */
+function defaultBotPlay(matchId: string): (view: RedactedView) => BotPlay | null {
+    const rng = makeRng(`bots:${matchId}`);
+    return view => heuristicPolicy.decide(view, rng);
+}
+
+/**
+ * The engine's own first offer — a stall-breaker, not a policy.
+ *
+ * Reached only when a policy proposes something `reduce` refuses, which means
+ * the policy restated a rule. A dull legal move beats a table that stops.
+ */
+function firstLegalPlay(view: RedactedView): BotPlay | null {
+    const cardInstanceId = view.own.legalPlays[0];
+    if (cardInstanceId === undefined) return null;
+
+    const target = (view.own.legalTargets[cardInstanceId] ?? [])[0];
+    if (target === undefined) return { cardInstanceId };
+
+    const isInformant = CARD_CATALOG[cardTypeOf(cardInstanceId)].value === INFORMANT_VALUE;
+    return { cardInstanceId, target, ...(isInformant ? { guess: 2 as GuessValue } : {}) };
 }
 
 function makeEmptySeats(): Seat[] {
@@ -86,7 +165,8 @@ function makeEmptySeats(): Seat[] {
         nickname: null,
         tokenHash: null,
         conn: null,
-        disconnectedAt: null
+        disconnectedAt: null,
+        bot: false
     }));
 }
 
@@ -106,7 +186,10 @@ function restoreSeats(stored: readonly StoredSeat[], rebuiltAt: number): Seat[] 
         // '' unambiguously means "no nickname set" — the mirror of toStoredSeats below.
         seat.nickname = s.nickname === '' ? null : s.nickname;
         seat.conn = null;
-        seat.disconnectedAt = rebuiltAt;
+        seat.bot = s.bot === true;
+        // A rebuilt bot is not "disconnected" — it never had a socket to lose,
+        // and stamping this would make it look missing to every grace window.
+        seat.disconnectedAt = seat.bot ? null : rebuiltAt;
     }
     return seats;
 }
@@ -138,6 +221,9 @@ export class Room {
      */
     private advancing: boolean;
 
+    /** The pending computer move, if the seat holding the turn is a bot. */
+    private botTimer: ReturnType<typeof setTimeout> | null;
+
     private queue: Promise<void> = Promise.resolve();
 
     private constructor(
@@ -163,6 +249,7 @@ export class Room {
         this.revealDeadline = null;
         this.revealTimer = null;
         this.advancing = false;
+        this.botTimer = null;
         this.createdAt = createdAt;
         this.config = config;
         this.store = store;
@@ -175,13 +262,17 @@ export class Room {
      * lobby record before returning.
      */
     static create(config: TransportConfig, store: MatchStore, deps: RoomDeps = {}): { room: Room; hostSeatToken: string } {
+        // Minted before the deps rather than at construction, because the
+        // default bot policy seeds its generator from it.
+        const matchId = mintMatchId();
         const resolvedDeps: Required<RoomDeps> = {
             now: deps.now ?? Date.now,
             createMatch: deps.createMatch ?? engineCreateMatch,
             reduce: deps.reduce ?? engineReduce,
             startNextRound: deps.startNextRound ?? engineStartNextRound,
             view: deps.view ?? engineView,
-            isMatchOver: deps.isMatchOver ?? engineIsMatchOver
+            isMatchOver: deps.isMatchOver ?? engineIsMatchOver,
+            chooseBotPlay: deps.chooseBotPlay ?? defaultBotPlay(matchId)
         };
         const createdAt = resolvedDeps.now();
 
@@ -194,7 +285,7 @@ export class Room {
         // connects at all. handleClose overwrites it on later disconnects.
         seats[HOST_SEAT_INDEX].disconnectedAt = createdAt;
 
-        const room = new Room(mintMatchId(), seats, 'lobby', createdAt, config, store, resolvedDeps);
+        const room = new Room(matchId, seats, 'lobby', createdAt, config, store, resolvedDeps);
         room.persist();
 
         return { room, hostSeatToken };
@@ -239,7 +330,8 @@ export class Room {
             reduce: deps.reduce ?? engineReduce,
             startNextRound: deps.startNextRound ?? engineStartNextRound,
             view: deps.view ?? engineView,
-            isMatchOver: deps.isMatchOver ?? engineIsMatchOver
+            isMatchOver: deps.isMatchOver ?? engineIsMatchOver,
+            chooseBotPlay: deps.chooseBotPlay ?? defaultBotPlay(record.matchId)
         };
 
         const seats = restoreSeats(record.seats, resolvedDeps.now());
@@ -397,6 +489,10 @@ export class Room {
 
         if (nowUnpaused) {
             this.pushStateToConnectedSeats(seat);
+            // The bots stopped when the table paused; a resume is what restarts
+            // them, and only after the state push so the reconnecting player
+            // sees the position before it moves.
+            this.scheduleBotTurn();
         }
 
         return { seat: seat.index, playerId: seat.playerId };
@@ -424,6 +520,10 @@ export class Room {
         // timer — the countdown restarts on reconnect, it never resumes.
         if (this.phase === 'active') {
             this.clearRevealTimer();
+            // Re-evaluated rather than merely cleared: this returns early while
+            // the table is paused, which is exactly the behaviour wanted, and
+            // stays correct if the departing seat was not the one to move.
+            this.scheduleBotTurn();
             this.pushStateToConnectedSeats();
         }
     }
@@ -462,6 +562,46 @@ export class Room {
 
         this.broadcast({ type: 'MATCH_STARTED', matchId: this.matchId });
         this.pushStateToConnectedSeats();
+        this.scheduleBotTurn();
+    }
+
+    /**
+     * Seats a computer opponent (Computer Opponent Design §8).
+     *
+     * Host only, lobby only, and only into a seat nobody holds — the host's own
+     * seat needs no special case, because it is claimed from the moment the room
+     * is minted and so fails the same check as any occupied seat.
+     *
+     * A bot seat mints a token like any other and simply never hands it out.
+     * That keeps one answer to "is this seat taken" across `claimSeat`,
+     * `resumeSeat`, `canStart` and the reaper, rather than adding a second kind
+     * of occupancy every one of them would have to learn about.
+     */
+    addBot(conn: SeatConnection, seatIndex: number): void {
+        if (this.phase !== 'lobby') {
+            this.sendError(conn, 'CANNOT_START');
+            return;
+        }
+
+        if (this.seats[HOST_SEAT_INDEX].conn !== conn) {
+            this.sendError(conn, 'NOT_HOST');
+            return;
+        }
+
+        const seat = this.seats[seatIndex];
+        if (seat === undefined || seat.tokenHash !== null) {
+            this.sendError(conn, 'SEAT_TAKEN');
+            return;
+        }
+
+        seat.tokenHash = hashToken(mintToken());
+        seat.nickname = BOT_NICKNAMES[seat.index] ?? `Computer ${seat.index + 1}`;
+        seat.bot = true;
+        seat.conn = null;
+        seat.disconnectedAt = null;
+
+        this.persist();
+        this.broadcastLobbyUpdate();
     }
 
     /**
@@ -546,6 +686,7 @@ export class Room {
             this.seats.some(
                 s =>
                     s.tokenHash !== null &&
+                    !s.bot &&
                     s.conn === null &&
                     s.disconnectedAt !== null &&
                     now - s.disconnectedAt > this.config.activeGraceMs
@@ -580,6 +721,7 @@ export class Room {
      */
     dispose(): void {
         this.clearRevealTimer();
+        this.clearBotTimer();
     }
 
     /** Rebuilds and resends this seat's current snapshot; changes nothing (Design §7). */
@@ -602,7 +744,9 @@ export class Room {
 
     /** Claimed seats with no live connection — the derivation `paused` is built from (Design §5). */
     missingSeats(): PlayerId[] {
-        return this.seats.filter(s => s.tokenHash !== null && s.conn === null).map(s => s.playerId);
+        return this.seats
+            .filter(s => s.tokenHash !== null && !s.bot && s.conn === null)
+            .map(s => s.playerId);
     }
 
     /** Never a settable flag — always recomputed (Design §5). Not yet surfaced to clients in lobby phase. */
@@ -647,6 +791,8 @@ export class Room {
                 // lobby TTL below, only ever by this seat's own token.
                 seat.index !== HOST_SEAT_INDEX &&
                 seat.tokenHash !== null &&
+                // A bot has no socket to have lost, so it never ages out.
+                !seat.bot &&
                 seat.conn === null &&
                 seat.disconnectedAt !== null &&
                 now - seat.disconnectedAt > this.config.lobbyDisconnectGraceMs
@@ -678,13 +824,22 @@ export class Room {
 
     private seatStatus(seat: Seat): SeatStatus {
         if (seat.tokenHash === null) return 'open';
+        if (seat.bot) return 'computer';
         return seat.conn !== null ? 'occupied' : 'disconnected';
     }
 
-    /** `>=2 AND <=4` claimed seats, all connected — the only condition, in either direction. */
+    /**
+     * `>=2 AND <=4` claimed seats, all connected — the only condition, in
+     * either direction. A bot seat counts as claimed and is never waited on,
+     * which is what lets one host start a table alone.
+     */
     private canStart(): boolean {
         const claimed = this.seats.filter(s => s.tokenHash !== null);
-        return claimed.length >= 2 && claimed.length <= 4 && claimed.every(s => s.conn !== null);
+        return (
+            claimed.length >= 2 &&
+            claimed.length <= 4 &&
+            claimed.every(s => s.conn !== null || s.bot)
+        );
     }
 
     /**
@@ -706,7 +861,10 @@ export class Room {
      * copy of it.
      */
     private sweepActive(now: number): void {
-        const claimed = this.seats.filter(s => s.tokenHash !== null);
+        // Human seats only. A table of three bots plus one departed human has
+        // nobody left watching it, which is exactly the case this ends; counting
+        // the bots as present would keep it alive forever.
+        const claimed = this.seats.filter(s => s.tokenHash !== null && !s.bot);
         const zeroConnected = claimed.length > 0 && claimed.every(s => s.conn === null);
         if (!zeroConnected) return;
 
@@ -743,6 +901,90 @@ export class Room {
                 console.error('advanceRound failed', this.matchId, err);
             });
         }, this.config.revealWindowMs);
+    }
+
+    /**
+     * Schedules the seat holding the turn to move, when that seat is a bot.
+     *
+     * Idempotent by construction: it clears any pending move first, so every
+     * call site can simply re-evaluate rather than reason about whether a timer
+     * is already armed. A round-over deliberately schedules nothing — the
+     * reveal timer owns that window, and `advanceRound` calls back here once
+     * the next round is dealt.
+     *
+     * The delay is pacing (`botThinkMs`), not compute. Deciding takes well
+     * under a millisecond, and the work happens inside the timer rather than
+     * before it so one process serving many rooms is never blocked by a bot
+     * thinking.
+     */
+    private scheduleBotTurn(): void {
+        this.clearBotTimer();
+
+        const match = this.match;
+        if (this.phase !== 'active' || match === null || this.paused) return;
+        if (match.round.phase !== 'awaiting-play') return;
+        if (this.deps.isMatchOver(match)) return;
+
+        const currentId = match.round.seatOrder[match.round.currentPlayerIndex];
+        const seat = this.seats.find(s => s.playerId === currentId);
+        if (seat === undefined || !seat.bot) return;
+
+        this.botTimer = setTimeout(() => {
+            // Through `enqueue`, exactly like a client message (Design §10), so
+            // a computer move has no unserialized path of its own.
+            void this.enqueue(() => this.playBotTurn(seat)).catch(err => {
+                console.error('bot turn failed', this.matchId, seat.playerId, err);
+            });
+        }, this.config.botThinkMs);
+    }
+
+    private clearBotTimer(): void {
+        if (this.botTimer !== null) {
+            clearTimeout(this.botTimer);
+            this.botTimer = null;
+        }
+    }
+
+    /**
+     * Plays one computer move, through the same `reduce` + `commitMatchState`
+     * path a human's `PLAY_CARD` takes — which is what puts it in `actionLog`
+     * and makes a solo match replay and persist like any other.
+     *
+     * Every precondition is re-checked rather than trusted: this ran as a timer
+     * callback and then waited in the room's queue, so the world may have moved
+     * (a disconnect, an `END_MATCH`, a match decided some other way).
+     */
+    private playBotTurn(seat: Seat): void {
+        const match = this.match;
+        if (this.phase !== 'active' || match === null || this.paused) return;
+        if (match.round.phase !== 'awaiting-play') return;
+        if (!seat.bot || match.round.seatOrder[match.round.currentPlayerIndex] !== seat.playerId) {
+            return;
+        }
+
+        const seatView = this.deps.view(match, seat.playerId);
+        const play = (move: BotPlay) =>
+            this.deps.reduce(match, { type: 'PLAY_CARD', playerId: seat.playerId, ...move });
+
+        const chosen = this.deps.chooseBotPlay(seatView);
+        const result = chosen === null ? null : play(chosen);
+
+        if (result !== null && result.ok) {
+            this.commitMatchState(result.state);
+            return;
+        }
+
+        // A refused move means the policy restated a rule somewhere. That is a
+        // bug worth shouting about, but not one worth freezing a table over.
+        if (result !== null) {
+            console.error('bot move refused', this.matchId, seat.playerId, result.error.code);
+        }
+
+        const fallback = firstLegalPlay(seatView);
+        if (fallback === null) return;
+
+        const retry = play(fallback);
+        if (retry.ok) this.commitMatchState(retry.state);
     }
 
     /** Clears both the scheduled timeout and the deadline it backs — the only way either is unset. */
@@ -783,6 +1025,7 @@ export class Room {
             this.clearRevealTimer();
             this.persist();
             this.pushStateToConnectedSeats();
+            this.scheduleBotTurn();
         } finally {
             this.advancing = false;
         }
@@ -848,6 +1091,10 @@ export class Room {
         if (this.phase === 'ended') {
             this.broadcastMatchEnded('won');
         }
+
+        // Last, so a chain of consecutive computer turns is driven by the same
+        // commit path a human's move takes rather than by a loop of its own.
+        this.scheduleBotTurn();
     }
 
     /**
@@ -945,7 +1192,8 @@ export class Room {
                 index: s.index,
                 playerId: s.playerId,
                 nickname: s.nickname ?? '',
-                tokenHash: s.tokenHash
+                tokenHash: s.tokenHash,
+                ...(s.bot ? { bot: true } : {})
             }));
     }
 

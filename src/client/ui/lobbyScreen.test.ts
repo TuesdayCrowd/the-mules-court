@@ -32,10 +32,12 @@ function mounted(overrides: { clipboard?: { writeText(text: string): Promise<voi
     const started: number[] = [];
     const dissolved: number[] = [];
     const copied: string[] = [];
+    const botted: number[] = [];
 
     const screen = createLobbyScreen({
         onStart: () => started.push(1),
         onDissolve: () => dissolved.push(1),
+        onAddBot: seat => botted.push(seat),
         clipboard: overrides.clipboard ?? { writeText: text => (copied.push(text), Promise.resolve()) },
         joinUrlFor: matchId => `https://court.example.com/join/${matchId}`
     });
@@ -49,6 +51,9 @@ function mounted(overrides: { clipboard?: { writeText(text: string): Promise<voi
         started,
         dissolved,
         copied,
+        botted,
+        addBotButtons: () =>
+            [...root.querySelectorAll('[data-action="add-bot"]')] as HTMLButtonElement[],
         rows: () => [...root.querySelectorAll('[data-role="seat-row"]')].map(node => node.textContent ?? ''),
         startButton: () => q<HTMLButtonElement>('[data-action="start"]'),
         startCaption: () => q<HTMLElement>('[data-role="start-caption"]'),
@@ -305,5 +310,62 @@ describe('the host marker', () => {
         ui.show();
         expect(ui.root.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
         expect(ui.rows()[0]).toContain('host');
+    });
+});
+
+describe('seating a computer opponent', () => {
+    it('offers the host a button on every open seat', () => {
+        const ui = mounted();
+        ui.show();
+
+        // The fixture lobby has two open seats and two taken.
+        expect(ui.addBotButtons()).toHaveLength(2);
+    });
+
+    it('names the seat it will fill', () => {
+        const ui = mounted();
+        ui.show();
+
+        ui.addBotButtons()[0].click();
+
+        expect(ui.botted).toEqual([2]);
+    });
+
+    it('withdraws the offer once a human takes the seat', () => {
+        const ui = mounted();
+        ui.show();
+        expect(ui.addBotButtons()).toHaveLength(2);
+
+        ui.show(lobby({ seats: [seat(0, 'Cornelius'), seat(1, 'Ana'), seat(2, 'Bel'), openSeat(3)] }));
+
+        expect(ui.addBotButtons()).toHaveLength(1);
+    });
+
+    it('withdraws the offer from a seat already holding a computer', () => {
+        const ui = mounted();
+        ui.show(
+            lobby({
+                seats: [seat(0, 'Cornelius'), seat(1, 'Preem Palver', 'computer'), openSeat(2), openSeat(3)]
+            })
+        );
+
+        expect(ui.addBotButtons()).toHaveLength(2);
+        expect(ui.rows()[1]).toContain('Preem Palver');
+    });
+
+    it('offers nothing to a player who is not the host', () => {
+        const ui = mounted();
+        ui.show(lobby(), { seat: 1, playerId: 'p2' });
+
+        expect(ui.addBotButtons()).toHaveLength(0);
+    });
+
+    it('gives the button words, because the icon is hidden from the tree', () => {
+        const ui = mounted();
+        ui.show();
+
+        const button = ui.addBotButtons()[0];
+        expect(button.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
+        expect(button.textContent).toMatch(/computer/i);
     });
 });

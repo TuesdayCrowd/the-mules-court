@@ -383,8 +383,31 @@ string a player reads out of the store.
 
 ## 8. Running a bot seat
 
-`botSeat.ts` holds no socket. It registers with the room as an occupant, and
-when the room's state advances to a turn it owns, it schedules a decision.
+### The host fills seats, one at a time
+
+The affordance is **per seat, in the lobby**, not a bot count chosen when the
+room is minted. Every open seat carries a robot-icon button that only the host
+sees; pressing it sends `ADD_BOT { matchId, seat }` and the seat comes back
+`status: 'computer'`. The moment a human claims that seat the button is gone,
+because the seat is no longer open.
+
+Per seat rather than "fill the table" because a host may want a mix — two
+friends and one machine — and because the same control then covers the whole
+range from a solo match to a single stand-in. `canStart` needs no new rule: a
+bot seat is a claimed seat that is never waited on, so a host alone with three
+bots satisfies the existing "2–4 claimed, all present" gate unchanged.
+
+A bot seat mints a seat token like any other and simply never hands it out.
+That keeps **one** answer to "is this seat taken" across `claimSeat`,
+`resumeSeat`, `canStart` and the reaper, rather than introducing a second kind
+of occupancy that every one of them would have to learn about. It also means
+the host's own seat needs no special case: it is claimed from the instant the
+room is minted, so it fails the same check as any occupied seat.
+
+### The driver
+
+`botSeat` logic holds no socket. The room schedules a decision whenever its
+state advances to a turn a bot owns.
 
 Four integration points, each of which is a bug if missed:
 

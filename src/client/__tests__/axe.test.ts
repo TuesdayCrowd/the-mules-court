@@ -95,6 +95,7 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
             const screen = createLobbyScreen({
                 onStart: noop,
                 onDissolve: noop,
+                onAddBot: noop,
                 clipboard: { writeText: noopAsync },
                 joinUrlFor: id => `https://court.example.com/join/${id}`
             });
@@ -107,6 +108,7 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
             const screen = createLobbyScreen({
                 onStart: noop,
                 onDissolve: noop,
+                onAddBot: noop,
                 clipboard: { writeText: noopAsync },
                 joinUrlFor: id => `https://court.example.com/join/${id}`
             });

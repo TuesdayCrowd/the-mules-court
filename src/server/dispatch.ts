@@ -59,7 +59,13 @@ const HOST_PLAYER_ID: PlayerId = 'p1';
 
 /** The four message types whose acting identity is the bound seat, never a payload field (Design §8 step 5). */
 function requiresBoundSeat(type: ClientMessage['type']): boolean {
-    return type === 'PLAY_CARD' || type === 'START_MATCH' || type === 'END_MATCH' || type === 'REQUEST_RESYNC';
+    return (
+        type === 'PLAY_CARD' ||
+        type === 'START_MATCH' ||
+        type === 'ADD_BOT' ||
+        type === 'END_MATCH' ||
+        type === 'REQUEST_RESYNC'
+    );
 }
 
 /** Lives in `ws.data` (Task 12). One instance per socket; mutated only by `dispatchMessage`. */
@@ -137,7 +143,7 @@ export async function dispatchMessage(
     }
 
     // Step 9. END_MATCH's richer host/grace rule lives in Room.endMatch.
-    if (msg.type === 'START_MATCH' && state.seat !== HOST_PLAYER_ID) {
+    if ((msg.type === 'START_MATCH' || msg.type === 'ADD_BOT') && state.seat !== HOST_PLAYER_ID) {
         sendError(state.conn, 'NOT_HOST');
         return;
     }
@@ -164,6 +170,9 @@ export async function dispatchMessage(
                 }
                 case 'START_MATCH':
                     room.startMatch(state.conn);
+                    break;
+                case 'ADD_BOT':
+                    room.addBot(state.conn, msg.seat);
                     break;
                 case 'PLAY_CARD':
                     room.playCard(state.conn, msg);

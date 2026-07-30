@@ -31,7 +31,8 @@ export type ErrorCode =
     | 'INTERNAL'
     | ValidationError['code']; // engine codes forwarded verbatim — they name rules, never cards
 
-export type SeatStatus = 'open' | 'occupied' | 'disconnected';
+/** `computer` is a seat the host filled with a bot: claimed, playing, and never connected. */
+export type SeatStatus = 'open' | 'occupied' | 'disconnected' | 'computer';
 
 export type ClientMessage =
     | { type: 'CLAIM_SEAT'; matchId: MatchId; nickname: string } // no seat index — server assigns
@@ -41,6 +42,9 @@ export type ClientMessage =
     // not a rename, which a seat token must never authorise.
     | { type: 'RESUME_SEAT'; matchId: MatchId; seatToken: SeatToken; nickname?: string }
     | { type: 'START_MATCH'; matchId: MatchId } // host only; 2-4 seats claimed
+    // Host only, lobby only. Names the seat rather than a count, because the
+    // lobby offers it per seat and the host may fill any subset.
+    | { type: 'ADD_BOT'; matchId: MatchId; seat: number }
     | {
           type: 'PLAY_CARD';
           matchId: MatchId;
@@ -201,6 +205,17 @@ export function parseClientMessage(raw: string, maxNickname: number): ParseResul
         case 'START_MATCH': {
             const msg = parseMatchIdOnly(obj, 'START_MATCH');
             return msg === undefined ? { ok: false } : { ok: true, msg };
+        }
+
+        case 'ADD_BOT': {
+            if (!hasExactKeys(obj, ['type', 'matchId', 'seat'])) return { ok: false };
+            if (typeof obj.matchId !== 'string') return { ok: false };
+            // The seat pool is fixed at p1..p4, so the index is bounded here
+            // rather than trusted and range-checked later.
+            if (typeof obj.seat !== 'number' || !Number.isInteger(obj.seat) || obj.seat < 0 || obj.seat > 3) {
+                return { ok: false };
+            }
+            return { ok: true, msg: { type: 'ADD_BOT', matchId: obj.matchId, seat: obj.seat } };
         }
 
         case 'PLAY_CARD': {
