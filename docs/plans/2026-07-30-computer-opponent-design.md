@@ -380,6 +380,47 @@ turns beat every card played that round.
 compare read more conservatively: the downside of losing a comparison outweighs
 the upside of winning one by more than the hand-set pair allowed.
 
+### Runs 2 and 3: a negative result worth keeping
+
+Two further passes, co-evolutionary — the field set to the shipped incumbent
+rather than the hand-set control, and the population centred on the incumbent so
+each run refined it. Another 1,024,000 matches. **Both were refused by the
+write gate, and re-measuring at higher power says the gate was right.**
+
+Adjudicated on 4,000 fresh matches in each direction:
+
+| Comparison | Rate | 95% interval |
+| --- | --- | --- |
+| run 3 vs three run 1 | 25.3% | [24.0 .. 26.7] |
+| run 1 vs three run 3 | 25.8% | [24.4 .. 27.2] |
+
+Both straddle break-even. A real improvement shows as one side above 25% *and*
+the other below; two ties is a null result. Against the hand-set control on
+shared seeds the two are also within noise of each other (31.9% vs 30.7%, both
+±1.4). A four-way round robin — all four weight sets at one table, 6,000
+matches — ranked run 3 nominally first at 27.6% [26.5 .. 28.8] against run 1's
+26.2% [25.1 .. 27.3], and those overlap. Nominal leads with overlapping
+intervals are exactly what the arena exists to stop being read as progress.
+
+**The conclusion is about the model, not the search.** The hand-set → run-1 jump
+captured essentially all the gain available from these twelve weights; a further
+million matches of tuning bought nothing measurable. More training is therefore
+not the lever. Getting stronger from here needs a richer model — the search of
+§5, or features the scoring does not currently have — and that is the stage-5
+argument restated as evidence rather than expectation.
+
+Two mechanical notes for anyone repeating this:
+
+- **A refused pass leaves the incumbent in place**, so run 3 trained against run
+  1 rather than against run 2. That is the correct behaviour — chaining off a
+  rejected vector would compound a mistake — but it means the sequence was two
+  independent attempts at beating run 1, not a three-rung ladder. A chain script
+  should not assume its own links held.
+- **Co-evolution needs the fixed control kept in the gate.** Both runs beat the
+  hand-set baseline comfortably (28.6% and 33.1%) while failing against the
+  incumbent. Gating on the training opponent alone would have shipped run 2 on
+  the strength of a comparison it was never asked to win.
+
 ---
 
 ## 7. Difficulty: degrade knowledge, never choice
