@@ -14,6 +14,7 @@
  * thing to tell an agent that simply passed the wrong argument.
  */
 
+import type { RedactedView } from '../game/engine';
 import type { SeatPlay } from './seatClient';
 import type { AckResult, JoinedSeat, NotebookResult, TableStatus, ViewResult } from './session';
 import type { TurnSignal } from './turnRouter';
@@ -128,6 +129,37 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     }
 ];
 
+/**
+ * The view as a seat should receive it: every finished round keeps its outcome
+ * and loses its log.
+ *
+ * Two reasons, and the first is the real one. **A finished round's log cannot
+ * inform the current one** — every card goes back into the deck between rounds,
+ * so nothing in it constrains anybody's hand now. It is in `RedactedView`
+ * because the browser renders match history from it, which is a display need,
+ * not a player's.
+ *
+ * The second is that it grows without bound. `roundHistory` accumulates every
+ * round's full log for the life of the match, so an untrimmed `get_view` gets
+ * more expensive on every round of the match it exists to play — and for an MCP
+ * client, context is the scarce resource. Measured live: by round four a single
+ * call was shipping three complete rounds of log.
+ *
+ * Trimmed here rather than in `view.ts` on purpose. What a seat may *see* is the
+ * engine's decision and must not move; how much of it a tool *ships* is this
+ * layer's, and `table_status` already makes the same call with `LOG_TAIL`.
+ */
+function compactView(view: RedactedView): unknown {
+    return {
+        ...view,
+        roundHistory: view.roundHistory.map(round => ({
+            roundNumber: round.roundNumber,
+            reason: round.reason,
+            winnerIds: round.winnerIds
+        }))
+    };
+}
+
 function ok(payload: unknown): ToolResult {
     return { content: [{ type: 'text', text: JSON.stringify(payload, null, 2) }] };
 }
@@ -180,7 +212,7 @@ export async function callTool(surface: ToolSurface, name: string, args: unknown
 
             case 'get_view': {
                 const result = surface.getView(handle!);
-                return result.ok ? ok({ view: result.view, nicknames: result.nicknames }) : fail(`get_view refused: ${result.error}`);
+                return result.ok ? ok({ view: compactView(result.view), nicknames: result.nicknames }) : fail(`get_view refused: ${result.error}`);
             }
 
             case 'play_card': {

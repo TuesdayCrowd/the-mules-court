@@ -10,6 +10,8 @@ Guidance for coding agents working in this repository. Human contributors are we
 
 The Phaser layer now exists too: `src/game/scenes/Court.ts` draws the table, `src/game/scenes/beats.ts` runs the cinematic beats, and `src/main.ts` is the composition root that wires store, socket, DOM and canvas together. **A match is playable in a browser.** Every stage of `docs/plans/2026-07-24-uix-implementation-plan.md` is complete bar the real-device QA pass (Task 34), which needs hardware and a person — see `docs/plans/2026-07-24-uix-qa-checklist.md`.
 
+A fifth layer now sits beside those four: `src/mcp/` supplies the opponents. It is a Model Context Protocol server that seats a model at two or three chairs of a live table, so a person can play a four-player match alone — see [MCP seat server](#mcp-seat-server-srcmcp).
+
 This started life as the Phaser "template-bun" starter (some scene code and `logo.png`/`bg.png` are still theirs), but `package.json` metadata has been reclaimed for the game (`name: the-mules-court`).
 
 ## Setup commands
@@ -25,6 +27,8 @@ Requires [Bun](https://bun.sh).
 | `bun run build`                             | Production build to `dist/`                                               |
 | `bun run dev-nolog` / `bun run build-nolog` | Same, but skip the `log.js` telemetry ping                                |
 | `bun run compile`                           | Single-file executable → `./mules-court` (see below)                      |
+| `bun run mcp`                               | The MCP seat server on stdio. Needs a game server running                 |
+| `bun run compile:mcp`                       | Single-file MCP executable → `./mules-court-mcp`                          |
 | `bunx tsc --noEmit`                         | Type-check (see gotcha below — this is the only way to catch type errors) |
 
 ### Running in dev takes two processes
@@ -95,7 +99,9 @@ The `dev`/`build` scripts first run `bun log.js <mode>`, which makes one silent,
 
 ## Testing instructions
 
-Two test runners, split by what each layer needs. Engine **and client** tests run under **Vitest** (`bun run test:engine` — the name predates the client; `vitest.config.ts` collects `src/game/**/*.test.ts` and `src/client/**/*.test.ts`). Server/transport tests run under **Bun's own test runner** (`bun run test:server`, i.e. `bun test src/server`). The split isn't stylistic: Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun globals the transport depends on, so `src/server/` has to run on `bun test` instead. `bun run test` runs both in sequence. There is still **no linter** configured.
+Two test runners and three suites. Engine **and client** tests run under **Vitest** (`bun run test:engine` — the name predates the client; `vitest.config.ts` collects `src/game/**/*.test.ts` and `src/client/**/*.test.ts`). Server/transport tests run under **Bun's own test runner** (`bun run test:server`, i.e. `bun test src/server`), and so do the MCP tests (`bun run test:mcp`). The split isn't stylistic: Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun globals the transport depends on, so `src/server/` has to run on `bun test` instead — and `src/mcp/` inherits that, since it opens real WebSockets and spawns its own server as a subprocess. `bun run test` runs all three in sequence. There is still **no linter** configured.
+
+**`vitest.config.ts` enumerates globs while the two `bun test` scripts name directories**, so a new top-level directory under `src/` is type-checked automatically (`tsconfig.json` includes `src` wholesale) but is **silently untested** until a script names it. That asymmetry is how a suite rots; `test:mcp` exists because of it.
 
 Client tests default to the **Node** environment; a file needing a DOM opts in with a `// @vitest-environment jsdom` docblock on its first line. Vitest 4 removed `environmentMatchGlobs`, and the docblock keeps that choice beside the code that needs it.
 
@@ -108,7 +114,7 @@ Three gates worth knowing about, because they fail for reasons that are not obvi
 The verification gate before considering any change done is:
 
 ```bash
-bun run test        # engine tests (Vitest) + server tests (bun test)
+bun run test        # engine/client (Vitest) + server + MCP (bun test)
 bunx tsc --noEmit    # neither vite build nor the dev server type-checks; this is the only type check
 bun run build        # confirm the production bundle still builds
 ```
@@ -238,6 +244,53 @@ Four environment variables configure a deployment (`envOverrides` in
 `MULES_STATIC_ROOT`. `MULES_PORT` also moves the default base URL, since
 `joinUrl` is built from it — that closed deferred item **D3**. Everything else in
 `TransportConfig` is a design constant and stays one.
+
+### MCP seat server (`src/mcp/`)
+
+A person cannot play this game alone. `src/mcp/` is a **Model Context Protocol
+server over stdio** that claims two or three seats at a live match, so one human
+can play a four-player game against a model. Design:
+`docs/plans/2026-07-28-mcp-seat-design.md`; the build is
+`docs/plans/2026-07-28-mcp-seat-implementation-plan.md`.
+
+It is a **client of the transport**, not part of it. It connects over WebSocket
+like the browser does, and imports `../server/protocol` and `../game/engine`
+rather than restating either — which is what makes wire drift a compile error
+instead of the failure this file already documents elsewhere.
+
+**No dependency.** MCP is JSON-RPC over stdio, and `rpc.ts` is the whole
+protocol layer. `@modelcontextprotocol/sdk` was considered and rejected on
+inspection: 17 transitive packages including `express`, `hono`, `cors`,
+`express-rate-limit` and `jose` — an HTTP stack and OAuth, none of which a
+stdio server reaches. Taking it later costs one `bun add` and a rewrite of that
+one file.
+
+Four things are load-bearing:
+
+- **Isolation is a missing capability, not a rule.** Each seat gets an opaque
+  128-bit handle at claim time and every seat-scoped tool demands one, so an
+  agent holding p3's handle *cannot* read p2's hand. Without this the game stops
+  existing — one mind holding three hands makes every Informant guess a
+  certainty. The handle half is enforced in code; the design's other half, *one
+  agent context per seat*, is the caller's job and is not enforced here.
+- **stdout carries protocol frames and nothing else.** A stray `console.log` in
+  `main.ts` desynchronises the client and presents as tools that silently stop
+  working. Diagnostics go to stderr.
+- **A seat's own frame is the only authority on that seat's turn.** Three
+  sockets have no ordering guarantee, so routing from whichever frame arrived
+  first hands a seat a turn whose view has no legal plays in it. For the same
+  reason `playCard` confirms on a *condition* (the view advanced), never on an
+  *event* (a push arrived) — a queued frame satisfies the latter.
+- **`main.ts` wraps its stdin loop in `async main()`** because
+  `bun build --compile --bytecode` emits CommonJS, which cannot represent
+  top-level `await`. Bun reports that as a parse error pointing at the first
+  `await`, which reads like a syntax mistake rather than a module-format
+  constraint.
+
+Registered through `.mcp.json`, which points at `src/mcp/main.ts` directly. Two
+scripts drive a live match by hand: `scripts/hostSeat.ts` owns the game server
+and seat p1, leaving the rest to arrive over MCP, and `scripts/mcpPlay.ts`
+plays a whole match through a spawned server.
 
 ### Server (transport layer)
 

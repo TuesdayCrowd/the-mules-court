@@ -15,6 +15,7 @@
  */
 
 import type { PlayerId, RedactedView } from '../game/engine';
+import type { ErrorCode } from '../server/protocol';
 import { SeatClient, type SeatIdentity, type SeatPlay, type StateUpdate } from './seatClient';
 import { SeatRegistry, type PublicSeat } from './seatRegistry';
 import { routeTurn, type TurnSignal, type WirePhase } from './turnRouter';
@@ -26,6 +27,8 @@ import { routeTurn, type TurnSignal, type WirePhase } from './turnRouter';
 export interface Seat {
     readonly identity: SeatIdentity;
     readonly lastState: StateUpdate | null;
+    /** The most recent ERROR frame, so a refused play can name its reason. */
+    readonly lastError: { readonly code: ErrorCode } | null;
     nextState(timeoutMs?: number): Promise<StateUpdate>;
     play(move: SeatPlay, clientMsgId?: string): void;
     close(): void;
@@ -52,7 +55,12 @@ export interface JoinedSeat {
     readonly playerId: PlayerId;
 }
 
-export type ToolError = 'UNKNOWN_HANDLE' | 'NOT_STARTED' | 'NO_RESPONSE';
+/**
+ * Why a tool refused. The first three are this layer's own; the rest are the
+ * engine's, forwarded verbatim, because a seat told `NOT_YOUR_SEAT` can act on
+ * that and a seat told `NO_RESPONSE` cannot.
+ */
+export type ToolError = 'UNKNOWN_HANDLE' | 'NOT_STARTED' | 'NO_RESPONSE' | ErrorCode;
 
 export interface Refusal {
     readonly ok: false;
@@ -235,11 +243,23 @@ export class MatchSession {
                 state.phase !== 'active' ||
                 state.view.currentPlayerId !== seat.identity.playerId);
 
+        // Held by reference: a refusal is a NEW frame, and the seat may already
+        // be carrying an older one from a previous turn.
+        const errorBefore = seat.lastError;
         seat.play(move);
 
         const deadline = this.now() + timeoutMs;
         for (;;) {
             if (moved(seat.lastState)) return { ok: true };
+
+            // A rejected play produces an ERROR and no push, so waiting for the
+            // view to advance would time out and report NO_RESPONSE — which
+            // names the symptom and hides the cause. Design §6 promises the
+            // engine's own code reaches the seat; this is where that happens.
+            // Found by a 40-match soak: two matches died as NO_RESPONSE when
+            // the round had advanced underneath a play that was already chosen.
+            const refusal = seat.lastError;
+            if (refusal !== null && refusal !== errorBefore) return { ok: false, error: refusal.code };
 
             const remaining = deadline - this.now();
             if (remaining <= 0) return { ok: false, error: 'NO_RESPONSE' };
