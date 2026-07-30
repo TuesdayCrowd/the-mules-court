@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import type { PlayerId } from '../game/engine';
+import type { PlayerId, RedactedView } from '../game/engine';
 import { callTool, TOOL_DEFS, type ToolSurface } from './tools';
 
 /** Records what the session was asked to do, and answers plausibly. */
@@ -125,6 +125,60 @@ describe('callTool routing', () => {
         const { surface, calls } = stubSurface();
         await callTool(surface, 'play_card', { handle: 'h4', cardInstanceId: 'informant#0', target: 'p1', guess: 5 });
         expect(calls[0]!.args[1]).toEqual({ cardInstanceId: 'informant#0', target: 'p1', guess: 5 });
+    });
+});
+
+describe('callTool trims what it ships', () => {
+    /** A view carrying one finished round whose log is long. */
+    const viewWithHistory = {
+        turnNumber: 3,
+        deckCount: 9,
+        publicLog: [{ kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'informant' }],
+        roundHistory: [
+            {
+                roundNumber: 1,
+                reason: 'deck-out',
+                winnerIds: ['p2'],
+                publicLog: [
+                    { kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'mayor-indbur' },
+                    { kind: 'PLAY', turn: 2, actorId: 'p2', cardId: 'first-speaker' }
+                ]
+            }
+        ],
+        own: { playerId: 'p2', hand: ['informant#0'], legalPlays: [], legalTargets: {} }
+    } as unknown as RedactedView;
+
+    function surfaceWithHistory(): ToolSurface {
+        return stubSurface({
+            getView: () => ({ ok: true, view: viewWithHistory, nicknames: {} })
+        }).surface;
+    }
+
+    it('keeps each past round\'s outcome', async () => {
+        const text = textOf(await callTool(surfaceWithHistory(), 'get_view', { handle: 'h2' }));
+        expect(text).toContain('roundNumber');
+        expect(text).toContain('deck-out');
+        expect(text).toContain('p2');
+    });
+
+    it('drops past rounds\' public logs, which cannot inform the current round', async () => {
+        // Every card returns to the deck between rounds, so a finished round's
+        // log has no deduction value — and it grows without bound, making
+        // get_view more expensive every round of the match it exists to play.
+        const text = textOf(await callTool(surfaceWithHistory(), 'get_view', { handle: 'h2' }));
+        expect(text).not.toContain('mayor-indbur');
+        expect(text).not.toContain('first-speaker');
+    });
+
+    it('keeps the CURRENT round\'s log, which is the whole basis for deduction', async () => {
+        const text = textOf(await callTool(surfaceWithHistory(), 'get_view', { handle: 'h2' }));
+        expect(text).toContain('informant');
+    });
+
+    it('leaves the rest of the view alone', async () => {
+        const text = textOf(await callTool(surfaceWithHistory(), 'get_view', { handle: 'h2' }));
+        expect(text).toContain('deckCount');
+        expect(text).toContain('informant#0');
     });
 });
 

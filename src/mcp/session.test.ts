@@ -52,6 +52,7 @@ function makeState(playerId: PlayerId, overrides: Partial<StateUpdate> = {}, vie
 
 class FakeSeat implements Seat {
     lastState: StateUpdate | null = null;
+    lastError: { readonly code: 'PAUSED' | 'NOT_YOUR_SEAT' } | null = null;
     readonly plays: SeatPlay[] = [];
     closed = false;
     private waiters: ((state: StateUpdate) => void)[] = [];
@@ -256,6 +257,31 @@ describe('playCard', () => {
 
         const result = await session.playCard(joined[0]!.handle, { cardInstanceId: 'informant#0' }, 60);
         expect(result.ok === false && result.error).toBe('NO_RESPONSE');
+    });
+
+    it('names the engine\'s own refusal instead of reporting a timeout', async () => {
+        // Found by a 40-match soak: two matches died reporting NO_RESPONSE when
+        // the round had advanced underneath a play that was already chosen. The
+        // server had said exactly why; nothing was reading it.
+        const { session, fakes, joined } = await seatedSession();
+        fakes.forEach(f => f.push(makeState(f.identity.playerId, {}, { currentPlayerId: 'p2', turnNumber: 3 })));
+
+        setTimeout(() => {
+            fakes[0]!.lastError = { code: 'NOT_YOUR_SEAT' };
+        }, 10);
+
+        const result = await session.playCard(joined[0]!.handle, { cardInstanceId: 'informant#0' }, 2000);
+        expect(result.ok).toBe(false);
+        expect(result.ok === false && result.error).toBe('NOT_YOUR_SEAT');
+    });
+
+    it('ignores a stale error left over from an earlier turn', async () => {
+        const { session, fakes, joined } = await seatedSession();
+        fakes[0]!.lastError = { code: 'PAUSED' };
+        fakes.forEach(f => f.push(makeState(f.identity.playerId, {}, { currentPlayerId: 'p2', turnNumber: 3 })));
+
+        setTimeout(() => fakes[0]!.push(makeState('p2', {}, { currentPlayerId: 'p3', turnNumber: 4 })), 20);
+        expect((await session.playCard(joined[0]!.handle, { cardInstanceId: 'informant#0' }, 500)).ok).toBe(true);
     });
 
     it('sends the move on the socket that handle authorises', async () => {

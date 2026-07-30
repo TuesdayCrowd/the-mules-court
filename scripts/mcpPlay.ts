@@ -43,6 +43,17 @@ const DIR = flag('dir', '/tmp/mules-mcp-play');
 const HAND_PLAYS = Number(flag('hand', '0'));
 const PORT = Number(flag('port', '3000'));
 
+/**
+ * The reveal window between rounds, in ms.
+ *
+ * Production is ten seconds, and a match runs eight or nine rounds — so an
+ * unattended match spends about a minute and a half asleep and a few seconds
+ * playing. That is right when a human needs to read the table and wrong for a
+ * driver, so this defaults low. Pass `--reveal 10000` to watch one at real
+ * speed in the browser.
+ */
+const REVEAL_MS = Number(flag('reveal', '25'));
+
 if (!existsSync(DIR)) mkdirSync(DIR, { recursive: true });
 const path = (name: string) => join(DIR, name);
 for (const stale of ['turn.json', 'move.json', 'result.json', 'transcript.log']) {
@@ -168,6 +179,7 @@ const running = startServer(
         port: PORT,
         dbPath: join(DIR, 'match.sqlite'),
         publicBaseUrl: `http://localhost:${PORT}`,
+        revealWindowMs: REVEAL_MS,
         staticRoot: 'dist'
     }),
     pathname => serveStatic('dist', pathname)
@@ -293,7 +305,17 @@ try {
             const notesOut = typeof move.notes === 'string' ? move.notes : notes;
             delete move.notes;
 
-            await mcp.tool('play_card', { handle, ...move });
+            try {
+                await mcp.tool('play_card', { handle, ...move });
+            } catch (err) {
+                // A refused play is expected traffic, not a crash. The round
+                // can advance between await_turn and play_card — with a short
+                // reveal window it does, and the move chosen a moment ago is
+                // stale. Design section 6: the seat sees the code, re-reads its
+                // view, and plays again. So re-enter the loop.
+                log(`t${view.turnNumber} ${nickOf.get(seat)} refused: ${err instanceof Error ? err.message : String(err)}`);
+                continue;
+            }
             await mcp.tool('write_notebook', { handle, text: notesOut });
 
             const shown = nameOf(move.cardInstanceId as CardInstanceId);
