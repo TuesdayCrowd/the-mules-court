@@ -61,6 +61,58 @@ export function wilsonInterval(wins: number, trials: number): { low: number; hig
     return { low: Math.max(0, centre - margin), high: Math.min(1, centre + margin) };
 }
 
+export interface RotationSetup {
+    readonly seats: readonly PlayerId[];
+    /** The policy under test. Plays every seat in turn. */
+    readonly candidate: Policy;
+    /** Fills every other seat, every time. */
+    readonly field: Policy;
+    readonly seeds: readonly string[];
+}
+
+export interface RotationReport {
+    readonly matches: number;
+    readonly wins: number;
+    readonly rate: number;
+    readonly low: number;
+    readonly high: number;
+}
+
+/**
+ * One candidate against a field, playing every seat on every seed.
+ *
+ * This is the measurement a training run optimises, and rotating is what makes
+ * it trustworthy. Turn order is a genuine edge in this game, so scoring a
+ * candidate in a fixed seat measures the seat as much as the policy — and a
+ * search would happily spend its budget exploiting that. Playing all of them
+ * cancels it exactly, and makes `1 / seats.length` the honest baseline.
+ *
+ * Seeds are shared across candidates by the caller, which is the other half:
+ * two policies compared on the same seed list played the same deals, so the
+ * difference between them is not the shuffle.
+ */
+export function rotatingWinRate(setup: RotationSetup): RotationReport {
+    let wins = 0;
+
+    for (const seed of setup.seeds) {
+        for (const seat of setup.seats) {
+            const policies = Object.fromEntries(
+                setup.seats.map(id => [id, id === seat ? setup.candidate : setup.field])
+            );
+            // The seed varies with the seat, so the four rotations of one seed
+            // are four different deals rather than the same deal played from
+            // four chairs — which would correlate them and understate variance.
+            const outcome = playMatch({ seats: setup.seats, policies, seed: `${seed}:${seat}` });
+            if (outcome.winnerId === seat) wins += 1;
+        }
+    }
+
+    const matches = setup.seeds.length * setup.seats.length;
+    const { low, high } = wilsonInterval(wins, matches);
+
+    return { matches, wins, rate: matches === 0 ? 0 : wins / matches, low, high };
+}
+
 export function runArena(setup: ArenaSetup): ArenaReport {
     const wins: Record<PlayerId, number> = Object.fromEntries(setup.seats.map(id => [id, 0]));
 

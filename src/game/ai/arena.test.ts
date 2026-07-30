@@ -1,7 +1,8 @@
 import { describe, expect, test } from 'vitest';
 import type { Policy } from './policy';
 import { randomPolicy } from './randomPolicy';
-import { runArena, wilsonInterval } from './arena';
+import { heuristicPolicy } from './heuristic';
+import { rotatingWinRate, runArena, wilsonInterval } from './arena';
 
 const SEATS = ['p1', 'p2', 'p3', 'p4'];
 
@@ -71,5 +72,43 @@ describe('runArena', () => {
             expect(seat.rate).toBeGreaterThan(0.1);
             expect(seat.rate).toBeLessThan(0.45);
         }
+    });
+});
+
+describe('rotatingWinRate', () => {
+    test('plays one match per seed in every seat', () => {
+        const report = rotatingWinRate({
+            seats: SEATS,
+            candidate: randomPolicy,
+            field: randomPolicy,
+            seeds: seeds(10)
+        });
+
+        expect(report.matches).toBe(40);
+    });
+
+    test('gives a candidate no better than the field the seat-count baseline', () => {
+        // Rotating through every seat is what makes 1/4 the honest baseline:
+        // turn order is a real edge, and playing each seat cancels it exactly.
+        const report = rotatingWinRate({
+            seats: SEATS,
+            candidate: randomPolicy,
+            field: randomPolicy,
+            seeds: seeds(150)
+        });
+
+        expect(report.low).toBeLessThan(0.25);
+        expect(report.high).toBeGreaterThan(0.25);
+    });
+
+    test('separates a stronger candidate from the baseline', () => {
+        const report = rotatingWinRate({
+            seats: SEATS,
+            candidate: heuristicPolicy,
+            field: randomPolicy,
+            seeds: seeds(40)
+        });
+
+        expect(report.low).toBeGreaterThan(0.25);
     });
 });

@@ -30,6 +30,8 @@
 import type { CardValue, GuessValue, PlayerId, RedactedView } from '../engine';
 import { CARD_CATALOG, cardTypeOf, EFFECT_DEFS, INFORMANT_VALUE } from '../engine';
 import { takeCensus, type Census } from './census';
+import { DEFAULT_WEIGHTS, type Weights } from './weights';
+import { TRAINED_WEIGHTS } from './weights.generated';
 import type { Policy, PolicyDecision } from './policy';
 import { pick, type Rng } from './rng';
 
@@ -42,52 +44,6 @@ const VALUES: readonly CardValue[] = [
 const GUESSABLE_VALUES: readonly GuessValue[] = VALUES.filter(
     (value): value is GuessValue => value !== INFORMANT_VALUE
 );
-
-export interface Weights {
-    /** × P(the named value is held). A certain elimination should dominate. */
-    readonly guardHit: number;
-    /** A targeted card played with no legal target: it still discards. */
-    readonly fizzle: number;
-    /** Looking at a hand this seat cannot already name. */
-    readonly priestInfo: number;
-    /** × P(my retained card outranks theirs) and × P(it loses). */
-    readonly baronWin: number;
-    readonly baronLose: number;
-    /** Protection, and how much more it is worth while exposed. */
-    readonly handmaidBase: number;
-    readonly handmaidThreat: number;
-    /** × P(the target holds the Mule): a forced discard eliminates them. */
-    readonly princeMuleKill: number;
-    /** × the target's expected value: stripping a good card is worth something. */
-    readonly princeDisrupt: number;
-    /** × the improvement from replacing my own retained card. */
-    readonly princeCycle: number;
-    /** × (their expected value − mine). */
-    readonly kingGain: number;
-    /** A free discard that keeps the other card. */
-    readonly countessBase: number;
-    /** Discarding the Mule, or trading it away. Not a trade-off. */
-    readonly selfDestruct: number;
-    /** × retained value × how close the showdown is. */
-    readonly keepValue: number;
-}
-
-export const DEFAULT_WEIGHTS: Weights = {
-    guardHit: 100,
-    fizzle: -1,
-    priestInfo: 8,
-    baronWin: 60,
-    baronLose: -120,
-    handmaidBase: 10,
-    handmaidThreat: 18,
-    princeMuleKill: 100,
-    princeDisrupt: 2,
-    princeCycle: 3,
-    kingGain: 6,
-    countessBase: 4,
-    selfDestruct: -1000,
-    keepValue: 6
-};
 
 interface Beliefs {
     readonly census: Census;
@@ -286,19 +242,39 @@ export function scoreMoves(seat: RedactedView, weights: Weights = DEFAULT_WEIGHT
     return moves;
 }
 
-export const heuristicPolicy: Policy = {
-    id: 'heuristic',
+/**
+ * Picks the highest-scoring move.
+ *
+ * Ties are broken at random rather than by enumeration order, so the bot never
+ * develops a systematic preference for whichever seat or card the engine
+ * happened to list first — and two equally-weighted seats at one table do not
+ * play in lockstep.
+ */
+function chooseBest(moves: readonly ScoredMove[], rng: Rng): PolicyDecision | null {
+    if (moves.length === 0) return null;
 
-    decide(seat: RedactedView, rng: Rng): PolicyDecision | null {
-        const moves = scoreMoves(seat);
-        if (moves.length === 0) return null;
+    const best = moves.reduce((top, move) => (move.score > top.score ? move : top));
+    const tied = moves.filter(move => move.score === best.score);
 
-        const best = moves.reduce((top, move) => (move.score > top.score ? move : top));
-        // Ties broken at random rather than by enumeration order, so the bot does
-        // not develop a systematic preference for whichever seat the engine
-        // happened to list first.
-        const tied = moves.filter(move => move.score === best.score);
+    return pick(tied, rng)!.decision;
+}
 
-        return pick(tied, rng)!.decision;
-    }
-};
+/**
+ * A policy over one weight set.
+ *
+ * A factory rather than a single export, because training has to seat two
+ * differently-weighted opponents at the same table and compare them — and
+ * because a policy's `id` is what an arena report labels its seats with.
+ */
+export function createHeuristicPolicy(weights: Weights, id: string): Policy {
+    return {
+        id,
+        decide: (seat, rng) => chooseBest(scoreMoves(seat, weights), rng)
+    };
+}
+
+/** The shipped opponent: trained weights, replaced wholesale by a training run. */
+export const heuristicPolicy: Policy = createHeuristicPolicy(TRAINED_WEIGHTS, 'heuristic');
+
+/** The hand-set control, kept seatable so a trained vector can be measured against it. */
+export const baselineHeuristicPolicy: Policy = createHeuristicPolicy(DEFAULT_WEIGHTS, 'baseline');

@@ -352,6 +352,34 @@ reproducible; `arena.ts` reports win rate with a confidence interval, because
 "54% over 200 games" is noise and reading it as progress is how a tuning loop
 wastes a week.
 
+### Run 1, and what it found
+
+25 generations × 40 candidates × 512 matches — 512,000 matches in 15 minutes on
+one core. Held out on 1,600 matches of unseen seeds, the trained seat takes
+**30.9% [28.7 .. 33.2]** against three hand-set seats, where 25% is break-even.
+Reversed, the hand-set seat takes **20.2% [18.0 .. 22.5]** against three trained
+ones — both directions agree, which is what rules out a one-sided artifact.
+Against random both score ~87% with overlapping intervals, so the edge cost
+nothing in general strength.
+
+Three of the twelve weights moved enough to be worth reading as findings rather
+than as tuning:
+
+| Weight | Hand-set | Trained | What it says |
+| --- | --- | --- | --- |
+| `priestInfo` | 8 | **25.7** | Looking at a hand is worth roughly three times what the design guessed |
+| `handmaidBase` | 10 | **22.4** | So is protection, before the threat term is even applied |
+| `keepValue` | 6 | **3.4** | Hoarding a high card toward the showdown matters *less* than assumed |
+
+The first two are the same lesson from opposite ends: this game rewards knowing
+and surviving over holding. It is also exactly how the design's own worked
+example was decided — a Priest peek on turn 4 that a seat then sat on for four
+turns beat every card played that round.
+
+`baronWin` fell (60 → 38) while `baronLose` deepened (−120 → −161), which is the
+compare read more conservatively: the downside of losing a comparison outweighs
+the upside of winning one by more than the hand-set pair allowed.
+
 ---
 
 ## 7. Difficulty: degrade knowledge, never choice
