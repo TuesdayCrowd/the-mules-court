@@ -58,6 +58,21 @@ export function makeConfig(overrides: Partial<TransportConfig> = {}): TransportC
 }
 
 /**
+ * One port rule, shared by the environment variable and the command-line flag,
+ * so the two cannot disagree about what a port is.
+ *
+ * `Number('')` is 0 and `Number(' 80 ')` is 80, so the range check does the work
+ * an eager `parseInt` would have got wrong in both directions.
+ */
+function parsePort(raw: string, source: string): number {
+    const port = Number(raw);
+    if (!Number.isInteger(port) || port < 1 || port > 65535) {
+        throw new Error(`${source} must be an integer from 1 to 65535, got ${JSON.stringify(raw)}`);
+    }
+    return port;
+}
+
+/**
  * The four tunables a *deployment* sets, read from the environment.
  *
  * Separate from the rest of `DEFAULT_CONFIG` because those are design constants
@@ -76,12 +91,7 @@ export function envOverrides(env: Record<string, string | undefined>): Partial<T
     const overrides: { -readonly [K in keyof TransportConfig]?: TransportConfig[K] } = {};
 
     if (env.MULES_PORT !== undefined) {
-        // `Number('')` is 0 and `Number(' 80 ')` is 80, so the range check does
-        // the work an eager `parseInt` would have got wrong in both directions.
-        const port = Number(env.MULES_PORT);
-        if (!Number.isInteger(port) || port < 1 || port > 65535) {
-            throw new Error(`MULES_PORT must be an integer from 1 to 65535, got ${JSON.stringify(env.MULES_PORT)}`);
-        }
+        const port = parsePort(env.MULES_PORT, 'MULES_PORT');
         overrides.port = port;
         // Deferred item D3: `joinUrl` is built from `publicBaseUrl`, so moving
         // the port and saying nothing about the URL has to move the invite link
@@ -99,4 +109,82 @@ export function envOverrides(env: Record<string, string | undefined>): Partial<T
     if (env.MULES_STATIC_ROOT !== undefined) overrides.staticRoot = env.MULES_STATIC_ROOT;
 
     return overrides;
+}
+
+export interface Flags {
+    readonly port?: number;
+}
+
+export const USAGE = 'Accepted flags: --port=<1-65535>';
+
+/**
+ * The command line: `--port=5000` or `--port 5000`, and nothing else.
+ *
+ * Only the port has a flag, because it is the only one of the four tunables
+ * whose value someone learns *at the moment of starting the server* — :3000 is
+ * busy, and there is nowhere to put an environment variable in that sentence.
+ * A db path or a public URL is a property of a deployment, which is what
+ * `envOverrides` is for.
+ *
+ * Takes the arguments as a parameter rather than reading `Bun.argv`, for the
+ * same reason `envOverrides` takes the environment: the two entrypoints slice
+ * `Bun.argv` once and the tests stay pure.
+ *
+ * Anything unrecognized throws. Silently ignoring an argument is the exact
+ * failure this flag exists to fix — a server that answers `--prot=5000` by
+ * listening on 3000 and saying nothing has taught its user that the flag does
+ * not work.
+ */
+export function parseFlags(args: readonly string[]): Flags {
+    const flags: { -readonly [K in keyof Flags]?: Flags[K] } = {};
+
+    for (let i = 0; i < args.length; i++) {
+        const arg = args[i]!;
+
+        if (arg.startsWith('--port=')) {
+            flags.port = parsePort(arg.slice('--port='.length), '--port');
+            continue;
+        }
+
+        if (arg === '--port') {
+            const value = args[i + 1];
+            if (value === undefined) throw new Error(`--port needs a value, as --port=5000 or --port 5000`);
+            flags.port = parsePort(value, '--port');
+            i++;
+            continue;
+        }
+
+        throw new Error(`Unrecognized argument ${JSON.stringify(arg)}.\n${USAGE}`);
+    }
+
+    return flags;
+}
+
+/**
+ * Every override a launch can carry: the environment first, then the command
+ * line over the top of it, because a flag is typed at the launch itself and the
+ * environment may well have come from a shell profile or a container image.
+ *
+ * The port's effect on `publicBaseUrl` (deferred item D3) has to be resolved
+ * here rather than inside either parser, since the winning port and the winning
+ * URL can come from different layers. The rule is the one `envOverrides` already
+ * applies within its own layer: a *named* URL outranks a *derived* one, because
+ * a proxy or a domain name is a deployment fact that moving the listen port does
+ * not invalidate.
+ */
+export function deploymentOverrides(
+    env: Record<string, string | undefined>,
+    args: readonly string[]
+): Partial<TransportConfig> {
+    const fromEnv = envOverrides(env);
+    const { port } = parseFlags(args);
+
+    if (port === undefined) return fromEnv;
+
+    return {
+        ...fromEnv,
+        port,
+        publicBaseUrl:
+            env.MULES_PUBLIC_BASE_URL !== undefined ? fromEnv.publicBaseUrl! : `http://localhost:${port}`
+    };
 }

@@ -245,6 +245,27 @@ Four environment variables configure a deployment (`envOverrides` in
 `joinUrl` is built from it — that closed deferred item **D3**. Everything else in
 `TransportConfig` is a design constant and stays one.
 
+**The port also has a flag: `--port=5000` or `--port 5000`**, accepted by the
+binary and by `bun run serve` alike (`parseFlags`, composed with the environment
+by `deploymentOverrides`, both in `config.ts`; `configFromLaunch` in `index.ts`
+is the one place that touches `Bun.argv`). It is the only flag, because the port
+is the only one of the four whose value someone learns *at the moment of
+starting the server* — :3000 turns out to be busy, and there is nowhere to put an
+environment variable in that sentence. A flag beats `MULES_PORT`, and moves the
+derived invite link with it; an explicitly named `MULES_PUBLIC_BASE_URL` still
+outranks both, because a proxy or a domain is a deployment fact that changing the
+listen port does not invalidate.
+
+**An unrecognized argument exits 1 rather than being ignored.** Silent
+acceptance is the failure the flag was added to fix: `bun run serve
+--port=5000` appended the argument, nothing read it, and the server bound :3000
+and reported `EADDRINUSE` while appearing to disregard the port asked for.
+`--prot=5000` would be the same failure wearing a typo.
+
+`__tests__/launch.test.ts` is the only test here that spawns the entrypoint as a
+process. It exists because `import.meta.main` is where that bug lived and no
+test that calls `startServer` with its own config can reach it.
+
 ### MCP seat server (`src/mcp/`)
 
 A person cannot play this game alone. `src/mcp/` is a **Model Context Protocol
