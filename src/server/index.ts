@@ -8,7 +8,7 @@
  */
 
 import type { TransportConfig } from './config';
-import { envOverrides, makeConfig } from './config';
+import { deploymentOverrides, makeConfig } from './config';
 import type { ConnectionState } from './dispatch';
 import { dispatchMessage } from './dispatch';
 import { MatchStore } from './persistence';
@@ -179,11 +179,38 @@ export function startServer(config: TransportConfig, serveAsset: StaticHandler |
     };
 }
 
+/**
+ * The config a launched process runs on: defaults, then the environment, then
+ * the command line over the top.
+ *
+ * Lives here rather than in `config.ts` because it is the one part of the
+ * decision that touches the process — `Bun.env`, `Bun.argv`, an exit — and
+ * `config.ts` stays pure so its tests can be. Both entrypoints call it, so a
+ * downloaded binary and `bun run serve` cannot come to disagree about what
+ * `--port` means.
+ *
+ * `Bun.argv.slice(2)` drops the runtime and the script, and holds for a compiled
+ * binary too: there `argv[1]` is the embedded entry path rather than a file on
+ * disk, but the position is the same.
+ *
+ * A bad flag is a typo, not a crash. The message goes to stderr and the process
+ * exits 1 — the stack trace behind it names this file's internals and nothing
+ * the person who mistyped can act on.
+ */
+export function configFromLaunch(): TransportConfig {
+    try {
+        return makeConfig(deploymentOverrides(Bun.env, Bun.argv.slice(2)));
+    } catch (err) {
+        console.error(err instanceof Error ? err.message : String(err));
+        process.exit(1);
+    }
+}
+
 if (import.meta.main) {
     // Hosting stays opt-in, set by package.json's `serve` script — the only
     // place that knows this repo builds to dist/, one line from the script
     // producing it. Every other tunable a deployment moves (port, database
     // path, invite-link origin) now arrives through the same door; see
-    // `envOverrides`.
-    startServer(makeConfig(envOverrides(Bun.env)));
+    // `deploymentOverrides`.
+    startServer(configFromLaunch());
 }

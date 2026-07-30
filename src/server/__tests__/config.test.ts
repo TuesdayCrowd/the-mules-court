@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'bun:test';
-import { DEFAULT_CONFIG, envOverrides, makeConfig } from '../config';
+import { DEFAULT_CONFIG, deploymentOverrides, envOverrides, makeConfig, parseFlags } from '../config';
 
 describe('makeConfig', () => {
     it('returns the defaults when called with no overrides', () => {
@@ -74,6 +74,83 @@ describe('envOverrides', () => {
             ...DEFAULT_CONFIG,
             port: 8123,
             publicBaseUrl: 'http://localhost:8123'
+        });
+    });
+});
+
+/**
+ * The command line, for the one tunable someone changes *while* starting the
+ * server rather than while deploying it: a downloaded binary told :3000 is busy
+ * has no obvious place to set an environment variable, and typing
+ * `--port=5000` is what anyone tries first.
+ */
+describe('parseFlags', () => {
+    it('finds no port in an empty argument list', () => {
+        expect(parseFlags([])).toEqual({});
+    });
+
+    it('reads --port=5000', () => {
+        expect(parseFlags(['--port=5000'])).toEqual({ port: 5000 });
+    });
+
+    it('reads --port 5000, because a space is what half of all CLIs take', () => {
+        expect(parseFlags(['--port', '5000'])).toEqual({ port: 5000 });
+    });
+
+    it('throws when --port ends the argument list with no value after it', () => {
+        expect(() => parseFlags(['--port'])).toThrow(/--port/);
+    });
+
+    it.each([
+        ['zero', '0'],
+        ['negative', '-1'],
+        ['fractional', '80.5'],
+        ['words', 'eighty'],
+        ['blank', ''],
+        ['out of range', '70000']
+    ])('throws on a %s port rather than silently falling back to 3000', (_name, value) => {
+        expect(() => parseFlags([`--port=${value}`])).toThrow(/--port/);
+    });
+
+    it('throws on an unrecognized argument, naming it and the flags that exist', () => {
+        // The bug this whole flag fixes was an argument accepted and ignored.
+        // Reproducing that for `--prot=5000` would be the same failure wearing a
+        // typo, so anything unrecognized is refused out loud.
+        expect(() => parseFlags(['--prot=5000'])).toThrow(/--prot=5000[\s\S]*--port/);
+    });
+});
+
+describe('deploymentOverrides', () => {
+    it('returns no overrides for an empty environment and no arguments', () => {
+        expect(deploymentOverrides({}, [])).toEqual({});
+    });
+
+    it('passes the environment through untouched when no flag is given', () => {
+        const env = { MULES_PORT: '8123', MULES_STATIC_ROOT: 'dist' };
+        expect(deploymentOverrides(env, [])).toEqual(envOverrides(env));
+    });
+
+    it('lets --port win over MULES_PORT, since the flag is typed at the launch', () => {
+        expect(deploymentOverrides({ MULES_PORT: '8123' }, ['--port=5000']).port).toBe(5000);
+    });
+
+    it('derives publicBaseUrl from the port the flag chose, not the one the env named', () => {
+        const overrides = deploymentOverrides({ MULES_PORT: '8123' }, ['--port=5000']);
+        expect(overrides.publicBaseUrl).toBe('http://localhost:5000');
+    });
+
+    it('keeps an explicit MULES_PUBLIC_BASE_URL ahead of the port the flag derives', () => {
+        // D3's rule, across layers this time: a named URL is a deployment fact
+        // (a proxy, a domain) that moving the listen port does not invalidate.
+        const env = { MULES_PUBLIC_BASE_URL: 'https://mules.example' };
+        expect(deploymentOverrides(env, ['--port=5000']).publicBaseUrl).toBe('https://mules.example');
+    });
+
+    it('feeds makeConfig to produce a complete config', () => {
+        expect(makeConfig(deploymentOverrides({}, ['--port=5000']))).toEqual({
+            ...DEFAULT_CONFIG,
+            port: 5000,
+            publicBaseUrl: 'http://localhost:5000'
         });
     });
 });

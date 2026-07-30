@@ -15,12 +15,11 @@
  * inside one, and `Bun.file` accepts both.
  */
 import { resolve } from 'node:path';
-import { envOverrides, makeConfig } from './config';
 import { EMBEDDED } from './embeddedAssets.generated';
-import { startServer } from './index';
+import { configFromLaunch, startServer } from './index';
 import { embeddedLookup, serveFrom } from './staticAssets';
 
-const config = makeConfig(envOverrides(Bun.env));
+const config = configFromLaunch();
 const lookup = embeddedLookup(EMBEDDED);
 const running = startServer(config, pathname => serveFrom(lookup, pathname));
 
@@ -38,7 +37,8 @@ console.log(
         `  Database     ${database}`,
         `  Assets       ${EMBEDDED.size} files compiled in`,
         ``,
-        `  MULES_PORT, MULES_DB_PATH and MULES_PUBLIC_BASE_URL change any of the above.`,
+        `  --port=<1-65535> moves the port; MULES_DB_PATH and MULES_PUBLIC_BASE_URL`,
+        `  (or MULES_PORT) change the rest.`,
         `  Press Ctrl-C to stop.`,
         ``
     ].join('\n')
