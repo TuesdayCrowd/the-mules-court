@@ -50,6 +50,11 @@ visual/output/
 # committed: standalone.ts imports it, so a clone without it fails tsc.
 mules-court
 mules-court.exe
+# `bun run compile:mcp` — the MCP seat server. Its own binary rather than a
+# mode of the one above: they are different processes with different owners.
+# Claude Code spawns this one over stdio; you start the game server yourself.
+mules-court-mcp
+mules-court-mcp.exe
 dist-bin/
 
 # Interrupted `bun build --compile` leaves these behind
