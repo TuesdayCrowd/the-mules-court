@@ -277,11 +277,27 @@ Features worth naming because they are not obvious from the rules:
   which decides whether holding the Mule is a win condition or a countdown.
 - **Threat exposure**: how many unseen cards, if drawn by an opponent, kill me
   next turn. This is the number that should make a Shielded Mind feel urgent.
-- **Who knows what about me**, from `COMPARE` and look-at-hand entries in the
-  public log aimed at this seat.
+- **Who knows what about me**, from `COMPARE` and `TRADED` entries naming this
+  seat. The Priest is deliberately *not* among them: `resolvePriest` records a
+  peek and logs nothing beyond the play itself, so the table learns a
+  look-at-hand card was spent but never at whom. A seat therefore cannot tell
+  whether it is the one being read — which is the asymmetry that makes the card
+  worth its two points.
 
 The weights are learned (§6). The structure is hand-written, which keeps the bot
 readable, debuggable, and small enough to ship as a JSON constant.
+
+**Measured, with hand-set weights and no search at all:** one heuristic seat
+against three random ones wins **87.9%** of 1,000 matches (interval 85.7–89.8,
+against a 25% baseline). Inverted — three heuristic seats against one random —
+the random seat is held to **0.8%**. Four heuristic seats split 26.5 / 25.5 /
+24.5 / 23.5, every interval straddling 25%, which is the shape correctness takes
+here and rules out a turn-order pathology in the policy itself.
+
+The size of that gap is a caution as much as a result. Random is a very low bar,
+and the next comparison that means anything is against the MCP fallback policy
+and then against the trained weights. It does establish that the census
+marginals carry most of the signal: nothing above searches a single ply.
 
 ### Layer 2 — ISMCTS on top
 
