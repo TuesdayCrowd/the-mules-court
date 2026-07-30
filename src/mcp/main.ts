@@ -76,11 +76,24 @@ async function* readLines(stream: ReadableStream<Uint8Array>): AsyncGenerator<st
     if (buffer.trim().length > 0) yield buffer;
 }
 
-console.error(`mules-court-seats: MCP server on stdio, game server ${DEFAULT_SERVER_URL}`);
+/**
+ * Wrapped in a function rather than left at top level, and that is a build
+ * constraint rather than a style choice: `bun build --compile --bytecode`
+ * emits CommonJS, which cannot represent top-level `await`. Left at the top
+ * level this fails to compile, and the error Bun reports is a parse error
+ * pointing at the first `await` — which reads like a syntax mistake in the
+ * line it names rather than what it is. `bun run mcp` is unaffected; only the
+ * compiled binary cares.
+ */
+async function main(): Promise<void> {
+    console.error(`mules-court-seats: MCP server on stdio, game server ${DEFAULT_SERVER_URL}`);
 
-for await (const line of readLines(Bun.stdin.stream())) {
-    const response = await handleLine(line, methods);
-    if (response !== null) await Bun.write(Bun.stdout, `${response}\n`);
+    for await (const line of readLines(Bun.stdin.stream())) {
+        const response = await handleLine(line, methods);
+        if (response !== null) await Bun.write(Bun.stdout, `${response}\n`);
+    }
+
+    session.close();
 }
 
-session.close();
+void main();
