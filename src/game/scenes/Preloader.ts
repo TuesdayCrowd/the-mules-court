@@ -2,13 +2,12 @@ import { Scene } from 'phaser';
 import { CARD_CATALOG } from '../engine';
 import type { CardTypeId } from '../engine';
 import { cardCopyFor } from '../../client/content/cardCopy';
-import { CARD_BACK_ASSET, CARD_FRONT_ASSET, portraitPath } from '../../client/content/portraits';
+import { CARD_BACK_ASSET, portraitPath } from '../../client/content/portraits';
 import { TOKENS } from '../../client/tokens/tokens';
 
 /** Texture keys the Court scene looks up. Named here so nothing guesses a string twice. */
 export const TEXTURES = {
     playfield: 'playfield',
-    cardFront: 'card-front',
     cardBack: 'card-back',
     devotionToken: 'devotion-token',
     distortion: 'shader-distortion',
@@ -54,7 +53,16 @@ export class Preloader extends Scene {
             this.load.image(cardCopyFor(id).portraitKey, portraitPath(id));
         }
 
-        this.load.image(TEXTURES.cardFront, CARD_FRONT_ASSET);
+        // `cardFront` is deliberately NOT loaded. `card_front_3.png` is 294,720
+        // bytes — larger than the whole app bundle — and nothing draws it: the
+        // hand, the deck's face and the chip reveal all render a portrait or the
+        // card back directly, so the frame the design picked (UIX §12) has never
+        // been used. It was fetched on every page load and thrown away.
+        //
+        // The asset and `CARD_FRONT_ASSET` stay where they are, and
+        // `portraits.test.ts` still pins the file's existence, so the unrealised
+        // intent survives in the place that records it. Restore the load beside
+        // the code that finally draws it.
         this.load.image(TEXTURES.cardBack, CARD_BACK_ASSET);
         this.load.image(TEXTURES.devotionToken, 'misc/devotion_token.png');
 

@@ -1,6 +1,6 @@
 import { readFileSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
-import { TOKENS } from './tokens';
+import { TOKENS, hex } from './tokens';
 
 /** `--color-nebula-red: #ef4444;` → `['colorNebulaRed', 0xef4444]` */
 function parseCssTokens(css: string): Map<string, number> {
@@ -60,5 +60,25 @@ describe('design tokens', () => {
         for (const name of Object.keys(TOKENS)) {
             expect(css.has(name), `TS token ${name} has no CSS counterpart`).toBe(true);
         }
+    });
+});
+
+describe('hex', () => {
+    it('renders a palette integer as the six-digit form CSS accepts', () => {
+        expect(hex(TOKENS.colorNebulaPurple)).toBe('#a855f7');
+    });
+
+    it('pads a colour whose leading bytes are zero', () => {
+        // The bug this pins: `(0).toString(16)` is '0', and '#0' is not black —
+        // it is a parse failure that some engines swallow as transparent.
+        expect(hex(TOKENS.colorBg)).toBe('#000000');
+        expect(hex(0x00ff00)).toBe('#00ff00');
+    });
+
+    it('agrees with the stylesheet for every colour both sides name', () => {
+        // tokens.css is authoritative (UIX §2.3); this is the same claim the
+        // drift test makes, asserted through the conversion the DOM side uses.
+        expect(hex(TOKENS.colorSeatProtected)).toBe('#22d3ee');
+        expect(hex(TOKENS.colorTextPrimary)).toBe('#f5f5f5');
     });
 });

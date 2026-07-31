@@ -2,13 +2,35 @@ import { Scene } from 'phaser';
 import { buildRenderPlan, medallionPlan } from '../../client/layout/renderPlan';
 import type { RenderPlan, SeatPlan } from '../../client/layout/renderPlan';
 import { fitOverline } from '../../client/layout/overline';
-import { PIP_GAP_PX, computeLayout, pipBlockHeight } from '../../client/layout/tableLayout';
+import { MEDALLION_GAP, PIP_GAP_PX, computeLayout, pipBlockHeight } from '../../client/layout/tableLayout';
+import {
+    BADGE_FRACTION,
+    BANNER_PLATE_PAD,
+    CARD_BACK_H,
+    DECK_PULSE_REPEATS_STRONG,
+    DECK_PULSE_REPEATS_SUBTLE,
+    LABEL_PAD,
+    LONG_PRESS_MS,
+    MIN_BADGE,
+    MIN_BANNER_PX,
+    MIN_NAME_H,
+    MIN_SLIVER_HEIGHT,
+    MIN_SLIVER_STEP,
+    MOVE_CANCEL_PX,
+    NAME_FRACTION,
+    PORTRAIT_ASPECT,
+    RESIZE_DEBOUNCE_MS,
+    REVEALED_H,
+    SEAT_COLOURS,
+    SLIVER_INSET,
+    SLIVER_STEP_FRACTION
+} from '../../client/layout/tableMetrics';
 import type { ChipSpec, LayoutSpec, PipSpec, Rect } from '../../client/layout/types';
 import type { ClientState } from '../../client/store/types';
 import { cardCopyFor, cardLabel } from '../../client/content/cardCopy';
 import type { CardTypeId } from '../../game/engine';
 import { FONT_DISPLAY, FONT_UI } from '../../client/tokens/fonts';
-import { TOKENS } from '../../client/tokens/tokens';
+import { TOKENS, hex } from '../../client/tokens/tokens';
 import type { BeatRunner } from './beats';
 import { createBeatRunner } from './beats';
 import { TEXTURES } from './Preloader';
@@ -512,7 +534,7 @@ export class Court extends Scene {
             const back = this.add
                 .image(seat.rect.x + seat.rect.w - chip.pad, seat.rect.y + chip.pad, TEXTURES.cardBack)
                 .setOrigin(1, 0)
-                .setDisplaySize(CARD_BACK_H * CARD_ASPECT, CARD_BACK_H);
+                .setDisplaySize(CARD_BACK_H * PORTRAIT_ASPECT, CARD_BACK_H);
             this.table.add(back);
         }
 
@@ -561,14 +583,14 @@ export class Court extends Scene {
             const revealed = this.add
                 .image(seat.rect.x + seat.rect.w - chip.pad, seat.rect.y + seat.rect.h - chip.pad, cardCopyFor(seat.revealedCard).portraitKey)
                 .setOrigin(1, 1)
-                .setDisplaySize(REVEALED_H * CARD_ASPECT, REVEALED_H);
+                .setDisplaySize(REVEALED_H * PORTRAIT_ASPECT, REVEALED_H);
             this.table.add(revealed);
 
             // Too small for the full label, and the value is the deduction
             // datum anyway — the pip row beside it already carries the history.
             const value = this.add
                 .text(
-                    seat.rect.x + seat.rect.w - chip.pad - REVEALED_H * CARD_ASPECT - 2,
+                    seat.rect.x + seat.rect.w - chip.pad - REVEALED_H * PORTRAIT_ASPECT - 2,
                     seat.rect.y + seat.rect.h - chip.pad,
                     String(cardCopyFor(seat.revealedCard).value),
                     { fontFamily: FONT_DISPLAY, fontSize: '15px', color: '#f5f5f5' }
@@ -598,9 +620,9 @@ export class Court extends Scene {
         if (seat.revealedCard !== null) {
             const revealedHit = this.add
                 .rectangle(
-                    seat.rect.x + seat.rect.w - chip.pad - REVEALED_H * CARD_ASPECT,
+                    seat.rect.x + seat.rect.w - chip.pad - REVEALED_H * PORTRAIT_ASPECT,
                     seat.rect.y + seat.rect.h - chip.pad - REVEALED_H,
-                    REVEALED_H * CARD_ASPECT,
+                    REVEALED_H * PORTRAIT_ASPECT,
                     REVEALED_H,
                     0x000000,
                     0
@@ -1036,99 +1058,4 @@ interface FaceLabel {
     readonly parts: FacePart[];
     /** Empty unless an overline was asked for and something legible fit. */
     readonly overline: FacePart[];
-}
-
-/** Card art is 512×720 (`portraits.ts`), and every card drawn here keeps that ratio. */
-const CARD_ASPECT = 512 / 720;
-
-/** The card-back marker on a seat chip, and the face-up reveal on an eliminated one. */
-const CARD_BACK_H = 26;
-const REVEALED_H = 30;
-
-/**
- * The gap between two medallions. The medallion's own size is
- * `LayoutSpec.chip.medallion`, which scales with the table — a flat 12px was
- * right for a phone and lost on a monitor, the same complaint the pips had.
- *
- * Kept in step with `tableLayout.ts`'s own constant of the same name, which is
- * what `ownRow.medallionSpan` is measured with.
- */
-const MEDALLION_GAP = 2;
-
-/**
- * How many times the deck's warning breathes per state update.
- *
- * Finite by requirement: an endless tween keeps `isAnimating()` true, and the
- * render loop cannot stop while anything is animating. Strong gets more because
- * an empty deck means the showdown is the next play.
- */
-const DECK_PULSE_REPEATS_SUBTLE = 1;
-const DECK_PULSE_REPEATS_STRONG = 3;
-
-/**
- * How long a finger must rest on a card before it reads as "tell me about this"
- * rather than "play this". Long enough not to fire on a deliberate tap, short
- * enough that a player who is waiting does not give up first.
- */
-const LONG_PRESS_MS = 450;
-
-/** A press that travels this far was a scroll or a mis-aim, not a press. */
-const MOVE_CANCEL_PX = 10;
-
-/** The value badge, as a fraction of the card's short edge, with a legible floor. */
-const BADGE_FRACTION = 0.28;
-const MIN_BADGE = 22;
-
-/** Breathing room a card's text keeps from its own edges, both sides together. */
-const LABEL_PAD = 6;
-
-/**
- * Floors and fractions for the table text that carries no card behind it.
- *
- * The turn banner and the seat chips were the only on-table text drawn against
- * bare nebula — every other label has a plate, a scrim or a filled rect under
- * it. They now do too, and the sizes below scale with the rect they sit in
- * rather than being pinned to a phone's pixel count.
- */
-const MIN_BANNER_PX = 20;
-const BANNER_PLATE_PAD = 14;
-
-/** The name strip along the card's bottom edge. */
-const NAME_FRACTION = 0.16;
-const MIN_NAME_H = 16;
-
-/**
- * How far each face-down removal peeks out past the one in front of it.
- *
- * A fraction of the panel so it scales with the table, with a floor so the
- * edges stay visible as separate cards rather than merging into one thick line.
- */
-const SLIVER_STEP_FRACTION = 0.14;
-const MIN_SLIVER_STEP = 5;
-
-/**
- * Vertical inset per card of depth, so the hidden cards recede behind the
- * face-up one instead of sharing its exact height. Multiplied by depth: without
- * a per-card difference, two backs of the same texture read as one card.
- */
-const SLIVER_INSET = 3;
-
-/** A floor, so a short panel cannot invert the receding inset into a negative. */
-const MIN_SLIVER_HEIGHT = 12;
-
-/** Long enough to ride out a toolbar collapse, short enough to feel immediate. */
-const RESIZE_DEBOUNCE_MS = 100;
-
-/** UIX §6.3, straight from the palette — the plan chose the state, this maps it. */
-const SEAT_COLOURS: Record<SeatPlan['state'], number> = {
-    current: TOKENS.colorSeatCurrent,
-    protected: TOKENS.colorSeatProtected,
-    eliminated: TOKENS.colorSeatEliminated,
-    disconnected: TOKENS.colorSeatDisconnected,
-    idle: TOKENS.colorSeatOther
-};
-
-/** Phaser text takes CSS colours; the palette is integers for everything else. */
-function hex(colour: number): string {
-    return `#${colour.toString(16).padStart(6, '0')}`;
 }

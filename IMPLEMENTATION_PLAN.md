@@ -19,7 +19,8 @@ policy it guards is untouched.
 `Content-Encoding: gzip` and decompresses to the original bytes. A request
 without the header comes back uncompressed. An already-small response is not
 compressed. The shell fallback compresses too.
-**Status**: Not Started
+**Status**: **Complete.** Measured against a running server: 1,470,204 →
+386,603 bytes of JS and CSS, a saving of 1,083,601 on every cold load.
 
 Independent of the renderer decision entirely. Listed first because it is the
 largest player-facing win either research pass found.
@@ -35,10 +36,53 @@ across).
 **Tests**: Existing suites stay green unedited. The moved constants gain
 coverage where they had none — `hex()` in particular is a pure function with no
 test today.
-**Status**: Not Started
+**Status**: **Complete.** `layout/tableMetrics.ts` holds the fractions, floors
+and `SEAT_COLOURS`; `hex()` went to `tokens/tokens.ts`, where the palette lives
+and where a DOM table will reach for it on every value rather than the handful a
+scene renders as text. `MEDALLION_GAP` is single-sourced from `tableLayout.ts`.
+The event-name strings deliberately stayed in `Court.ts` — they are a Phaser
+`EventEmitter` contract that a DOM table replaces with callbacks, so moving them
+would be churn on something about to be deleted.
 
-Step 1 of the *stay* plan and Stage 0 of the *remove* plan. The same commit
-either way.
+### What the hoist uncovered
+
+Three things, none of which are the hoist's to fix. Recorded here because two
+of them move pixels and are decisions for whoever owns the visual design.
+
+1. **`MEDALLION_GAP` was declared twice** — `Court.ts` and `tableLayout.ts`,
+   both `2`, each carrying a comment asking the reader to keep them in step by
+   hand. Fixed as part of this stage; it was a duplication, not a judgment call.
+2. **`CARD_ASPECT` named two different numbers.** `tableLayout.ts:26` is `0.75`
+   (768×1024, the card back); the copy in `Court.ts` was `512/720 ≈ 0.711` (the
+   portraits). The scene applied its portrait ratio to the seat chip's
+   **card-back marker**, whose art is `card_back_2.png` at 768×1024 — so that
+   marker is drawn about five per cent too narrow. Renamed to `PORTRAIT_ASPECT`
+   so the mismatch is legible at the call site instead of hidden behind a name
+   that read as correct. **Pixels unchanged; open.**
+3. **Hand cards carry the same question in the other direction.**
+   `tableLayout.ts` sizes the hand, the deck and the removed card at `0.75`, and
+   `Court.ts:408` draws hand cards from a **portrait** (`0.711`), so those are
+   stretched about five per cent wide. The comment at `tableLayout.ts:25`
+   ("768×1024. Deck, removed card, and hand cards all keep it") is stale for the
+   hand. The deck is fine — it draws the back. **Open.**
+
+Items 2 and 3 are the same decision asked twice: does card art stretch to its
+rect, or does the rect follow the art? A DOM table forces the answer anyway,
+because `object-fit` has to be given a value. Worth settling in Stage 4 rather
+than now.
+
+## Stage 2b: Stop preloading an asset nothing draws
+
+**Goal**: `Preloader.ts` fetched `card_front_3.png` — 294,720 bytes, larger than
+the entire app bundle — as `TEXTURES.cardFront`, and nothing ever drew it. The
+hand, the deck face and the chip reveal all render a portrait or the card back
+directly, so the card frame UIX §12 chose has never been used.
+**Success Criteria**: The built chunks no longer reference `card_front`, so no
+browser fetches it. The asset and `CARD_FRONT_ASSET` stay, and
+`portraits.test.ts` still pins the file's existence, so the unrealised design
+intent survives where it is recorded.
+**Tests**: Existing suites unedited; `grep card_front dist/assets/*.js` empty.
+**Status**: **Complete.**
 
 ## Stage 3: Correct the design record
 

@@ -376,8 +376,16 @@ function fitOwnRow(row: Rect, count: number, medallion: number): OwnRowSpec {
     };
 }
 
-/** The gap between two devotion medallions, shared with the scene's drawing. */
-const MEDALLION_GAP = 2;
+/**
+ * The gap between two devotion medallions.
+ *
+ * Exported because the drawing needs the same number: `ownRow.medallionSpan` is
+ * measured with it here, and whatever paints the medallions steps by it. It was
+ * declared twice — once here, once at the bottom of `Court.ts` — with a comment
+ * on each asking the reader to keep them in step by hand. One of the two is now
+ * the other's import.
+ */
+export const MEDALLION_GAP = 2;
 const MIN_OWN_VALUE_PX = 10;
 
 // ------------------------------------------------------------------- layout
