@@ -11,7 +11,7 @@
  * reader and ambiguous to everyone else.
  */
 
-export type IconName = 'shield' | 'skull' | 'hourglass' | 'crown' | 'token';
+export type IconName = 'shield' | 'skull' | 'hourglass' | 'crown' | 'token' | 'robot';
 
 /** Drawn on a 24×24 grid, stroked in `currentColor` so a parent's colour carries. */
 const PATHS: Readonly<Record<IconName, string>> = {
@@ -24,7 +24,9 @@ const PATHS: Readonly<Record<IconName, string>> = {
     // Host.
     crown: '<path d="M4 8l3.5 4L12 5l4.5 7L20 8v10H4z"/>',
     // A devotion token.
-    token: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>'
+    token: '<circle cx="12" cy="12" r="8"/><circle cx="12" cy="12" r="3"/>',
+    // A computer opponent.
+    robot: '<path d="M12 2v3"/><rect x="4" y="5" width="16" height="14" rx="3"/><circle cx="9" cy="12" r="1.3"/><circle cx="15" cy="12" r="1.3"/><path d="M9.5 16h5"/>'
 };
 
 /**

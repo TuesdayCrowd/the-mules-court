@@ -8,7 +8,7 @@
  */
 
 import type { CardInstanceId, PlayerId, RedactedView } from '../../game/engine';
-import type { ErrorCode, SeatStatus } from '../../server/protocol';
+import type { BotDifficulty, ErrorCode, SeatStatus } from '../../server/protocol';
 
 /**
  * Which surface the player is looking at.
@@ -46,6 +46,8 @@ export interface LobbySnapshot {
         readonly playerId: PlayerId | null;
         readonly nickname: string | null;
         readonly status: SeatStatus;
+        /** Non-null only for a `computer` seat. */
+        readonly difficulty: BotDifficulty | null;
     }>;
 }
 

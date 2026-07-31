@@ -31,7 +31,17 @@ export type ErrorCode =
     | 'INTERNAL'
     | ValidationError['code']; // engine codes forwarded verbatim — they name rules, never cards
 
-export type SeatStatus = 'open' | 'occupied' | 'disconnected';
+/** `computer` is a seat the host filled with a bot: claimed, playing, and never connected. */
+/**
+ * How strong a computer opponent plays.
+ *
+ * Mirrors `Difficulty` in `src/game/ai/difficulty.ts` rather than importing it:
+ * the wire contract is this file's, and a protocol that imported the AI layer
+ * would make a rename over there a breaking change over here.
+ */
+export type BotDifficulty = 'novice' | 'adept' | 'master';
+
+export type SeatStatus = 'open' | 'occupied' | 'disconnected' | 'computer';
 
 export type ClientMessage =
     | { type: 'CLAIM_SEAT'; matchId: MatchId; nickname: string } // no seat index — server assigns
@@ -41,6 +51,10 @@ export type ClientMessage =
     // not a rename, which a seat token must never authorise.
     | { type: 'RESUME_SEAT'; matchId: MatchId; seatToken: SeatToken; nickname?: string }
     | { type: 'START_MATCH'; matchId: MatchId } // host only; 2-4 seats claimed
+    // Host only, lobby only. Names the seat rather than a count, because the
+    // lobby offers it per seat and the host may fill any subset — and names the
+    // difficulty per bot, so a table can mix a hard opponent with two soft ones.
+    | { type: 'ADD_BOT'; matchId: MatchId; seat: number; difficulty: BotDifficulty }
     | {
           type: 'PLAY_CARD';
           matchId: MatchId;
@@ -59,7 +73,14 @@ export type ServerMessage =
           matchId: MatchId;
           hostSeat: PlayerId;
           canStart: boolean;
-          seats: { seat: number; playerId: PlayerId | null; nickname: string | null; status: SeatStatus }[];
+          seats: {
+              seat: number;
+              playerId: PlayerId | null;
+              nickname: string | null;
+              status: SeatStatus;
+              /** Non-null only for a `computer` seat. */
+              difficulty: BotDifficulty | null;
+          }[];
       }
     | { type: 'SEAT_CLAIMED'; matchId: MatchId; seat: number; playerId: PlayerId; seatToken: SeatToken } // once, this socket only
     | { type: 'MATCH_STARTED'; matchId: MatchId } // broadcast
@@ -117,6 +138,11 @@ function parseNickname(value: unknown, maxNickname: number): string | undefined 
 const TARGET_RE = /^p[1-4]$/;
 function isTarget(value: unknown): value is PlayerId {
     return typeof value === 'string' && TARGET_RE.test(value);
+}
+
+const BOT_DIFFICULTIES: readonly string[] = ['novice', 'adept', 'master'];
+function isBotDifficulty(value: unknown): value is BotDifficulty {
+    return typeof value === 'string' && BOT_DIFFICULTIES.includes(value);
 }
 
 function isGuessValue(value: unknown): value is GuessValue {
@@ -201,6 +227,18 @@ export function parseClientMessage(raw: string, maxNickname: number): ParseResul
         case 'START_MATCH': {
             const msg = parseMatchIdOnly(obj, 'START_MATCH');
             return msg === undefined ? { ok: false } : { ok: true, msg };
+        }
+
+        case 'ADD_BOT': {
+            if (!hasExactKeys(obj, ['type', 'matchId', 'seat', 'difficulty'])) return { ok: false };
+            if (typeof obj.matchId !== 'string') return { ok: false };
+            if (!isBotDifficulty(obj.difficulty)) return { ok: false };
+            // The seat pool is fixed at p1..p4, so the index is bounded here
+            // rather than trusted and range-checked later.
+            if (typeof obj.seat !== 'number' || !Number.isInteger(obj.seat) || obj.seat < 0 || obj.seat > 3) {
+                return { ok: false };
+            }
+            return { ok: true, msg: { type: 'ADD_BOT', matchId: obj.matchId, seat: obj.seat, difficulty: obj.difficulty } };
         }
 
         case 'PLAY_CARD': {

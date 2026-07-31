@@ -184,8 +184,8 @@ describe('LOBBY_UPDATE', () => {
         hostSeat: 'p1',
         canStart: true,
         seats: [
-            { seat: 0, playerId: 'p1', nickname: 'Ana', status: 'occupied' },
-            { seat: 1, playerId: 'p2', nickname: 'Bayta', status: 'occupied' }
+            { seat: 0, playerId: 'p1', nickname: 'Ana', status: 'occupied', difficulty: null },
+            { seat: 1, playerId: 'p2', nickname: 'Bayta', status: 'occupied', difficulty: null }
         ]
     };
 
@@ -210,12 +210,12 @@ describe('LOBBY_UPDATE', () => {
             hostSeat: 'p1',
             canStart: false,
             seats: [
-                { seat: 0, playerId: 'p1', nickname: 'Ana', status: 'occupied' },
-                { seat: 1, playerId: null, nickname: null, status: 'open' }
+                { seat: 0, playerId: 'p1', nickname: 'Ana', status: 'occupied', difficulty: null },
+                { seat: 1, playerId: null, nickname: null, status: 'open', difficulty: null }
             ]
         });
 
-        expect(h.store.getState().lobby?.seats[1]).toEqual({ seat: 1, playerId: null, nickname: null, status: 'open' });
+        expect(h.store.getState().lobby?.seats[1]).toEqual({ seat: 1, playerId: null, nickname: null, status: 'open', difficulty: null });
         expect(h.store.getState().lobby?.canStart).toBe(false);
     });
 });
@@ -589,8 +589,8 @@ describe('the whole arc', () => {
             hostSeat: 'p1',
             canStart: true,
             seats: [
-                { seat: 0, playerId: 'p1', nickname: 'Ana', status: 'occupied' },
-                { seat: 1, playerId: 'p2', nickname: 'Bayta', status: 'occupied' }
+                { seat: 0, playerId: 'p1', nickname: 'Ana', status: 'occupied', difficulty: null },
+                { seat: 1, playerId: 'p2', nickname: 'Bayta', status: 'occupied', difficulty: null }
             ]
         });
         expect(h.store.getState().lobby?.canStart).toBe(true);

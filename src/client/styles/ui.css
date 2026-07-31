@@ -823,3 +823,46 @@ h2,
     font: inherit;
     cursor: pointer;
 }
+
+/* The lobby's computer-opponent difficulty picker.
+
+   A real <fieldset>/<legend>/radio group rather than styled buttons, so the
+   browser supplies arrow-key navigation, a single tab stop, and the grouping a
+   screen reader announces — none of which a div would have. Everything below is
+   presentation only; remove it all and the control still works. */
+.screen-lobby [data-role='difficulty'] {
+    border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.18));
+    border-radius: var(--radius);
+    padding: var(--space-4);
+    margin: 0;
+    display: grid;
+    gap: var(--space-2);
+}
+
+.screen-lobby [data-role='difficulty'] legend {
+    padding: 0 var(--space-2);
+    color: var(--color-text-secondary);
+}
+
+.screen-lobby [data-role='difficulty'] label {
+    display: grid;
+    grid-template-columns: auto 1fr;
+    align-items: baseline;
+    gap: 0 var(--space-3);
+    /* Interface rule 2 again: the whole row is the target, not just the dot. */
+    min-height: var(--tap-min);
+    padding: var(--space-2);
+    border-radius: var(--radius);
+    cursor: pointer;
+}
+
+.screen-lobby [data-role='difficulty'] label:hover,
+.screen-lobby [data-role='difficulty'] input:focus-visible + span {
+    color: var(--color-state-your-turn);
+}
+
+.screen-lobby [data-role='difficulty-hint'] {
+    grid-column: 2;
+    color: var(--color-text-secondary);
+    font-size: var(--font-size-sm, 0.875rem);
+}

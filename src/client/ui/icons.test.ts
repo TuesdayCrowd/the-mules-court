@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { IconName } from './icons';
 import { iconElement, iconSvg } from './icons';
 
-const ALL: IconName[] = ['shield', 'skull', 'hourglass', 'crown', 'token'];
+const ALL: IconName[] = ['shield', 'skull', 'hourglass', 'crown', 'token', 'robot'];
 
 describe('every icon', () => {
     it.each(ALL)('%s draws something', name => {
