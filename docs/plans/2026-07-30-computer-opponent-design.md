@@ -1,7 +1,7 @@
 # The Mule's Court — Computer Opponent Design
 
 **Date:** 2026-07-30
-**Status:** Proposed. §11 lists what is still open.
+**Status:** Built. All five stages complete; §11 lists what is still open.
 **Scope:** A built-in, non-LLM opponent so one person can play a whole match alone.
 **Depends on:** `docs/plans/2026-07-22-engine-architecture-design.md`, `docs/plans/2026-07-22-transport-design.md`
 **Adjacent:** `docs/plans/2026-07-28-mcp-seat-design.md` — the LLM answer to the same problem
@@ -27,10 +27,10 @@ engine and may not change a rule.
 | Where the bot runs | Server-side, as an ordinary seat in an ordinary `Room` |
 | What the bot sees | `RedactedView`, from the same `view()` humans get. Nothing else |
 | How it evaluates | The real `reduce()`. No reimplementation of any rule |
-| Decision method | Belief-driven heuristic, with ISMCTS layered on top for the strong tier |
+| Decision method | Belief-driven heuristic, with a one-ply determinized search layered on top for the strong tier |
 | Where strength comes from | Self-play, not human games |
 | Difficulty | Degraded knowledge, never degraded choice |
-| Placement | `src/game/ai/` (pure) + `src/server/botSeat.ts` (the seat) |
+| Placement | `src/game/ai/` (pure) + the bot seat inside `src/server/room.ts` |
 
 ---
 
@@ -117,21 +117,35 @@ format the server already persists.** No data pipeline needs building.
 
 ### Module layout
 
+As built:
+
 ```
 src/game/ai/            pure, no DOM, no Phaser, no transport
   policy.ts             the Policy interface, and the seam everything plugs into
-  beliefs.ts            RedactedView + public log  ->  constraint set
-  determinize.ts        constraint set + rng       ->  a consistent MatchState
-  features.ts           belief + view              ->  a feature vector
-  heuristic.ts          features x weights         ->  a scored action ranking
-  weights.generated.ts  the trained weight vector. Generated, committed
-  search.ts             ISMCTS over determinized worlds, using real reduce()
+  rng.ts                a cursor over the engine's generator, injected everywhere
+  census.ts             RedactedView -> what is located, what is loose, and Recall
+  determinize.ts        census + rng -> a consistent MatchState
+  heuristic.ts          census marginals x weights -> a scored move ranking
+  weights.ts            the Weights type, the hand-set control, the trained vector
+  weights.generated.ts  the trained weights. Generated, committed
+  search.ts             one-ply PIMC with a PUCT allocation, over real reduce()
+  difficulty.ts         novice / adept / master
+  randomPolicy.ts       the arena's zero mark
   selfPlay.ts           headless N-policy match driver
-  arena.ts              win rates with confidence intervals
+  arena.ts              win rates with confidence intervals, and rotatingWinRate
+  cem.ts                the cross-entropy optimiser, over plain numbers
 
-src/server/botSeat.ts   pacing, scheduling, and the bridge into dispatch
+src/server/room.ts      the bot seat: addBot, scheduling, and the bridge to reduce
 scripts/trainAi.ts      offline trainer. Not shipped, not imported by src/
+scripts/ladder.ts       opt-in verification of the difficulty rungs
 ```
+
+Two departures from the sketch above are worth naming. There is no separate
+`beliefs.ts` or `features.ts`: the belief work turned out to be exact counting
+plus marginals, which is `census.ts` and thirty lines of `heuristic.ts`, and
+inventing two more modules for it would have been architecture for its own sake.
+And there is no `botSeat.ts` — the seat is four derivations and a timer inside
+`room.ts`, where the state machine it has to cooperate with already lives.
 
 `src/game/ai/` rather than a new top-level directory, and that is deliberate.
 `vitest.config.ts` enumerates `src/game/**/*.test.ts`, so tests here are
@@ -317,12 +331,41 @@ the same on a phone and a workstation.
 **The honest caveat.** Determinized search has two well-documented weaknesses:
 *strategy fusion* (each rollout assumes perfect information from that node
 onward, so the search systematically undervalues information-gathering plays —
-precisely the Priest and Baron) and an inability to represent deception. Sharing
-one tree across determinizations, which is what makes this ISMCTS rather than
-plain Perfect-Information Monte Carlo, mitigates but does not remove them. The
+precisely the Priest and Baron) and an inability to represent deception. The
 practical answer is that layer 1 values information *directly* from the belief
-marginals, so the two layers cover each other's blind spot. Expect the arena to
-show the combined policy beating pure search.
+marginals, so the two layers cover each other's blind spot.
+
+### What was actually built, and why it is not ISMCTS
+
+`search.ts` is a **one-ply root search** — Perfect-Information Monte Carlo with
+a PUCT allocation over root moves, and full-round rollouts through the real
+`reduce()`. Not the multi-ply shared tree sketched above, and the reason is the
+budget measured in stage 1: ~3,000 `reduce()` calls per 50 ms turn, spread over
+a round of eight to sixteen plies, leaves a few hundred rollouts. A tree spread
+across several plies of that holds nodes with one or two visits each, which is
+noise wearing the costume of a search. Deepening the *statistics* on the moves
+actually available now is worth more than spreading the same budget thin.
+
+Two findings came out of building it, both of which cost a failing test first.
+
+**UCB1 played the Mule.** UCB1 samples every move once before any move twice,
+then rewards whichever has been sampled *least* — so the Mule took one rollout,
+scored zero, and then carried the largest exploration bonus on the board,
+because a low visit count *is* the bonus. Pure UCB1 has no way to represent
+"this move is catastrophic". The fix is the one this section already called for:
+use layer 1 as the **action prior**. A softmax over the heuristic's scores gives
+a self-destructive move a prior of about e⁻⁴², so it is never sampled — and
+`search.ts` still does not know what the Mule is or that discarding it loses.
+The knowledge stays in exactly one place.
+
+**A thin search is worse than no search.** At roughly three rollouts per move a
+single lucky win gives a move a mean of 1.0 and it captures the allocation; at
+that budget the master tier lost to the adept tier outright. So the search
+declines to have an opinion below `MIN_SAMPLES_PER_MOVE` rollouts a move and
+returns layer 1's answer unchanged. That is worth more than a threshold: it
+means a slow device silently gets the **adept** bot rather than a
+differently-broken one, and it is checked before any random draw is spent, so
+the deferred answer is byte-identical to layer 1's.
 
 ---
 
@@ -448,6 +491,38 @@ Tier names are player-facing copy and therefore belong in
 `src/client/content/`, not here — the same boundary that keeps every other
 string a player reads out of the store.
 
+### The ladder, measured
+
+`bun scripts/ladder.ts`, at the shipped budget, 600 matches per row, every
+candidate rotating through all four chairs so 25% is break-even:
+
+| Rung | Rate | 95% interval |
+| --- | --- | --- |
+| adept vs three novice | 41.3% | [37.5 .. 45.3] |
+| novice vs three adept | 11.8% | [9.5 .. 14.7] |
+| master vs three adept | 30.7% | [27.1 .. 34.5] |
+| adept vs three master | 16.3% | [13.6 .. 19.5] |
+
+Both rungs separate in **both** directions, which is the standard this project
+now holds a claim to — one direction above break-even is half the evidence, and
+training runs 2 and 3 are the cautionary tale.
+
+Two notes on reading these. The novice gap is deliberately the larger one: the
+tiers exist to feel different to a person, not to be evenly spaced on a rating
+scale. And the master rung measured 36.0% before the under-sampling deferral was
+added and 30.7% after — overlapping intervals, so possibly noise, but the
+direction is what would be expected. Deferring in positions the budget cannot
+cover trades a little strength for never being *worse* than the tier below, and
+for a shipped opponent that is the right way round.
+
+**The ladder is verified by script rather than by the test suite**, and that is
+a considered choice. An in-suite version was attempted twice: at a budget small
+enough to run in tests, the search either defers outright or samples too thinly,
+so the test measures the fake budget instead of the shipped one — slowly, and
+with a bound that will not separate. Expensive and fragile is the worst
+combination a gate can have. What the suite pins instead is the deferral itself,
+which is the property that made the cheap test impossible.
+
 ---
 
 ## 8. Running a bot seat
@@ -569,7 +644,7 @@ Each stage ends somewhere shippable, and stage 2 is already a playable opponent.
 | 2 | `beliefs.ts`, `determinize.ts`, and a hand-weighted `heuristic.ts` | The roundtrip invariant holds; the heuristic beats the fallback decisively |
 | 3 | `botSeat.ts` and the client entry point | A person can play a four-player match alone in a browser, start to finish |
 | 4 | `scripts/trainAi.ts` and `weights.generated.ts` | The trained weights beat the hand-written ones over a held-out seed set |
-| 5 | `search.ts` and the difficulty tiers | Each tier beats the one below; the hardest stays inside its wall-clock budget |
+| 5 | `search.ts` and the difficulty tiers | **Done.** Both rungs separate in both directions (§7); the hardest honours a 50 ms wall-clock budget and defers to layer 1 when it cannot fill it |
 
 Open questions, none of which block stage 1:
 

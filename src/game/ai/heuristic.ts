@@ -29,7 +29,7 @@
 
 import type { CardValue, GuessValue, PlayerId, RedactedView } from '../engine';
 import { CARD_CATALOG, cardTypeOf, EFFECT_DEFS, INFORMANT_VALUE } from '../engine';
-import { takeCensus, type Census } from './census';
+import { PERFECT_RECALL, takeCensus, type Census, type Recall } from './census';
 import { DEFAULT_WEIGHTS, type Weights } from './weights';
 import { TRAINED_WEIGHTS } from './weights.generated';
 import type { Policy, PolicyDecision } from './policy';
@@ -57,8 +57,8 @@ export interface ScoredMove {
     readonly score: number;
 }
 
-function buildBeliefs(seat: RedactedView): Beliefs {
-    const census = takeCensus(seat);
+function buildBeliefs(seat: RedactedView, recall: Recall): Beliefs {
+    const census = takeCensus(seat, recall);
     const unseenByValue = new Map<CardValue, number>();
     let total = 0;
     let sum = 0;
@@ -125,8 +125,12 @@ function threatLevel(seat: RedactedView, holdingMule: boolean): number {
 }
 
 /** Every legal move, scored. Exported so training and tests can read the ranking. */
-export function scoreMoves(seat: RedactedView, weights: Weights = DEFAULT_WEIGHTS): ScoredMove[] {
-    const beliefs = buildBeliefs(seat);
+export function scoreMoves(
+    seat: RedactedView,
+    weights: Weights = DEFAULT_WEIGHTS,
+    recall: Recall = PERFECT_RECALL
+): ScoredMove[] {
+    const beliefs = buildBeliefs(seat, recall);
     const me = seat.own.playerId;
 
     // How much the card kept matters, rising as the deck empties toward the
@@ -266,10 +270,14 @@ function chooseBest(moves: readonly ScoredMove[], rng: Rng): PolicyDecision | nu
  * differently-weighted opponents at the same table and compare them — and
  * because a policy's `id` is what an arena report labels its seats with.
  */
-export function createHeuristicPolicy(weights: Weights, id: string): Policy {
+export function createHeuristicPolicy(
+    weights: Weights,
+    id: string,
+    recall: Recall = PERFECT_RECALL
+): Policy {
     return {
         id,
-        decide: (seat, rng) => chooseBest(scoreMoves(seat, weights), rng)
+        decide: (seat, rng) => chooseBest(scoreMoves(seat, weights, recall), rng)
     };
 }
 

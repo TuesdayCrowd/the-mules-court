@@ -106,3 +106,58 @@ describe('takeCensus', () => {
         }
     });
 });
+
+describe('imperfect recall', () => {
+    test('remembers only the most recent discards when asked to forget', () => {
+        const deep = takeStates(400, 'recall').filter(({ match, actorId }) =>
+            view(match, actorId).players.some(p => p.discardPile.length >= 3)
+        );
+        expect(deep.length, 'no deep discard piles in the sample').toBeGreaterThan(0);
+
+        const seat = view(deep[0].match, deep[0].actorId);
+        const full = takeCensus(seat);
+        const forgetful = takeCensus(seat, { discardDepth: 1, peeks: true });
+
+        // Forgetting cards makes MORE of the deck look unaccounted for, which is
+        // the whole point: a weaker seat is one that reasons well about less.
+        expect(forgetful.unseen.length).toBeGreaterThan(full.unseen.length);
+    });
+
+    test('still accounts for every card it does remember', () => {
+        for (const { match, actorId } of takeStates(40, 'recall2')) {
+            const seat = view(match, actorId);
+            const forgetful = takeCensus(seat, { discardDepth: 1, peeks: false });
+
+            const remembered = seat.players.reduce(
+                (sum, p) => sum + Math.min(p.discardPile.length, 1),
+                0
+            );
+            const faceUp = seat.setAsideFaceUp === null ? 0 : 1;
+
+            expect(forgetful.unseen.length + seat.own.hand.length + remembered + faceUp).toBe(
+                TOTAL_CARDS
+            );
+        }
+    });
+
+    test('drops peeks when told not to keep them', () => {
+        const peeked = [...decisionStates(seeds(200, 'peek'))].find(
+            ({ match, actorId }) => view(match, actorId).revealed.length > 0
+        );
+        expect(peeked).toBeDefined();
+
+        const seat = view(peeked!.match, peeked!.actorId);
+
+        expect(Object.keys(takeCensus(seat).knownHands)).not.toHaveLength(0);
+        expect(Object.keys(takeCensus(seat, { discardDepth: Infinity, peeks: false }).knownHands)).toHaveLength(0);
+    });
+
+    test('defaults to remembering everything', () => {
+        for (const { match, actorId } of takeStates(20, 'recall3')) {
+            const seat = view(match, actorId);
+            expect(takeCensus(seat)).toEqual(
+                takeCensus(seat, { discardDepth: Infinity, peeks: true })
+            );
+        }
+    });
+});

@@ -23,6 +23,28 @@
 import type { CardTypeId, PlayerId, RedactedView } from '../engine';
 import { CARD_CATALOG, cardTypeOf } from '../engine';
 
+/**
+ * How much of the table a seat is allowed to remember (Design §7).
+ *
+ * The difficulty dial, and it turns knowledge down rather than choice. A bot
+ * that plays a random legal card reads as broken and teaches a new player
+ * nothing; a bot that forgets a discard from four turns ago and therefore
+ * guesses wrong reads as a person, and its mistakes are legible — which is what
+ * makes beating the next tier up feel earned.
+ *
+ * Both fields degrade the INPUT to the same scorer. No tier ever gets a worse
+ * decision procedure, only a smaller share of the facts.
+ */
+export interface Recall {
+    /** How many of each player's most recent discards are remembered. */
+    readonly discardDepth: number;
+    /** Whether a live peek is retained past the turn it happened on. */
+    readonly peeks: boolean;
+}
+
+/** Everything the view offers. What `determinize` and the strongest tier use. */
+export const PERFECT_RECALL: Recall = { discardDepth: Infinity, peeks: true };
+
 export interface Census {
     /**
      * Every card whose holder this seat cannot name, one entry per physical
@@ -36,7 +58,12 @@ export interface Census {
     readonly handSizes: Readonly<Record<PlayerId, number>>;
 }
 
-export function takeCensus(seat: RedactedView): Census {
+/** The last `depth` entries of a pile, oldest first. */
+function remembered<T>(pile: readonly T[], depth: number): readonly T[] {
+    return depth >= pile.length ? pile : pile.slice(pile.length - depth);
+}
+
+export function takeCensus(seat: RedactedView, recall: Recall = PERFECT_RECALL): Census {
     const handSizes: Record<PlayerId, number> = {};
     for (const player of seat.players) {
         // Whoever holds the turn has drawn and holds two; everyone else living
@@ -50,7 +77,7 @@ export function takeCensus(seat: RedactedView): Census {
 
     const knownHands: Record<PlayerId, CardTypeId[]> = {};
     const counted = new Set<string>();
-    for (const record of seat.revealed) {
+    for (const record of recall.peeks ? seat.revealed : []) {
         // A peek at oneself would double-count against `own.hand`.
         if (record.subjectId === seat.own.playerId) continue;
 
@@ -75,7 +102,11 @@ export function takeCensus(seat: RedactedView): Census {
 
     for (const instanceId of seat.own.hand) account(cardTypeOf(instanceId));
     for (const player of seat.players) {
-        for (const entry of player.discardPile) account(entry.cardId);
+        // The tail of the pile, so a forgetful seat remembers what was played
+        // recently and loses the early round — which is how a person forgets.
+        for (const entry of remembered(player.discardPile, recall.discardDepth)) {
+            account(entry.cardId);
+        }
     }
     if (seat.setAsideFaceUp !== null) account(seat.setAsideFaceUp);
     for (const held of Object.values(knownHands)) {

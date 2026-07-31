@@ -49,7 +49,7 @@ import type { EndReason, MatchPhase, MatchRecord, StoredSeat } from './persisten
 import { MatchStore, replayMatch } from './persistence';
 import type { ClientMessage, ErrorCode, ServerMessage, SeatStatus } from './protocol';
 import { hashToken, mintMatchId, mintSeed, mintToken, tokenMatches } from './seatTokens';
-import { heuristicPolicy } from '../game/ai/heuristic';
+import { createOpponent } from '../game/ai/difficulty';
 import { makeRng } from '../game/ai/rng';
 
 /** The fixed seat pool: index 0 is always the host, minted before any join (Design §2, §13). */
@@ -129,7 +129,7 @@ export interface BotPlay {
 }
 
 /**
- * The default policy: the trained-structure heuristic from `src/game/ai/`.
+ * The default policy: the strongest tier from `src/game/ai/`.
  *
  * One generator per room, seeded from the match id so a room's bots replay
  * identically. It cannot affect the deal — the engine's own RNG is a separate
@@ -138,7 +138,13 @@ export interface BotPlay {
  */
 function defaultBotPlay(matchId: string): (view: RedactedView) => BotPlay | null {
     const rng = makeRng(`bots:${matchId}`);
-    return view => heuristicPolicy.decide(view, rng);
+    // The strongest tier. Its budget is 50ms of wall clock, which is a twenty-
+    // fourth of the 1200ms pacing a player already waits — but it is synchronous
+    // inside this process, so it is 50ms no other room's socket is served in.
+    // That is affordable at this scale and is the first thing to revisit if one
+    // process ever holds many simultaneous solo matches.
+    const policy = createOpponent('master');
+    return view => policy.decide(view, rng);
 }
 
 /**
