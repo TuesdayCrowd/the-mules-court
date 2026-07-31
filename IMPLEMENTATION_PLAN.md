@@ -91,7 +91,9 @@ have. Correct them to the tweens that actually ship.
 **Success Criteria**: The design doc's shader table names one shader, not three,
 and points at `beats.ts` line numbers.
 **Tests**: None — prose.
-**Status**: Not Started
+**Status**: **Complete.** §6.3 and §8.2 no longer claim a grayscale filter (it is
+a tinted rectangle's alpha, `beats.ts:94-108`). §8.5 gains an "as built" column
+and a correction note: one GPU effect, not three.
 
 ## Stage 4: The DOM table
 
