@@ -21,6 +21,7 @@
 import { Database } from 'bun:sqlite';
 import { createMatch, isMatchOver, reduce, startNextRound } from '../game/engine';
 import type { MatchState, PlayCardAction, PlayerId } from '../game/engine';
+import type { BotDifficulty } from './protocol';
 
 const SCHEMA = `
 CREATE TABLE IF NOT EXISTS matches (
@@ -56,6 +57,8 @@ export interface StoredSeat {
      * reads as a human seat — which is what it was.
      */
     readonly bot?: boolean;
+    /** Present only alongside `bot`. Absent rows predate difficulty and read as the default. */
+    readonly botDifficulty?: BotDifficulty;
 }
 
 export interface MatchRecord {

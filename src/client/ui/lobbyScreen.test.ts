@@ -10,11 +10,17 @@ const flush = () => new Promise(resolve => setTimeout(resolve, 0));
 type SeatRow = LobbySnapshot['seats'][number];
 
 function seat(index: number, nickname: string | null, status: SeatStatus = 'occupied'): SeatRow {
-    return { seat: index, playerId: `p${index + 1}`, nickname, status };
+    return {
+        seat: index,
+        playerId: `p${index + 1}`,
+        nickname,
+        status,
+        difficulty: status === 'computer' ? 'adept' : null
+    };
 }
 
 function openSeat(index: number): SeatRow {
-    return { seat: index, playerId: null, nickname: null, status: 'open' };
+    return { seat: index, playerId: null, nickname: null, status: 'open', difficulty: null };
 }
 
 function lobby(overrides: Partial<LobbySnapshot> = {}): LobbySnapshot {
@@ -32,12 +38,12 @@ function mounted(overrides: { clipboard?: { writeText(text: string): Promise<voi
     const started: number[] = [];
     const dissolved: number[] = [];
     const copied: string[] = [];
-    const botted: number[] = [];
+    const botted: Array<{ seat: number; difficulty: string }> = [];
 
     const screen = createLobbyScreen({
         onStart: () => started.push(1),
         onDissolve: () => dissolved.push(1),
-        onAddBot: seat => botted.push(seat),
+        onAddBot: (seat, difficulty) => botted.push({ seat, difficulty }),
         clipboard: overrides.clipboard ?? { writeText: text => (copied.push(text), Promise.resolve()) },
         joinUrlFor: matchId => `https://court.example.com/join/${matchId}`
     });
@@ -54,6 +60,9 @@ function mounted(overrides: { clipboard?: { writeText(text: string): Promise<voi
         botted,
         addBotButtons: () =>
             [...root.querySelectorAll('[data-action="add-bot"]')] as HTMLButtonElement[],
+        difficultyGroup: () => root.querySelector('[data-role="difficulty"]') as HTMLElement | null,
+        difficultyOptions: () =>
+            [...root.querySelectorAll('[data-role="difficulty"] input')] as HTMLInputElement[],
         rows: () => [...root.querySelectorAll('[data-role="seat-row"]')].map(node => node.textContent ?? ''),
         startButton: () => q<HTMLButtonElement>('[data-action="start"]'),
         startCaption: () => q<HTMLElement>('[data-role="start-caption"]'),
@@ -328,7 +337,7 @@ describe('seating a computer opponent', () => {
 
         ui.addBotButtons()[0].click();
 
-        expect(ui.botted).toEqual([2]);
+        expect(ui.botted).toEqual([{ seat: 2, difficulty: 'adept' }]);
     });
 
     it('withdraws the offer once a human takes the seat', () => {
@@ -367,5 +376,76 @@ describe('seating a computer opponent', () => {
         const button = ui.addBotButtons()[0];
         expect(button.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
         expect(button.textContent).toMatch(/computer/i);
+    });
+});
+
+describe('choosing how hard the computer plays', () => {
+    it('offers the host one control for the whole table', () => {
+        const ui = mounted();
+        ui.show();
+
+        expect(ui.difficultyGroup()).not.toBeNull();
+        expect(ui.difficultyOptions()).toHaveLength(3);
+    });
+
+    it('starts on the middle tier rather than the hardest', () => {
+        const ui = mounted();
+        ui.show();
+
+        const checked = ui.difficultyOptions().find(input => input.checked)!;
+        expect(checked.value).toBe('adept');
+    });
+
+    it('seats the tier that is currently chosen', () => {
+        const ui = mounted();
+        ui.show();
+
+        const master = ui.difficultyOptions().find(input => input.value === 'master')!;
+        master.checked = true;
+        master.dispatchEvent(new Event('change', { bubbles: true }));
+
+        ui.addBotButtons()[0].click();
+
+        expect(ui.botted).toEqual([{ seat: 2, difficulty: 'master' }]);
+    });
+
+    it('keeps the choice across a lobby update, so seating two bots does not reset it', () => {
+        const ui = mounted();
+        ui.show();
+
+        const novice = ui.difficultyOptions().find(input => input.value === 'novice')!;
+        novice.checked = true;
+        novice.dispatchEvent(new Event('change', { bubbles: true }));
+
+        // A LOBBY_UPDATE arrives after the first bot is seated and rebuilds the
+        // screen. A selection that reset here would silently seat the second bot
+        // at a different difficulty than the host just picked.
+        ui.show(lobby({ seats: [seat(0, 'Cornelius'), seat(1, 'Ana'), seat(2, 'Converted', 'computer'), openSeat(3)] }));
+        ui.addBotButtons()[0].click();
+
+        expect(ui.botted).toEqual([{ seat: 3, difficulty: 'novice' }]);
+    });
+
+    it('shows nothing to a player who is not the host', () => {
+        const ui = mounted();
+        ui.show(lobby(), { seat: 1, playerId: 'p2' });
+
+        expect(ui.difficultyGroup()).toBeNull();
+    });
+
+    it('names the tier a seated computer is playing at', () => {
+        const ui = mounted();
+        ui.show(
+            lobby({
+                seats: [
+                    seat(0, 'Cornelius'),
+                    { seat: 1, playerId: 'p2', nickname: 'Preem Palver', status: 'computer', difficulty: 'master' },
+                    openSeat(2),
+                    openSeat(3)
+                ]
+            })
+        );
+
+        expect(ui.rows()[1]).toContain('Mentalic');
     });
 });

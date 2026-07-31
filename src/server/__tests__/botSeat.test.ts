@@ -11,7 +11,7 @@ import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
 import { makeConfig } from '../config';
 import { startServer } from '../index';
 import type { RunningServer } from '../index';
-import type { ServerMessage } from '../protocol';
+import type { BotDifficulty, ServerMessage } from '../protocol';
 import { chooseMove, TestClient } from './testClient';
 
 type LobbyUpdate = Extract<ServerMessage, { type: 'LOBBY_UPDATE' }>;
@@ -73,9 +73,14 @@ async function hostALobby(): Promise<{ room: RoomCreated; host: TestClient }> {
 const lastLobby = (client: TestClient): LobbyUpdate =>
     [...client.inbox].reverse().find(m => m.type === 'LOBBY_UPDATE') as LobbyUpdate;
 
-async function fillWithBots(host: TestClient, matchId: string, seats: number[]): Promise<void> {
+async function fillWithBots(
+    host: TestClient,
+    matchId: string,
+    seats: number[],
+    difficulty: BotDifficulty = 'adept'
+): Promise<void> {
     for (const seat of seats) {
-        host.send({ type: 'ADD_BOT', matchId, seat });
+        host.send({ type: 'ADD_BOT', matchId, seat, difficulty });
         await host.nextOfType('LOBBY_UPDATE');
     }
 }
@@ -90,6 +95,36 @@ describe('a host filling seats with computer opponents', () => {
         expect(seat.status).toBe('computer');
         expect(seat.playerId).toBe('p2');
         expect(seat.nickname).toBeTruthy();
+
+        host.close();
+    });
+
+    it('seats the tier the host chose, and reports it back', async () => {
+        const { room, host } = await hostALobby();
+
+        await fillWithBots(host, room.matchId, [1], 'novice');
+        await fillWithBots(host, room.matchId, [2], 'master');
+
+        const seats = lastLobby(host).seats;
+        expect(seats[1].difficulty).toBe('novice');
+        expect(seats[2].difficulty).toBe('master');
+        // A human seat must never carry one — the lobby renders a tier name
+        // from it, and a name beside a person would be a lie.
+        expect(seats[0].difficulty).toBeNull();
+
+        host.close();
+    });
+
+    it('refuses a difficulty the protocol does not know', async () => {
+        const { room, host } = await hostALobby();
+
+        host.sendRaw(
+            JSON.stringify({ type: 'ADD_BOT', matchId: room.matchId, seat: 1, difficulty: 'unbeatable' })
+        );
+        const error = await host.nextOfType('ERROR');
+
+        expect(error.code).toBe('MALFORMED');
+        expect(lastLobby(host).seats[1].status).toBe('open');
 
         host.close();
     });
@@ -152,7 +187,7 @@ describe('a host filling seats with computer opponents', () => {
         await guest.nextOfType('SEAT_CLAIMED');
         await host.nextOfType('LOBBY_UPDATE');
 
-        host.send({ type: 'ADD_BOT', matchId: room.matchId, seat: 1 });
+        host.send({ type: 'ADD_BOT', matchId: room.matchId, seat: 1, difficulty: 'adept' });
         const error = await host.nextOfType('ERROR');
 
         expect(error.code).toBe('SEAT_TAKEN');
@@ -168,7 +203,7 @@ describe('a host filling seats with computer opponents', () => {
         guest.send({ type: 'CLAIM_SEAT', matchId: room.matchId, nickname: 'Toran' });
         await guest.nextOfType('SEAT_CLAIMED');
 
-        guest.send({ type: 'ADD_BOT', matchId: room.matchId, seat: 2 });
+        guest.send({ type: 'ADD_BOT', matchId: room.matchId, seat: 2, difficulty: 'adept' });
         const error = await guest.nextOfType('ERROR');
 
         expect(error.code).toBe('NOT_HOST');
@@ -184,7 +219,7 @@ describe('a host filling seats with computer opponents', () => {
         host.send({ type: 'START_MATCH', matchId: room.matchId });
         await host.nextOfType('MATCH_STARTED');
 
-        host.send({ type: 'ADD_BOT', matchId: room.matchId, seat: 3 });
+        host.send({ type: 'ADD_BOT', matchId: room.matchId, seat: 3, difficulty: 'adept' });
         const error = await host.nextOfType('ERROR');
 
         expect(error.code).toBe('CANNOT_START');

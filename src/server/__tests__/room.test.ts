@@ -245,10 +245,10 @@ describe('Room.claimSeat', () => {
         expect(afterClaim.hostSeat).toBe('p1');
         expect(afterClaim.canStart).toBe(true);
         expect(afterClaim.seats).toEqual([
-            { seat: 0, playerId: 'p1', nickname: null, status: 'occupied' },
-            { seat: 1, playerId: 'p2', nickname: 'Bayta', status: 'occupied' },
-            { seat: 2, playerId: null, nickname: null, status: 'open' },
-            { seat: 3, playerId: null, nickname: null, status: 'open' }
+            { seat: 0, playerId: 'p1', nickname: null, status: 'occupied', difficulty: null },
+            { seat: 1, playerId: 'p2', nickname: 'Bayta', status: 'occupied', difficulty: null },
+            { seat: 2, playerId: null, nickname: null, status: 'open', difficulty: null },
+            { seat: 3, playerId: null, nickname: null, status: 'open', difficulty: null }
         ]);
 
         // conn1 (the claimer) saw the same broadcast bytes.
@@ -358,7 +358,7 @@ describe('Room.handleClose', () => {
         room.handleClose(conn1);
 
         const update = last(conn2.sent) as Extract<ServerMessage, { type: 'LOBBY_UPDATE' }>;
-        expect(update.seats.find(s => s.seat === 1)).toEqual({ seat: 1, playerId: 'p2', nickname: 'Bayta', status: 'disconnected' });
+        expect(update.seats.find(s => s.seat === 1)).toEqual({ seat: 1, playerId: 'p2', nickname: 'Bayta', status: 'disconnected', difficulty: null });
     });
 });
 

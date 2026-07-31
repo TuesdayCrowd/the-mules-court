@@ -165,7 +165,7 @@ describe('RoomRegistry.get — lazy crash recovery', () => {
             seat: 1,
             playerId: 'p2',
             nickname: 'Bayta',
-            status: 'disconnected'
+            status: 'disconnected', difficulty: null
         });
 
         // The original invitee token still resumes onto its seat.

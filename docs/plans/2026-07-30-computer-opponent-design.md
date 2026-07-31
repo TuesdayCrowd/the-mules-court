@@ -491,6 +491,36 @@ Tier names are player-facing copy and therefore belong in
 `src/client/content/`, not here — the same boundary that keeps every other
 string a player reads out of the store.
 
+### Choosing one, in the lobby
+
+`ADD_BOT` carries a `difficulty`, and the lobby offers **one picker for the
+table** rather than three buttons on every open row. Twelve controls to seat
+three opponents is a worse trade than one control the robot buttons then read —
+and a mixed table still works, because the host can change the tier between
+presses. That is not hypothetical: it is how the shipped build was verified, with
+seat 2 seated as a Mentalic and seat 3 as a Converted from the same lobby.
+
+Three details are load-bearing:
+
+- **The picker sits above the seat rows.** Below them, a host meets "Add
+  computer" first, presses it, and fills a seat at a tier they never chose. The
+  control has to precede the buttons it governs.
+- **The selection lives in the screen's closure, not in the DOM.** This surface
+  rebuilds wholesale on every `LOBBY_UPDATE`, and one arrives immediately after
+  each bot is seated — a choice held only in markup would reset between the
+  first bot and the second.
+- **It is a real `fieldset`/`legend`/radio group**, so arrow-key navigation, a
+  single tab stop, and the grouping a screen reader announces all come from the
+  browser. The styling is presentation only; delete it and the control still
+  works.
+
+Names are in-world (Converted, Officer, Mentalic) and the descriptions are not,
+because a player choosing a difficulty needs to know what actually changes.
+`difficulty.test.ts` asserts that none of the three collides with a card name —
+"Speaker" was the obvious pick for the strongest tier and is rejected for
+exactly that reason, since a seat label that reads as a revealed hand is a
+cruelty in a deduction game. The default is the middle tier, never the hardest.
+
 ### The ladder, measured
 
 `bun scripts/ladder.ts`, at the shipped budget, 600 matches per row, every

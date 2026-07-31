@@ -36,10 +36,10 @@ const LOBBY: LobbySnapshot = {
     hostSeat: 'p1',
     canStart: false,
     seats: [
-        { seat: 0, playerId: 'p1', nickname: 'Cornelius', status: 'occupied' },
-        { seat: 1, playerId: 'p2', nickname: 'Ana', status: 'disconnected' },
-        { seat: 2, playerId: null, nickname: null, status: 'open' },
-        { seat: 3, playerId: null, nickname: null, status: 'open' }
+        { seat: 0, playerId: 'p1', nickname: 'Cornelius', status: 'occupied', difficulty: null },
+        { seat: 1, playerId: 'p2', nickname: 'Ana', status: 'disconnected', difficulty: null },
+        { seat: 2, playerId: null, nickname: null, status: 'open', difficulty: null },
+        { seat: 3, playerId: null, nickname: null, status: 'open', difficulty: null }
     ]
 };
 
@@ -95,7 +95,7 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
             const screen = createLobbyScreen({
                 onStart: noop,
                 onDissolve: noop,
-                onAddBot: noop,
+                onAddBot: () => {},
                 clipboard: { writeText: noopAsync },
                 joinUrlFor: id => `https://court.example.com/join/${id}`
             });
@@ -108,7 +108,7 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
             const screen = createLobbyScreen({
                 onStart: noop,
                 onDissolve: noop,
-                onAddBot: noop,
+                onAddBot: () => {},
                 clipboard: { writeText: noopAsync },
                 joinUrlFor: id => `https://court.example.com/join/${id}`
             });

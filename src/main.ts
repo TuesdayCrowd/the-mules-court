@@ -184,7 +184,8 @@ function boot(): void {
         createLobbyScreen({
             onStart: () => socket?.send({ type: 'START_MATCH', matchId: matchId as string }),
             onDissolve: () => socket?.send({ type: 'END_MATCH', matchId: matchId as string }),
-            onAddBot: seat => socket?.send({ type: 'ADD_BOT', matchId: matchId as string, seat }),
+            onAddBot: (seat, difficulty) =>
+                socket?.send({ type: 'ADD_BOT', matchId: matchId as string, seat, difficulty }),
             // `navigator.clipboard` is secure-context only and absent over
             // http on a LAN address — which is exactly where the invite link
             // most needs copying, since that is when there is a second device

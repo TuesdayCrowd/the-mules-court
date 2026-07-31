@@ -47,7 +47,7 @@ import type {
 import type { TransportConfig } from './config';
 import type { EndReason, MatchPhase, MatchRecord, StoredSeat } from './persistence';
 import { MatchStore, replayMatch } from './persistence';
-import type { ClientMessage, ErrorCode, ServerMessage, SeatStatus } from './protocol';
+import type { BotDifficulty, ClientMessage, ErrorCode, ServerMessage, SeatStatus } from './protocol';
 import { hashToken, mintMatchId, mintSeed, mintToken, tokenMatches } from './seatTokens';
 import { createOpponent } from '../game/ai/difficulty';
 import { makeRng } from '../game/ai/rng';
@@ -95,6 +95,8 @@ interface Seat {
      * reopening, and `sweepActive`'s zero-connection check.
      */
     bot: boolean;
+    /** Non-null exactly when `bot` is true. */
+    difficulty: BotDifficulty | null;
 }
 
 /**
@@ -118,7 +120,7 @@ export interface RoomDeps {
      * — it takes a `RedactedView`, so a bot cannot be handed the deck even by
      * a caller trying to.
      */
-    chooseBotPlay?: (view: RedactedView) => BotPlay | null;
+    chooseBotPlay?: (view: RedactedView, difficulty: BotDifficulty) => BotPlay | null;
 }
 
 /** A bot's move, shaped like `PLAY_CARD`'s payload minus the routing. */
@@ -136,15 +138,29 @@ export interface BotPlay {
  * stream — so this only ever decides how a tie between equally-scored moves
  * falls.
  */
-function defaultBotPlay(matchId: string): (view: RedactedView) => BotPlay | null {
+function defaultBotPlay(
+    matchId: string
+): (view: RedactedView, difficulty: BotDifficulty) => BotPlay | null {
     const rng = makeRng(`bots:${matchId}`);
-    // The strongest tier. Its budget is 50ms of wall clock, which is a twenty-
-    // fourth of the 1200ms pacing a player already waits — but it is synchronous
-    // inside this process, so it is 50ms no other room's socket is served in.
-    // That is affordable at this scale and is the first thing to revisit if one
-    // process ever holds many simultaneous solo matches.
-    const policy = createOpponent('master');
-    return view => policy.decide(view, rng);
+    // One policy per tier, built on first use and shared by every seat playing
+    // at it. They hold no state between calls, so sharing costs nothing and
+    // avoids rebuilding a searcher every turn.
+    //
+    // The `master` tier's budget is 50ms of wall clock — a twenty-fourth of the
+    // 1200ms pacing a player already waits — but it is synchronous inside this
+    // process, so it is 50ms no other room's socket is served in. Affordable at
+    // this scale, and the first thing to revisit if one process ever holds many
+    // simultaneous solo matches.
+    const policies = new Map<BotDifficulty, ReturnType<typeof createOpponent>>();
+
+    return (view, difficulty) => {
+        let policy = policies.get(difficulty);
+        if (policy === undefined) {
+            policy = createOpponent(difficulty);
+            policies.set(difficulty, policy);
+        }
+        return policy.decide(view, rng);
+    };
 }
 
 /**
@@ -172,7 +188,8 @@ function makeEmptySeats(): Seat[] {
         tokenHash: null,
         conn: null,
         disconnectedAt: null,
-        bot: false
+        bot: false,
+        difficulty: null
     }));
 }
 
@@ -193,6 +210,10 @@ function restoreSeats(stored: readonly StoredSeat[], rebuiltAt: number): Seat[] 
         seat.nickname = s.nickname === '' ? null : s.nickname;
         seat.conn = null;
         seat.bot = s.bot === true;
+        // A row written before difficulty existed reads as the middle tier
+        // rather than the strongest: an unchosen default should never be the
+        // hardest opponent in the game.
+        seat.difficulty = seat.bot ? (s.botDifficulty ?? 'adept') : null;
         // A rebuilt bot is not "disconnected" — it never had a socket to lose,
         // and stamping this would make it look missing to every grace window.
         seat.disconnectedAt = seat.bot ? null : rebuiltAt;
@@ -583,7 +604,7 @@ export class Room {
      * `resumeSeat`, `canStart` and the reaper, rather than adding a second kind
      * of occupancy every one of them would have to learn about.
      */
-    addBot(conn: SeatConnection, seatIndex: number): void {
+    addBot(conn: SeatConnection, seatIndex: number, difficulty: BotDifficulty): void {
         if (this.phase !== 'lobby') {
             this.sendError(conn, 'CANNOT_START');
             return;
@@ -603,6 +624,7 @@ export class Room {
         seat.tokenHash = hashToken(mintToken());
         seat.nickname = BOT_NICKNAMES[seat.index] ?? `Computer ${seat.index + 1}`;
         seat.bot = true;
+        seat.difficulty = difficulty;
         seat.conn = null;
         seat.disconnectedAt = null;
 
@@ -972,7 +994,7 @@ export class Room {
         const play = (move: BotPlay) =>
             this.deps.reduce(match, { type: 'PLAY_CARD', playerId: seat.playerId, ...move });
 
-        const chosen = this.deps.chooseBotPlay(seatView);
+        const chosen = this.deps.chooseBotPlay(seatView, seat.difficulty ?? 'adept');
         const result = chosen === null ? null : play(chosen);
 
         if (result !== null && result.ok) {
@@ -1151,7 +1173,8 @@ export class Room {
                 seat: s.index,
                 playerId: s.tokenHash === null ? null : s.playerId, // null for OPEN seats only
                 nickname: s.nickname,
-                status: this.seatStatus(s)
+                status: this.seatStatus(s),
+                difficulty: s.bot ? s.difficulty : null
             }))
         };
     }
@@ -1199,7 +1222,8 @@ export class Room {
                 playerId: s.playerId,
                 nickname: s.nickname ?? '',
                 tokenHash: s.tokenHash,
-                ...(s.bot ? { bot: true } : {})
+                ...(s.bot ? { bot: true } : {}),
+                ...(s.bot && s.difficulty !== null ? { botDifficulty: s.difficulty } : {})
             }));
     }
 

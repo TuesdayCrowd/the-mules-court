@@ -172,7 +172,7 @@ export async function dispatchMessage(
                     room.startMatch(state.conn);
                     break;
                 case 'ADD_BOT':
-                    room.addBot(state.conn, msg.seat);
+                    room.addBot(state.conn, msg.seat, msg.difficulty);
                     break;
                 case 'PLAY_CARD':
                     room.playCard(state.conn, msg);
