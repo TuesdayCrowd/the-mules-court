@@ -432,7 +432,10 @@ MULES_PORT=8080 ./mules-court
 
 Cross-compile with `bun run compile:linux-x64`, `compile:linux-arm64`,
 `compile:darwin-arm64`, `compile:darwin-x64` or `compile:windows-x64`; those land in
-`dist-bin/`. The size is Bun's runtime rather than the game, and is unavoidable with
+`dist-bin/`. You rarely need to — publishing a GitHub release runs
+`.github/workflows/release-binaries.yml`, which type-checks, runs every test, builds all
+five targets and attaches them with a `SHA256SUMS.txt`. One runner covers every
+platform, because `--target` cross-compiles from any host. The size is Bun's runtime rather than the game, and is unavoidable with
 `--compile`: the entire client accounts for about 7.6 MB of it, and only 104 KB of
 *that* is JavaScript and CSS — the rest is portrait art.
 
@@ -498,9 +501,9 @@ Known limitations:
   covers iOS Safari viewport behaviour and VoiceOver/TalkBack gesture navigation, neither
   of which an emulator or a test suite reproduces. The client is ready for the pass; it
   needs hardware and a person.
-- **Binaries are unsigned.** macOS quarantines them on download; see
-  [As a single binary](#as-a-single-binary). Nothing builds them on a tag, either — the
-  `compile:*` scripts are run by hand.
+- **Binaries are unsigned.** macOS quarantines them on download and Windows SmartScreen
+  flags them; see [As a single binary](#as-a-single-binary). Every release attaches a
+  `SHA256SUMS.txt`, which is the only way to tell a good copy from a tampered one.
 - **A non-host cannot end a match whose host vanished mid-round.**
 
 ### License
