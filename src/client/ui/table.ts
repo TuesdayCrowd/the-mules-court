@@ -62,8 +62,17 @@ import type { ClientState } from '../store/types';
 import type { CardInstanceId, CardTypeId, PlayerId } from '../../game/engine';
 import type { Surface, Timers } from './surface';
 
-/** `/assets/…` is the loader root every other asset reference in this client uses (see AGENTS.md: loader paths are absolute). */
-function assetUrl(pathUnderAssets: string): string {
+/**
+ * `/assets/…` is the loader root every other asset reference in this client
+ * uses (see AGENTS.md: loader paths are absolute).
+ *
+ * Exported because the beats need the same root and there must be exactly one
+ * definition of it. A relative path resolves against `/join/:matchId`, which
+ * the SPA fallback answers with the shell and a **200** — so a second, subtly
+ * different copy would not 404, it would decode HTML as an image and silently
+ * render nothing.
+ */
+export function assetUrl(pathUnderAssets: string): string {
     return `/assets/${pathUnderAssets}`;
 }
 

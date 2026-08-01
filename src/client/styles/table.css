@@ -371,3 +371,20 @@
     white-space: nowrap;
     transform-origin: center;
 }
+
+/* ------------------------------------------------------------ beat layer
+ *
+ * Where `ui/beats.ts` draws its transients, above the table and below
+ * `#ui-root`. Its own element rather than the table's, so a beat can never
+ * leave a stray node inside the tree `update()` rebuilds.
+ *
+ * `pointer-events: none` is the whole interaction policy: a beat is something
+ * you watch, never something you touch, and a full-viewport overlay that took
+ * taps would swallow every play for as long as it ran.
+ */
+.beat-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}
