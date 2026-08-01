@@ -54,7 +54,11 @@ export function createSeatDossier(): SeatDossier {
         panel.setAttribute('role', 'tabpanel');
 
         const summary = document.createElement('p');
-        summary.textContent = `${statusOf(seat)} · ${seat.tokens} devotion tokens · discards total ${seat.discardValueTotal}`;
+        // `of N` rather than a bare count: how many tokens win the match varies with
+        // table size and was stated nowhere during play.
+        summary.textContent =
+            `${statusOf(seat)} · ${seat.tokens} of ${table?.view.tokensToWin ?? seat.tokens} devotion tokens` +
+            ` · discards total ${seat.discardValueTotal}`;
         panel.appendChild(summary);
 
         if (seat.discardPile.length === 0) {

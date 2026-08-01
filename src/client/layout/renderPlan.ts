@@ -109,6 +109,17 @@ export interface BannerPlan {
 }
 
 export interface RenderPlan {
+    /**
+     * Devotion tokens needed to win this match — seven at two players, five at
+     * three, four at four.
+     *
+     * Carried on the plan rather than looked up at draw time because it is a
+     * fact about the match, and every count this client renders was showing a
+     * bare tally against a target stated nowhere. `view.tokensToWin` was on
+     * every frame and read only by the match-over overlay, which is too late to
+     * be of use to anybody.
+     */
+    readonly tokensToWin: number;
     readonly seats: readonly SeatPlan[];
     readonly own: OwnStatusPlan;
     readonly hand: readonly HandCardPlan[];
@@ -311,6 +322,7 @@ export function buildRenderPlan(input: RenderInput, spec: LayoutSpec): RenderPla
     });
 
     return {
+        tokensToWin: view.tokensToWin,
         seats,
         own,
         hand,

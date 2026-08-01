@@ -23,12 +23,13 @@
 
 import { matchLogSections, matchLogIsEmpty, EMPTY_MATCH_LOG } from '../content/matchLog';
 import { QUICK_REFERENCE } from '../content/quickReference';
+import { rulesFor } from '../content/rules';
 import type { PlayerId } from '../../game/engine';
 import type { KeyValueStore } from '../store/seatTokenStore';
 import type { ClientState, TableSnapshot } from '../store/types';
 import type { Surface } from './surface';
 
-export type DockTab = 'reference' | 'log';
+export type DockTab = 'reference' | 'rules' | 'log';
 
 export interface ReferenceDock extends Surface {
     /**
@@ -64,11 +65,12 @@ const TAB_KEY = 'mules-court:dock:tab';
 
 const TABS: ReadonlyArray<readonly [DockTab, string]> = [
     ['reference', 'Card reference'],
+    ['rules', 'How to play'],
     ['log', 'Match log']
 ];
 
 function isTab(value: string | null): value is DockTab {
-    return value === 'reference' || value === 'log';
+    return value === 'reference' || value === 'rules' || value === 'log';
 }
 
 export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
@@ -176,6 +178,44 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
         return element;
     }
 
+    /**
+     * How the game is played, for the table actually being played.
+     *
+     * The devotion-token target varies with player count and appeared nowhere
+     * during a match — `tokensToWin` reached the client on every frame and was
+     * read only by the match-over overlay, which is too late to be useful. So
+     * this reads it off the live view rather than hard-coding a number.
+     *
+     * Before the first `STATE_UPDATE` there is no view to read, which happens if
+     * the dock is opened from the lobby. Four players to four tokens is the
+     * common table and the honest thing to show while waiting, and the panel
+     * corrects itself the moment a match starts.
+     */
+    function rulesPanel(): HTMLElement {
+        const wrapper = document.createElement('div');
+        const view = table?.view;
+
+        for (const section of rulesFor(view?.tokensToWin ?? 4, view?.playerCount ?? 4)) {
+            const block = document.createElement('section');
+            block.dataset.role = 'rules-section';
+
+            const heading = document.createElement('h3');
+            heading.textContent = section.heading;
+
+            const list = document.createElement('ul');
+            for (const line of section.lines) {
+                const item = document.createElement('li');
+                item.textContent = line;
+                list.appendChild(item);
+            }
+
+            block.append(heading, list);
+            wrapper.appendChild(block);
+        }
+
+        return wrapper;
+    }
+
     function logPanel(): HTMLElement {
         const wrapper = document.createElement('div');
 
@@ -223,7 +263,12 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
 
         const title = document.createElement('h2');
         title.id = TITLE_ID;
-        title.textContent = tab === 'reference' ? 'Every card, by value' : 'Match log';
+        const TITLES: Readonly<Record<DockTab, string>> = {
+            reference: 'Every card, by value',
+            rules: 'How to play',
+            log: 'Match log'
+        };
+        title.textContent = TITLES[tab];
 
         const tablist = document.createElement('div');
         tablist.setAttribute('role', 'tablist');
@@ -245,7 +290,9 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
         const body = document.createElement('div');
         body.dataset.role = 'dock-body';
         body.setAttribute('role', 'tabpanel');
-        body.appendChild(tab === 'reference' ? referenceTable() : logPanel());
+        body.appendChild(
+            tab === 'reference' ? referenceTable() : tab === 'rules' ? rulesPanel() : logPanel()
+        );
 
         const dismiss = document.createElement('button');
         dismiss.type = 'button';
