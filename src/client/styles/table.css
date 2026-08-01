@@ -1,0 +1,373 @@
+/**
+ * The DOM table (`ui/table.ts`) — `Court.ts`'s canvas, redrawn in HTML.
+ *
+ * Structural rule only: every position and size is set inline from a
+ * `LayoutSpec`/`RenderPlan` rect at draw time (interface rule 1 — this file
+ * decides no geometry), so nothing here carries a `top`/`left`/`width` for a
+ * plan-driven element. What lives here is typography, colour, and the small
+ * set of effects CSS can express better than inline styles: the deck's
+ * warning pulse, focus rings, and `prefers-reduced-motion`.
+ *
+ * Palette values are `var(--color-*)` from `tokens.css` wherever the colour
+ * is fixed by design; wherever `RenderPlan` itself chose the colour (a seat's
+ * state, the deck's fill, the banner's tint) `table.ts` sets it inline via
+ * `hex()`, the DOM-string form of the same `TOKENS` integers. Never a literal
+ * hex value in either place.
+ */
+
+/**
+ * Mounted into `#game-container` in place of the canvas (`ui.css:50-53`
+ * already gives that element `position: absolute; inset: 0`), so the table
+ * inherits the same full-bleed box the canvas used to fill.
+ */
+.table-root {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+/**
+ * The idling nebula (UIX §6). `Court.ts` computes a manual `cover` fit —
+ * `scale = max(w / source.w, h / source.h)` — on every resize; `background-size:
+ * cover` is the same fit, done by the browser instead of by hand, and it never
+ * leaves an unpainted edge for the same reason the manual version did not.
+ */
+.table-background {
+    position: absolute;
+    inset: 0;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+}
+
+/** Rebuilt wholesale on every `update()` — see `table.ts#draw`. */
+.table-plan {
+    position: absolute;
+    inset: 0;
+}
+
+/**
+ * Card and portrait art, everywhere it appears on the table.
+ *
+ * `object-fit: contain` deliberately, not `cover`: the portrait art is
+ * 512×720 (aspect ≈0.711) and the card back is 768×1024 (aspect 0.75), while
+ * `tableLayout.ts` sizes every rect at a flat 0.75 for the hand, the deck and
+ * the removed card alike (see `IMPLEMENTATION_PLAN.md` Stage 2's open items 2
+ * and 3 — this setting is what settles them for the DOM renderer). `contain`
+ * means neither art file is ever stretched to fill a rect built for the
+ * other's proportions; a `cover` fit would crop a portrait's edges to close
+ * that five-per-cent gap, which is a worse trade than a sliver of the rect's
+ * own background showing at the long edge.
+ */
+.tbl-art {
+    object-fit: contain;
+    pointer-events: none;
+}
+
+/* ----------------------------------------------------------------- seats */
+
+.tbl-seat {
+    position: absolute;
+}
+
+.tbl-seat-hit,
+.tbl-seat-tokens-hit,
+.tbl-seat-revealed-hit,
+.tbl-own-tokens-hit,
+[data-role='hand-card'] {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+.tbl-seat-hit {
+    border-style: solid;
+    border-width: 2px;
+    box-sizing: border-box;
+}
+
+.tbl-seat-hit:focus-visible,
+.tbl-seat-tokens-hit:focus-visible,
+.tbl-seat-revealed-hit:focus-visible,
+.tbl-own-tokens-hit:focus-visible,
+[data-role='hand-card']:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+}
+
+.tbl-seat-tokens-hit,
+.tbl-seat-revealed-hit,
+.tbl-own-tokens-hit {
+    inset: auto;
+}
+
+.tbl-seat-name-scrim {
+    position: absolute;
+    display: inline-block;
+    width: fit-content;
+    background: rgb(0 0 0 / 0.6);
+    padding: 0;
+}
+
+.tbl-seat-name {
+    display: block;
+    padding: 0 2px;
+    color: var(--color-text-primary);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+}
+
+.tbl-seat-back,
+.tbl-seat-revealed {
+    position: absolute;
+}
+
+.tbl-seat-revealed-value {
+    position: absolute;
+    color: var(--color-text-primary);
+    font-family: var(--font-display);
+    font-size: 15px;
+    transform: translate(100%, 100%);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.tbl-seat-pip-scrim {
+    background: rgb(0 0 0 / 0.6);
+}
+
+.tbl-seat-pip {
+    position: absolute;
+    color: var(--color-state-waiting);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.tbl-chip-line {
+    position: absolute;
+    display: inline-block;
+    width: fit-content;
+    padding: 1px 4px;
+    background: rgb(0 0 0 / 0.6);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+    transform-origin: left top;
+}
+
+/* ------------------------------------------------------------ medallions */
+
+.tbl-medallion {
+    position: absolute;
+    pointer-events: none;
+}
+
+.tbl-medallion-count {
+    position: absolute;
+    transform: translateY(-50%);
+    color: var(--color-text-primary);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ deck */
+
+.tbl-deck {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.85;
+}
+
+.tbl-deck-count {
+    color: var(--color-text-primary);
+    font-family: var(--font-display);
+    pointer-events: none;
+}
+
+/**
+ * The warning breathes, bounded rather than endless (UIX §6.4). `table.ts`
+ * sets `--pulse-floor`, `animation-duration` and `animation-iteration-count`
+ * per draw from `DeckPlan`; a fresh element on every `update()` gets a fresh
+ * animation for free, which is what makes "re-fires on every redraw" true
+ * without any explicit restart logic.
+ */
+@media (prefers-reduced-motion: no-preference) {
+    .tbl-deck[data-pulse] {
+        animation-name: tbl-deck-pulse;
+        animation-timing-function: ease-in-out;
+        animation-direction: alternate;
+    }
+}
+
+@keyframes tbl-deck-pulse {
+    from {
+        opacity: 0.85;
+    }
+    to {
+        opacity: var(--pulse-floor, 0.85);
+    }
+}
+
+/* --------------------------------------------------------------- banner */
+
+.tbl-banner {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+.tbl-banner-plate {
+    max-width: 100%;
+    max-height: 100%;
+    background: rgb(0 0 0 / 0.72);
+    border-radius: var(--radius);
+    font-family: var(--font-display);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* --------------------------------------------------------- removed card */
+
+.tbl-removed {
+    position: absolute;
+}
+
+.tbl-removed-sliver {
+    position: absolute;
+    border: 1px solid var(--color-seat-other);
+    box-sizing: border-box;
+}
+
+.tbl-removed-face {
+    position: absolute;
+}
+
+/* -------------------------------------------------------------- own row */
+
+.tbl-own {
+    position: absolute;
+}
+
+.tbl-own-discard-plate {
+    position: absolute;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background: rgb(0 0 0 / 0.72);
+    pointer-events: none;
+}
+
+.tbl-own-discard-plate span {
+    color: var(--color-text-primary);
+    font-family: var(--font-display);
+    line-height: 1;
+}
+
+.tbl-own-discard-hit {
+    position: absolute;
+    cursor: pointer;
+}
+
+.tbl-own-total {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-state-waiting);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* -------------------------------------------------------------- hand */
+
+[data-role='hand-card'] {
+    box-sizing: border-box;
+}
+
+[data-role='hand-card'].is-playable {
+    border: 2px solid var(--color-state-your-turn);
+}
+
+[data-role='hand-card'][aria-disabled='true'] {
+    cursor: default;
+}
+
+/* ---------------------------------------------------- shared card face */
+
+.tbl-card-parts {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.tbl-card-name-scrim {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(0 0 0 / 0.72);
+}
+
+.tbl-card-name {
+    display: inline-block;
+    max-width: 100%;
+    padding: 0 3px;
+    color: var(--color-text-primary);
+    font-family: var(--font-ui);
+    text-align: center;
+    white-space: nowrap;
+    transform-origin: center;
+}
+
+.tbl-card-badge-plate {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(0 0 0 / 0.78);
+    border: 1px solid var(--color-nebula-purple);
+    box-sizing: border-box;
+}
+
+.tbl-card-badge-value {
+    color: var(--color-text-primary);
+    font-family: var(--font-display);
+    line-height: 1;
+}
+
+.tbl-card-overline {
+    position: absolute;
+    pointer-events: none;
+}
+
+.tbl-card-overline-inner {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(0 0 0 / 0.72);
+}
+
+.tbl-card-overline-text {
+    display: inline-block;
+    max-width: 100%;
+    color: var(--color-state-waiting);
+    font-family: var(--font-ui);
+    text-align: center;
+    white-space: nowrap;
+    transform-origin: center;
+}
