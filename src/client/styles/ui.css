@@ -179,10 +179,30 @@ h2,
     position: absolute;
     inset: 0;
     display: grid;
+    /*
+     * `safe`, and it is load-bearing.
+     *
+     * A plain `center` overflows in BOTH directions once the content is taller
+     * than the screen, and the half that overflows the START edge is
+     * unreachable — scrolling cannot get to it, because centring pushes it
+     * above the scroll origin. The lobby hit this the moment the difficulty
+     * fieldset was added: the title and the invite line were cut off the top
+     * and Start Match off the bottom, with no way to reach either.
+     *
+     * `safe center` centres while the content fits and falls back to `start`
+     * the instant it does not, which is exactly the behaviour wanted here. The
+     * unprefixed declaration stays first as the fallback: a browser that does
+     * not know `safe` drops the second line as invalid and keeps plain
+     * centring, which is the current behaviour rather than a worse one.
+     */
     place-content: center;
+    place-content: safe center;
     gap: var(--space-4);
     padding: var(--space-6);
     text-align: center;
+    /* Paired with `safe`: falling back to `start` only helps if what now sits
+     * below the fold can be scrolled to. */
+    overflow-y: auto;
 }
 
 .screen:empty {
