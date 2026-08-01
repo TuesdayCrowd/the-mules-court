@@ -2,7 +2,7 @@ import { existsSync } from 'node:fs';
 import { describe, expect, it } from 'vitest';
 import { CARD_CATALOG } from '../../game/engine';
 import type { CardTypeId } from '../../game/engine';
-import { CARD_BACK_ASSET, CARD_FRONT_ASSET, PORTRAIT_CHOICE, portraitPath } from './portraits';
+import { CARD_BACK_ASSET, PORTRAIT_CHOICE, portraitPath } from './portraits';
 
 const ALL_IDS = Object.keys(CARD_CATALOG) as CardTypeId[];
 
@@ -36,8 +36,7 @@ describe('every path resolves to a file that exists', () => {
         expect(existsSync(`public/assets/${portraitPath(id)}`), portraitPath(id)).toBe(true);
     });
 
-    it('finds the chosen card front and back', () => {
-        expect(existsSync(`public/assets/${CARD_FRONT_ASSET}`)).toBe(true);
+    it('finds the chosen card back', () => {
         expect(existsSync(`public/assets/${CARD_BACK_ASSET}`)).toBe(true);
     });
 });

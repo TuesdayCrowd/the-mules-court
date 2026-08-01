@@ -6,13 +6,11 @@ Guidance for coding agents working in this repository. Human contributors are we
 
 **The Mule's Court** is a _Love Letter_-style deduction/elimination card game reskinned into Isaac Asimov's Foundation universe (2–4 players, first to N Devotion Tokens wins). The complete game design — rules, turn structure, and all 11 card types with values/counts/abilities — lives in `README.md`. Treat that file as the gameplay spec.
 
-**Status:** three of the four layers are **built and tested**. The headless game engine (`src/game/engine/`, Vitest), the WebSocket transport that wraps it (`src/server/`, `bun test`), and now the client's browser-independent half (`src/client/`, Vitest) — its pure layer of geometry, copy, state and palette, plus the whole DOM chrome, all testable under Node and jsdom with no socket. **The whole client is testable that way now** — there is no canvas left to exclude.
+**Status:** three of the four layers are **built and tested**. The headless game engine (`src/game/engine/`, Vitest), the WebSocket transport that wraps it (`src/server/`, `bun test`), and now the client's browser-independent half (`src/client/`, Vitest) — its pure layer of geometry, copy, state and palette, plus the whole DOM chrome, all testable under Node and jsdom with no socket.
 
 The table is DOM too: `src/client/ui/table.ts` draws it, `src/client/ui/beats.ts` runs the cinematic beats on the Web Animations API, and `src/main.ts` is the composition root that wires store, socket and surfaces together. **A match is playable in a browser.** Every stage of `docs/plans/2026-07-24-uix-implementation-plan.md` is complete bar the real-device QA pass (Task 34), which needs hardware and a person — see `docs/plans/2026-07-24-uix-qa-checklist.md`.
 
 A fifth layer now sits beside those four: `src/mcp/` supplies the opponents. It is a Model Context Protocol server that seats a model at two or three chairs of a live table, so a person can play a four-player match alone — see [MCP seat server](#mcp-seat-server-srcmcp).
-
-This started life as the Phaser "template-bun" starter. Nothing of it remains: the scenes, the engine dependency, its telemetry ping and its build banner are all gone, and `package.json` was reclaimed for the game long before that (`name: the-mules-court`).
 
 ## Setup commands
 
@@ -50,8 +48,7 @@ engine file changes, while a plain `bun src/server/index.ts` keeps running the
 engine it booted with. The halves then disagree about the shape of a
 `RedactedView`, and the symptoms do not look like a version skew at all — one
 added field presented first as "cards stopped being clickable" (a `TypeError`
-in the only handler that opens the action sheet, silent at the time because a
-throw in a canvas pointer handler went nowhere a player could see) and then as a *rule* being
+in the only handler that opens the action sheet) and then as a *rule* being
 misreported, with an unprotected opponent announced as protected. Restarting
 the backend was the cure for both. `--watch` means it never needs diagnosing.
 
@@ -102,8 +99,8 @@ Client tests default to the **Node** environment; a file needing a DOM opts in w
 
 Three gates worth knowing about, because they fail for reasons that are not obvious:
 
-- **`src/client/__tests__/purity.test.ts`** — `layout/`, `content/`, `store/` and `tokens/` may not import Phaser, reach a DOM global, or import server *runtime* (one documented exception: `content/nickname.ts` takes the nickname limit from `src/server/config.ts`, which has zero imports). It reads raw file text, so a *comment* naming a banned global fails too.
-- **`src/client/__tests__/axe.test.ts`** — axe-core over every DOM surface, **the table included**. That last part is new: while the table was a canvas it was structurally invisible to axe, and an offscreen hand-maintained twin stood in for it that was never itself audited. `color-contrast` is the only disabled rule, because jsdom has no layout; contrast is covered arithmetically in `src/client/tokens/contrast.test.ts` instead.
+- **`src/client/__tests__/purity.test.ts`** — `layout/`, `content/`, `store/` and `tokens/` may not reach a DOM global or import server *runtime* (one documented exception: `content/nickname.ts` takes the nickname limit from `src/server/config.ts`, which has zero imports). It reads raw file text, so a *comment* naming a banned global fails too.
+- **`src/client/__tests__/axe.test.ts`** — axe-core over every DOM surface, the table included. `color-contrast` is the only disabled rule, because jsdom has no layout; contrast is covered arithmetically in `src/client/tokens/contrast.test.ts` instead.
 - **`src/client/layout/discardCapacity.test.ts`** — drives thousands of real matches through the engine to prove the layout reserves room for the deepest discard pile that can actually occur (eight, not the seven the design states).
 
 The verification gate before considering any change done is:
@@ -118,13 +115,13 @@ bun run build        # confirm the production bundle still builds
 
 ### Tech stack
 
-Vite 6 · TypeScript 5.7 · Bun, and **no runtime dependencies at all** — `package.json` has an empty `dependencies` since the engine came out. The client ships as a static bundle; a small Bun backend (`src/server/`) now exists to host multiplayer matches over WebSocket — see [Server (transport layer)](#server-transport-layer) below.
+Vite 6 · TypeScript 5.7 · Bun, and **no runtime dependencies at all** — `package.json` declares none. The client ships as a static bundle; a small Bun backend (`src/server/`) now exists to host multiplayer matches over WebSocket — see [Server (transport layer)](#server-transport-layer) below.
 
 ### Bootstrap
 
 `index.html` loads `src/main.ts`, which is the composition root: it constructs
-the store, the socket, the DOM chrome, the table and the beat runner, and wires
-them together. There is no engine and no scene chain.
+the store, the socket, the chrome, the table and the beat runner, and wires them
+together.
 
 The table is DOM. `src/client/ui/table.ts` mounts into `#game-container` —
 absolutely-positioned elements placed at the rects `computeLayout` and
@@ -132,21 +129,7 @@ absolutely-positioned elements placed at the rects `computeLayout` and
 beats into a transient layer above it on the Web Animations API. `#ui-root`
 sits over both and holds the chrome (menu, lobby, action sheet, overlays).
 
-**There was a Phaser renderer until 2026-07-31**, and the reasoning for removing
-it is `docs/plans/2026-07-30-renderer-architecture-research.md`. The short
-version: `Court.ts` was ~900 lines of draw glue over rects the pure layer had
-already computed, and **zero** lines that needed a canvas. Of the four GPU
-effects the design catalogued, exactly one was real. Three whole modules existed
-only to pay for the engine and were deleted rather than ported —
-`renderPolicy.ts` (a pump that stopped a loop which rendered unconditionally),
-`inputPolicy.ts` (`windowEvents: false`, so a tap on the DOM layer stopped also
-hit-testing the canvas beneath it), and `a11yTwin.ts` (an offscreen shadow of
-focusable proxies for canvas cards). None of their problems can occur without a
-second paint-and-hit-test surface; the cards are real `<button>`s now, so the
-proxy and the thing it proxied are one object.
-
-Several rules that read as arbitrary are the scar tissue of that history, and
-still bind:
+Two rules about the table read as arbitrary and are not:
 
 **Asset paths are absolute (`/assets/…`), and that is load-bearing.** A relative
 path resolves against `/join/:matchId`, which the SPA fallback answers with
@@ -156,13 +139,12 @@ definition, exported so the beats share it. Same reason Vite's `base` is `/`.
 
 **Geometry is data, and the renderer only obeys it.** `computeLayout` and
 `buildRenderPlan` decide every position and size; `table.ts` may not re-derive,
-pad, or round any of it. Five separate visual bugs in one day were all this rule
-being broken — an unsized `<img>` rendering at its natural size, a text line box
-overrunning a band budgeted in pixels, a scrim inventing its own padding, a
-canvas `setOrigin` translated into a transform on top of an already-anchored
-element, and a global `object-fit` that was wrong for one box's meaning. When
-adding to the table, add the *decision* to a pure module and let the renderer
-walk the result.
+pad, or round any of it. Every visual bug this table has shipped was that rule
+being broken, and they rhyme: an unsized `<img>` rendering at its natural size,
+a text line box overrunning a band budgeted in pixels, a scrim inventing its own
+padding, an element anchored twice, and a global `object-fit` that was wrong for
+one box's meaning. When adding to the table, put the *decision* in a pure module
+and let the renderer walk the result.
 
 **`src/client/ui/tableContract.test.ts` guards the first half of that** by
 reading `table.ts` as text and asserting every field the pure layer publishes is
@@ -177,14 +159,14 @@ substantively wrong, and hid a real overlap.
 Two Vite configs in `vite/`, selected per script:
 
 - `config.dev.mjs` — dev server on port 8080.
-- `config.prod.mjs` — Terser minification (2 passes, comments stripped) + a small `buildBanner` plugin. It replaced the starter's `phasermsg`, which advertised the engine this project no longer uses.
+- `config.prod.mjs` — Terser minification (2 passes, comments stripped) + a small `buildBanner` plugin.
 
-Both use `base: '/'` (absolute asset paths). Neither splits chunks any more — the one `manualChunks` entry existed to isolate the engine, and the whole client is now ~86 KB of JS. The base is **not** relative, and deliberately so: the client owns the `/join/:matchId` route (*UIX §2.6*), and a relative base resolves `./assets/index-abc.js` against `/join/` on a real invite link, so the app never boots. The dev config also proxies `/api` and `/ws` to the server on :3000, which is what lets `socketUrl()` derive one same-origin URL for dev and production alike.
+Both use `base: '/'` (absolute asset paths); neither splits chunks, the whole client being ~86 KB of JS. The base is **not** relative, and deliberately so: the client owns the `/join/:matchId` route (*UIX §2.6*), and a relative base resolves `./assets/index-abc.js` against `/join/` on a real invite link, so the app never boots. The dev config also proxies `/api` and `/ws` to the server on :3000, which is what lets `socketUrl()` derive one same-origin URL for dev and production alike.
 
 ### Client (`src/client/`)
 
 Everything the client can decide without a browser, so Vitest can hold it to the
-design in a plain Node process. Full design: `docs/plans/2026-07-23-uix-design.md`; the renderer's own history is `docs/plans/2026-07-30-renderer-architecture-research.md`.
+design in a plain Node process. Full design: `docs/plans/2026-07-23-uix-design.md`.
 
 **The pure layer** — no DOM, no ambient globals, enforced by
 `__tests__/purity.test.ts`:
@@ -196,8 +178,8 @@ design in a plain Node process. Full design: `docs/plans/2026-07-23-uix-design.m
 
 **The DOM layer** — `ui/`, one factory per surface with `mount`/`update`/`destroy`.
 Menu, join, lobby, action sheet, quick reference, seat dossier, overlays, fatal
-screen, toasts, connection dot, and the offscreen accessibility twin. No surface
-reads the store; `update(state)` is pushed by a single subscriber.
+screen, toasts, connection dot, and the table itself. No surface reads the
+store; `update(state)` is pushed by a single subscriber.
 
 **Styles** — `styles/fonts.css` (self-hosted Exo 2 and Inter), `tokens.css`
 (authoritative palette), `ui.css` (the two-layer shell plus component styling).
@@ -327,7 +309,7 @@ plays a whole match through a spawned server.
 
 ### TypeScript gotchas
 
-`tsconfig.json` sets `strict: true` **but** `strictPropertyInitialization: false`. That was for Phaser, whose scenes declare game objects as class fields and assign them in `create()`. No such class remains, so the flag is now vestigial — it is left on because turning it off is a change with its own diff, not because anything needs it. Do not write new code that relies on it.
+`tsconfig.json` sets `strict: true` **but** `strictPropertyInitialization: false`. Nothing in the codebase needs the exemption — no class declares a field it fills in later — so treat the flag as off and do not write code that relies on it.
 
 `noUnusedLocals` and `noUnusedParameters` are on, so dead code fails type-checking. But `noEmit: true` and **neither `vite build` nor the dev server type-checks** — Vite transpiles without checking. Run `bunx tsc --noEmit` yourself to catch type errors before considering work done.
 
@@ -353,37 +335,15 @@ The slug does **not** always match the card's display name. Mapping (README card
 | The First Speaker    | `first-speaker/` | 7     |
 | The Mule             | `mule/`          | 8     |
 
-Other asset dirs: `card-back/`, `card-front/`, `shaders/` (distortion/sparkle/rainbow maps for effects), `misc/` (playfield background, devotion token badge, UI panel textures — catalogued in `VISUAL_SHOWCASE.md`).
-
-## The Phaser skills no longer apply
-
-`.agents/skills/` holds 28 reference skills covering the Phaser 4.2.1 API,
-surfaced to Claude Code through the `.claude` symlink and invoked as `/scenes`,
-`/tweens`, and so on.
-
-**This project no longer uses Phaser.** The engine was removed on 2026-07-31
-(`docs/plans/2026-07-30-renderer-architecture-research.md`); `package.json` has
-no runtime dependencies and there is no canvas, no scene chain and no WebGL
-context anywhere in the client. Every one of those skills describes an API this
-codebase does not call.
-
-They are left in place rather than deleted because removing 28 directories of
-curated reference is a decision for the project owner, not a side effect of the
-migration. **Do not invoke them, and do not treat their presence as evidence
-that this is a Phaser project** — the tooling will still offer them, and that
-offer is now noise. If nothing here is going to use them again, deleting
-`.agents/skills/` is the honest follow-up.
-
-What replaced them is smaller and lives in this file: the table is DOM, geometry
-comes from `src/client/layout/`, and the renderer's only job is to obey it.
+Other asset dirs: `card-back/` (the deck and face-down cards), `shaders/` (`rainbow_gradient.png` for the devotion-token shimmer, `sparkle_pattern.png` for the victory burst), and `misc/` (the playfield background and the devotion token badge). Catalogued in `VISUAL_SHOWCASE.md`.
 
 ## Agent configuration files
 
 This repo follows the cross-tool [AGENTS.md](https://agents.md) convention: **this file is the single source of truth.**
 
 - `CLAUDE.md` contains one line — `@AGENTS.md` — which Claude Code expands into this file's contents during preprocessing, before the model sees it. See [Write an effective CLAUDE.md](https://code.claude.com/docs/en/best-practices#write-an-effective-claude-md).
-- `.claude/` is a symlink to `.agents/`, which holds shared skills (`.agents/skills/`).
+- `.claude/` is a symlink to `.agents/`, which holds shared agent configuration.
 
-The symlink is load-bearing and deliberate. Claude Code discovers skills only under a `.claude/skills/` path: `--add-dir` looks for `.claude/skills/` *inside* the added directory, `permissions.additionalDirectories` in `settings.json` grants file access but explicitly does not load skills, and skills-directory plugins are themselves found only under `.claude/skills/`. There is no supported way to point Claude Code at a bare `.agents/skills/`, so removing the symlink silently hides all 28 skills. (Windows checkouts need `core.symlinks=true`.)
+The symlink is load-bearing and deliberate. Claude Code discovers skills only under a `.claude/skills/` path: `--add-dir` looks for `.claude/skills/` *inside* the added directory, `permissions.additionalDirectories` in `settings.json` grants file access but explicitly does not load skills, and skills-directory plugins are themselves found only under `.claude/skills/`. There is no supported way to point Claude Code at a bare `.agents/skills/`, so anything added there is reachable only through the symlink. (Windows checkouts need `core.symlinks=true`.)
 
 When updating project guidance, edit `AGENTS.md` — never fork the content into a tool-specific copy.
