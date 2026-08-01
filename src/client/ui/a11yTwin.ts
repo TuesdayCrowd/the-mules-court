@@ -55,7 +55,10 @@ export function createA11yTwin(deps: A11yTwinDeps): Surface {
             item.dataset.twin = 'seat';
             const name = table.nicknames[seat.id] ?? seat.id;
             // textContent throughout: nicknames are other players' free text.
-            item.textContent = `${name} — ${statusOf(seat, table.view.currentPlayerId)}, ${seat.tokens} devotion tokens, discards total ${seat.discardValueTotal}`;
+            item.textContent =
+                `${name} — ${statusOf(seat, table.view.currentPlayerId)}, ` +
+                `${seat.tokens} of ${table.view.tokensToWin} devotion tokens, ` +
+                `discards total ${seat.discardValueTotal}`;
             list.appendChild(item);
         }
 

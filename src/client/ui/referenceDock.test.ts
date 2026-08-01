@@ -553,3 +553,62 @@ describe('accessibility', () => {
         }
     });
 });
+
+describe('the how-to-play tab', () => {
+    const openRules = (ui: ReturnType<typeof mounted>) => {
+        click(ui.launcher());
+        click(ui.tabFor('rules'));
+        return ui.panel()!.textContent ?? '';
+    };
+
+    it('offers a third tab beside the card reference and the log', () => {
+        const ui = mounted();
+        ui.show();
+        click(ui.launcher());
+
+        const tabs = [...ui.root.querySelectorAll('[role="tab"]')].map(tab => tab.textContent);
+        expect(tabs).toEqual(['Card reference', 'How to play', 'Match log']);
+    });
+
+    it('states the devotion-token target for the table being played', () => {
+        // The whole point. `tokensToWin` reached the client on every frame and
+        // was read only by the match-over overlay, which is after the fact. The
+        // fixture is a seven-token table, so a hard-coded four would fail here.
+        const ui = mounted();
+        ui.show();
+
+        expect(openRules(ui)).toContain('first player to 7 tokens');
+    });
+
+    it('follows the table rather than assuming one', () => {
+        const ui = mounted();
+        ui.show({ tokensToWin: 4, playerCount: 4 });
+
+        const text = openRules(ui);
+        expect(text).toContain('first player to 4 tokens');
+        expect(text).toContain('nothing is set aside');
+    });
+
+    it('explains how a round ends, which no other surface does', () => {
+        const ui = mounted();
+        ui.show();
+
+        const text = openRules(ui);
+        expect(text).toContain('deck runs out');
+        expect(text).toContain('discarded values');
+    });
+
+    it('remembers the tab across a reopen, like the others', () => {
+        const store = memoryStore();
+        const first = mounted(store);
+        first.show();
+        openRules(first);
+
+        // No click here: the dock remembers it was open for this match and
+        // reopens itself on the first update. Clicking would close it.
+        const second = mounted(store);
+        second.show();
+
+        expect(second.tabFor('rules')!.getAttribute('aria-selected')).toBe('true');
+    });
+});

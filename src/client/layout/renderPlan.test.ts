@@ -439,3 +439,16 @@ describe('geometry comes from the spec, never from here', () => {
         ).toBe(2);
     });
 });
+
+describe('the devotion-token target', () => {
+    it('rides on the plan, so every count can be shown against it', () => {
+        // It was on `RedactedView` from the start and rendered nowhere during
+        // play — the match-over overlay was the only reader, which is too late.
+        expect(plan(fourSeats({ tokensToWin: 5 })).tokensToWin).toBe(5);
+    });
+
+    it('follows the table rather than a constant', () => {
+        expect(plan(fourSeats({ tokensToWin: 7 })).tokensToWin).toBe(7);
+        expect(plan(fourSeats({ tokensToWin: 4 })).tokensToWin).toBe(4);
+    });
+});
