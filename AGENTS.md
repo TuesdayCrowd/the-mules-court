@@ -339,30 +339,44 @@ Other asset dirs: `card-back/` (the deck and face-down cards), `shaders/` (`rain
 
 ## Skills
 
-`.agents/skills/` holds six, and they divide along the seams this file already
-describes rather than by file type:
+`.agents/skills/` holds nine, in two groups.
+
+**Where a change belongs** — these divide along the seams this file already
+describes, not by file type:
 
 | Skill | Reach for it when |
 | --- | --- |
 | `adding-to-the-pure-layer` | Editing `layout/`, `content/`, `store/` or `tokens/`, or when `purity.test.ts` fails |
 | `laying-out-the-table` | Changing table geometry, or adding a field to `LayoutSpec`, `RenderPlan`, `SeatPlan` or `ChipSpec` |
 | `writing-a-dom-surface` | Adding or changing anything in `src/client/ui/` |
-| `animating-with-waapi` | Adding or changing motion — a beat, a reveal, a transition |
 | `changing-the-wire` | Touching `RedactedView`, protocol messages, engine types or room state |
 | `running-the-test-gates` | Before claiming any change is done, or when a failure does not match what you edited |
-
-Two of those exist because of failures this repo has actually had, and are worth
-knowing about before you need them. `changing-the-wire` covers the version skew
-that presents as anything but — "cards stopped responding" and a rule being
-misreported were both one added field, not two bugs. `running-the-test-gates`
-exists because `vitest.config.ts` enumerates globs while the `bun test` scripts
-name directories, so a new top-level directory under `src/` is type-checked
-automatically and **silently untested** until a script names it.
 
 The split is not filing. A change that spans two of them is usually a change
 that should have been one: geometry belongs in `layout/`, the renderer obeys it,
 and a surface that computes its own position has taken a decision away from a
 layer that can be tested without a browser.
+
+Two exist because of failures this repo has actually had. `changing-the-wire`
+covers the version skew that presents as anything but — "cards stopped
+responding" and a rule being misreported were one added field, not two bugs.
+`running-the-test-gates` exists because `vitest.config.ts` enumerates globs while
+the `bun test` scripts name directories, so a new top-level directory under
+`src/` is type-checked automatically and **silently untested** until a script
+names it.
+
+**How it should look and move** — the visual half, which has no compiler to
+answer to and therefore needs its judgement written down:
+
+| Skill | Reach for it when |
+| --- | --- |
+| `designing-an-effect` | Deciding whether an effect belongs at all, or when the table starts to feel noisy |
+| `easing-and-choreography` | Motion feels cheap, linear, floaty or simultaneous |
+| `svg-filters-and-gradients` | Building glow, bloom, warp, shimmer or grain — or tempted to add a graphics library to get them |
+
+That last one is the standing answer to a recurring question. This client has no
+runtime dependencies, and the visual budget it spends is spent through the
+platform: CSS, SVG filters and the Web Animations API.
 
 ## Agent configuration files
 
