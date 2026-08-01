@@ -487,9 +487,10 @@ than editing it.
 
 ## Status
 
-Version 1.1.0. The engine, the transport, and the client are built and tested —
-1546 tests across 85 files — and a match is playable end to end, from a checkout
-or from a single-file binary you compile yourself.
+Version 1.2.0. The engine, the transport, the client, the computer opponents and
+the MCP seat server are built and tested — 1,962 tests across 116 files — and a
+match is playable end to end, alone or with up to three other people, from a
+checkout or from a single-file binary you compile yourself.
 
 Known limitations:
 
