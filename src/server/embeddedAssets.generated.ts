@@ -23,8 +23,8 @@ import a4 from '../../dist/assets/card-front/card_front_3.png' with { type: 'fil
 import a5 from '../../dist/assets/ebling-mis/portrait_0.png' with { type: 'file' };
 import a6 from '../../dist/assets/first-speaker/portrait_0.png' with { type: 'file' };
 import a7 from '../../dist/assets/han-pritcher/portrait_0.png' with { type: 'file' };
-import a8 from '../../dist/assets/index-BHN_QhUc.js' with { type: 'file' };
-import a9 from '../../dist/assets/index-C5iUnW_z.css' with { type: 'file' };
+import a8 from '../../dist/assets/index-B7URLw7n.css' with { type: 'file' };
+import a9 from '../../dist/assets/index-DBnZIkxM.js' with { type: 'file' };
 import a10 from '../../dist/assets/informant/portrait_0.png' with { type: 'file' };
 import a11 from '../../dist/assets/magnifico/portrait_0.png' with { type: 'file' };
 import a12 from '../../dist/assets/mayor-indbur/portrait_0.png' with { type: 'file' };
@@ -32,19 +32,18 @@ import a13 from '../../dist/assets/misc/devotion_token.png' with { type: 'file' 
 import a14 from '../../dist/assets/misc/playfield_background_space.png' with { type: 'file' };
 import a15 from '../../dist/assets/misc/ui_panel_metal.png' with { type: 'file' };
 import a16 from '../../dist/assets/mule/portrait_0.png' with { type: 'file' };
-import a17 from '../../dist/assets/phaser-DaezK40Z.js' with { type: 'file' };
-import a18 from '../../dist/assets/shaders/distortion_map.png' with { type: 'file' };
-import a19 from '../../dist/assets/shaders/rainbow_gradient.png' with { type: 'file' };
-import a20 from '../../dist/assets/shaders/sparkle_pattern.png' with { type: 'file' };
-import a21 from '../../dist/assets/shielded-mind/portrait_0.png' with { type: 'file' };
-import a22 from '../../dist/assets/toran-darell/portrait_0.png' with { type: 'file' };
-import a23 from '../../dist/favicon.png' with { type: 'file' };
-import a24 from '../../dist/fonts/exo2-600.woff2' with { type: 'file' };
-import a25 from '../../dist/fonts/inter-var-latin-ext.woff2' with { type: 'file' };
-import a26 from '../../dist/fonts/inter-var-latin.woff2' with { type: 'file' };
-import a27 from '../../dist/index.html' with { type: 'file' };
-import a28 from '../../dist/love-letter-rules.md' with { type: 'file' };
-import a29 from '../../dist/salvor-hardin-quotes.txt' with { type: 'file' };
+import a17 from '../../dist/assets/shaders/distortion_map.png' with { type: 'file' };
+import a18 from '../../dist/assets/shaders/rainbow_gradient.png' with { type: 'file' };
+import a19 from '../../dist/assets/shaders/sparkle_pattern.png' with { type: 'file' };
+import a20 from '../../dist/assets/shielded-mind/portrait_0.png' with { type: 'file' };
+import a21 from '../../dist/assets/toran-darell/portrait_0.png' with { type: 'file' };
+import a22 from '../../dist/favicon.png' with { type: 'file' };
+import a23 from '../../dist/fonts/exo2-600.woff2' with { type: 'file' };
+import a24 from '../../dist/fonts/inter-var-latin-ext.woff2' with { type: 'file' };
+import a25 from '../../dist/fonts/inter-var-latin.woff2' with { type: 'file' };
+import a26 from '../../dist/index.html' with { type: 'file' };
+import a27 from '../../dist/love-letter-rules.md' with { type: 'file' };
+import a28 from '../../dist/salvor-hardin-quotes.txt' with { type: 'file' };
 
 export const EMBEDDED: ReadonlyMap<string, string> = new Map([
     ['/assets/PORTRAIT_PROMPTS.md', a0],
@@ -55,8 +54,8 @@ export const EMBEDDED: ReadonlyMap<string, string> = new Map([
     ['/assets/ebling-mis/portrait_0.png', a5],
     ['/assets/first-speaker/portrait_0.png', a6],
     ['/assets/han-pritcher/portrait_0.png', a7],
-    ['/assets/index-BHN_QhUc.js', a8],
-    ['/assets/index-C5iUnW_z.css', a9],
+    ['/assets/index-B7URLw7n.css', a8],
+    ['/assets/index-DBnZIkxM.js', a9],
     ['/assets/informant/portrait_0.png', a10],
     ['/assets/magnifico/portrait_0.png', a11],
     ['/assets/mayor-indbur/portrait_0.png', a12],
@@ -64,17 +63,16 @@ export const EMBEDDED: ReadonlyMap<string, string> = new Map([
     ['/assets/misc/playfield_background_space.png', a14],
     ['/assets/misc/ui_panel_metal.png', a15],
     ['/assets/mule/portrait_0.png', a16],
-    ['/assets/phaser-DaezK40Z.js', a17],
-    ['/assets/shaders/distortion_map.png', a18],
-    ['/assets/shaders/rainbow_gradient.png', a19],
-    ['/assets/shaders/sparkle_pattern.png', a20],
-    ['/assets/shielded-mind/portrait_0.png', a21],
-    ['/assets/toran-darell/portrait_0.png', a22],
-    ['/favicon.png', a23],
-    ['/fonts/exo2-600.woff2', a24],
-    ['/fonts/inter-var-latin-ext.woff2', a25],
-    ['/fonts/inter-var-latin.woff2', a26],
-    ['/index.html', a27],
-    ['/love-letter-rules.md', a28],
-    ['/salvor-hardin-quotes.txt', a29]
+    ['/assets/shaders/distortion_map.png', a17],
+    ['/assets/shaders/rainbow_gradient.png', a18],
+    ['/assets/shaders/sparkle_pattern.png', a19],
+    ['/assets/shielded-mind/portrait_0.png', a20],
+    ['/assets/toran-darell/portrait_0.png', a21],
+    ['/favicon.png', a22],
+    ['/fonts/exo2-600.woff2', a23],
+    ['/fonts/inter-var-latin-ext.woff2', a24],
+    ['/fonts/inter-var-latin.woff2', a25],
+    ['/index.html', a26],
+    ['/love-letter-rules.md', a27],
+    ['/salvor-hardin-quotes.txt', a28]
 ]);

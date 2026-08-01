@@ -1,20 +1,24 @@
 import { defineConfig } from 'vite';
 
-const phasermsg = () => {
+/**
+ * A build banner, and nothing more.
+ *
+ * This replaces the `phasermsg` plugin the Phaser starter template shipped,
+ * which printed an invitation to email games@phaser.io. The engine is gone
+ * (`docs/plans/2026-07-30-renderer-architecture-research.md`), so an
+ * advertisement for it on every production build is no longer honest.
+ */
+const buildBanner = () => {
     return {
-        name: 'phasermsg',
+        name: 'build-banner',
         buildStart() {
             process.stdout.write(`Building for production...\n`);
         },
         buildEnd() {
-            const line = "---------------------------------------------------------";
-            const msg = `❤️❤️❤️ Tell us about your game! - games@phaser.io ❤️❤️❤️`;
-            process.stdout.write(`${line}\n${msg}\n${line}\n`);
-            
             process.stdout.write(`✨ Done ✨\n`);
         }
-    }
-}   
+    };
+};
 
 export default defineConfig({
     // Absolute, not './': the client owns the /join/:matchId route (UIX §2.6),
@@ -24,13 +28,6 @@ export default defineConfig({
     base: '/',
     logLevel: 'warning',
     build: {
-        rollupOptions: {
-            output: {
-                manualChunks: {
-                    phaser: ['phaser']
-                }
-            }
-        },
         minify: 'terser',
         terserOptions: {
             compress: {
@@ -46,6 +43,6 @@ export default defineConfig({
         port: 8080
     },
     plugins: [
-        phasermsg()
+        buildBanner()
     ]
 });
