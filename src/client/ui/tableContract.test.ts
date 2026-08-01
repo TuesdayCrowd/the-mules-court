@@ -29,7 +29,10 @@
  * takes its line box's height instead, which drifts past the budget
  * `chipBands` reserved for it on a large enough chip — the same collision
  * `ChipSpec`'s own docblock already documents the token row shipping once —
- * so `table.ts` reads both fields to set `style.height` directly.
+ * so `table.ts` reads both fields to set `style.height` directly. Both now
+ * carry an explicit `max-width` from `SeatPlan.rect.w` too: `fit-content` is
+ * only allowed to hug text that FITS, and a transform on the text inside a
+ * scrim does not shrink the scrim (`table.test.ts` holds both).
  */
 
 import { readFileSync } from 'node:fs';
@@ -98,8 +101,15 @@ describe('every field the pure layer publishes reaches table.ts', () => {
 
                 for (const field of fields) {
                     if (`${name}.${field}` in NOT_DRAWN) continue;
+                    // A property access, ending where the name ends. A raw
+                    // substring search passed on any longer identifier that
+                    // merely started with the field's name, and `table.ts` is
+                    // full of them: `BannerPlan.text` was satisfied by
+                    // `.textContent`, `DeckPlan.count` by `.countLabel`,
+                    // `ChipSpec.pad` by `style.padding`, `OwnRowSpec.value` by
+                    // `.valuePx`. The guard proved nothing for those four.
                     expect(
-                        tableSource.includes(`.${field}`),
+                        new RegExp(String.raw`\.${field}\b`).test(tableSource),
                         `${name}.${field} is computed and tested but table.ts never reads it. ` +
                             `Draw it, or add it to NOT_DRAWN with the reason.`
                     ).toBe(true);

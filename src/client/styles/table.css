@@ -80,18 +80,20 @@
 }
 
 /*
- * The only art that takes its size from its parent rather than from a rect.
+ * `.tbl-hand-portrait` carries NO sizing, and that is the point.
  *
- * `contain` rather than `cover`, which settles the aspect question the metrics
- * hoist opened: portraits are 512×720 (0.711) and `tableLayout` sizes the hand
- * at 0.75, so something has to give. Containing letterboxes by about five per
- * cent against a dark table; covering would crop the same five per cent off a
- * portrait's head. Nothing stretches either way, which was the point.
+ * It used to be the one image sized from its parent (`width: 100%; height:
+ * 100%`) rather than from the rect that governs it — so its box was whatever
+ * the hand card's padding box happened to be, and the 2px ring `.is-playable`
+ * used to add shrank and shifted the art on every turn boundary. `table.ts`
+ * gives it `card.rect` inline now, like every other piece of art here.
+ *
+ * `.tbl-art`'s `contain` is the right fit for THIS box and settles the aspect
+ * question the metrics hoist opened: portraits are 512×720 (0.711) and
+ * `tableLayout` sizes the hand at 0.75, so something has to give. Containing
+ * letterboxes by about five per cent against a dark table; covering would crop
+ * the same five per cent off a portrait's head. Nothing stretches either way.
  */
-.tbl-hand-portrait {
-    width: 100%;
-    height: 100%;
-}
 
 /* ----------------------------------------------------------------- seats */
 
@@ -116,11 +118,29 @@
     cursor: pointer;
 }
 
+/*
+ * The chip's state ring is an OUTLINE, its colour set inline from
+ * `SeatPlan.state`.
+ *
+ * It was `border-width: 2px` on this element — the element every `ChipSpec`
+ * offset is measured against — and a border makes the padding box, which is
+ * what absolutely positioned children resolve against, 4px smaller than
+ * `seat.rect` and 2px off in both directions. `ChipSpec`'s "every offset is
+ * from the chip's own top edge" was quietly untrue, and the bottom-anchored
+ * pip block spent two of the six pixels `pipTop` reserves under it. An outline
+ * is drawn outside the layout entirely, and `outline-offset: -2px` puts it
+ * exactly where the border was — over the chip's own edge, and over the pip
+ * scrim rather than under it.
+ *
+ * The `:focus-visible` rule above still wins: it is one specificity step
+ * higher, so a focused chip shows the focus ring and not this one.
+ */
 .tbl-seat-hit {
-    border-style: solid;
-    border-width: 2px;
-    box-sizing: border-box;
+    outline-style: solid;
+    outline-width: 2px;
+    outline-offset: -2px;
 }
+
 
 .tbl-seat-hit:focus-visible,
 .tbl-seat-tokens-hit:focus-visible,
@@ -131,9 +151,22 @@
     outline-offset: 2px;
 }
 
+/*
+ * Everything placed from a spec rect gets `inset: auto` back.
+ *
+ * The shared rule above stretches its elements to fill a parent, which is right
+ * for the chip-wide button and wrong for anything `setRect` positions: with
+ * `inset: 0` still in force, an inline `left`+`width` leaves the element
+ * over-constrained on both axes, and it only lands where the layout put it
+ * because CSS resolves that by dropping `right` in a left-to-right writing
+ * mode. The hand card was missing from this list — in an RTL document `left`
+ * is the declaration dropped instead, and every hand card would snap to the
+ * right edge of the viewport.
+ */
 .tbl-seat-tokens-hit,
 .tbl-seat-revealed-hit,
-.tbl-own-tokens-hit {
+.tbl-own-tokens-hit,
+[data-role='hand-card'] {
     inset: auto;
 }
 
@@ -147,6 +180,19 @@
 
 .tbl-seat-name {
     display: block;
+    /*
+     * Never shrunk by the flex line it sits in: `table.ts` measures
+     * `offsetWidth` against the chip's own budget and scales the span itself,
+     * and a label already squeezed to its container's `max-width` measures as
+     * fitting no matter how long the nickname is.
+     */
+    flex: 0 0 auto;
+    /*
+     * `transform-origin` on the box that is actually transformed: scaled about
+     * its own centre the nickname floats in from both ends of a scrim pinned at
+     * `chip.pad`, so its first glyph no longer starts where the spec says.
+     */
+    transform-origin: left center;
     padding: 0 2px;
     color: var(--color-text-primary);
     font-family: var(--font-ui);
@@ -208,13 +254,38 @@
     background: rgb(0 0 0 / 0.6);
     font-family: var(--font-ui);
     white-space: nowrap;
-    transform-origin: left top;
+}
+
+/*
+ * The span `table.ts` actually scales.
+ *
+ * `transform-origin` was declared on the line above — the element that is not
+ * transformed — so the label shrank about its own centre and floated in from
+ * both ends of a scrim that had not shrunk at all. The origin belongs on the
+ * transformed box, and `flex: 0 0 auto` is what makes its `offsetWidth` the
+ * width the glyphs need rather than the width the line's `max-width` allowed.
+ */
+.tbl-chip-line > span {
+    display: inline-block;
+    flex: 0 0 auto;
+    transform-origin: left center;
 }
 
 /* ------------------------------------------------------------ medallions */
 
+/*
+ * `ChipSpec.medallion` is an EDGE LENGTH, and the box `table.ts` draws is
+ * square — but `misc/devotion_token.png` is 512×720, a portrait-shaped plaque.
+ * Under `.tbl-art`'s `contain` the token painted at 71% of its box's width,
+ * centred, so the run read as sparse and misaligned, the first medallion's
+ * pixels no longer began at `chip.pad`, and both `medallionRunWidth` and the
+ * tap target reserved width for squares that were never drawn. `cover` crops
+ * the outer frame of the plaque (y 104..616 of 720) and leaves the eye
+ * medallion itself — the part that carries the meaning — intact.
+ */
 .tbl-medallion {
     position: absolute;
+    object-fit: cover;
     pointer-events: none;
 }
 
@@ -276,9 +347,20 @@
     justify-content: center;
 }
 
+/*
+ * The plate's height is its font plus its own padding, and nothing else.
+ *
+ * `line-height: 1` because the default `normal` is about 1.2 ×, which put the
+ * plate outside `banner.rect` at every viewport a phone has; `table.ts` sizes
+ * the font so that `fontSize + BANNER_PLATE_PAD` fits the band, and that
+ * arithmetic is only true if the line box is the font size. No `max-height`:
+ * capping the padded box only clipped the glyphs inside it (the words lost
+ * their descenders, and most of their body on a short band), and `Court.ts`
+ * never clipped the text — it shrank the plate and left the words alone.
+ */
 .tbl-banner-plate {
     max-width: 100%;
-    max-height: 100%;
+    line-height: 1;
     background: rgb(0 0 0 / 0.72);
     border-radius: var(--radius);
     font-family: var(--font-display);
@@ -294,14 +376,35 @@
     position: absolute;
 }
 
+/*
+ * The burn panel is where `.tbl-art`'s `contain` is the WRONG fit rule.
+ *
+ * `contain` is reasoned about above on the grounds that the box and the art
+ * disagree by about five per cent — true of a hand card, false here. Both of
+ * these boxes are deliberately narrow: the face-up card gives up width to the
+ * fan (`faceW = panel.w - sliverStep * hidden`) and each sliver is only the
+ * edge of a card peeking out, so the boxes run to an aspect near 0.44 against
+ * art at 0.71–0.75. Contained, the card back floated inside its own 1px border
+ * with empty box above and below it, and the burn card's portrait shrank to a
+ * third of its panel while the "Removed" caption and the card's name — both
+ * positioned from the BOX by `buildCardFaceLabel` — sat on bare table above
+ * and below the art they exist to caption.
+ *
+ * `cover`, not `fill`: `Court.ts` filled these rects with `setDisplaySize`,
+ * which stretches, and a portrait squashed from 0.71 to 0.44 is its own defect.
+ * Cropping is the correct read for a card the fan is partly covering, and for
+ * a card back, which is an ornamental pattern with nothing to lose.
+ */
 .tbl-removed-sliver {
     position: absolute;
+    object-fit: cover;
     border: 1px solid var(--color-seat-other);
     box-sizing: border-box;
 }
 
 .tbl-removed-face {
     position: absolute;
+    object-fit: cover;
 }
 
 /* -------------------------------------------------------------- own row */
@@ -355,8 +458,32 @@
     overflow: hidden;
 }
 
+/*
+ * The playable ring must not consume the card's box.
+ *
+ * As a `border: 2px` it did: the button is `box-sizing: border-box` with
+ * `overflow: hidden`, and absolutely positioned children resolve against the
+ * padding box — so `.tbl-card-parts` (`inset: 0`) lost 4px in each dimension,
+ * the portrait lost the same and shifted 2px, and the name scrim, placed at
+ * `rect.h - nameH`, had its bottom edge clipped away. The art and the name
+ * strip visibly jumped and shrank at the moment a card became playable, i.e.
+ * on every turn boundary, while `HandCardPlan.rect` never moved. An outline is
+ * drawn outside the layout entirely; `outline-offset: -2px` puts it back on
+ * the card's own edge.
+ */
 [data-role='hand-card'].is-playable {
-    border: 2px solid var(--color-state-your-turn);
+    outline-width: 2px;
+    outline-style: solid;
+    outline-color: var(--color-state-your-turn);
+    outline-offset: -2px;
+}
+
+/* The playable ring and the focus ring are both outlines and both land on the
+   same element, so the focus ring has to out-specify the state ring or a
+   keyboard player loses it on exactly the cards they can play. */
+[data-role='hand-card'].is-playable:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
 }
 
 [data-role='hand-card'][aria-disabled='true'] {
@@ -379,9 +506,19 @@
     background: rgb(0 0 0 / 0.72);
 }
 
+/*
+ * NO `max-width`, and never shrunk by its flex line.
+ *
+ * Both are what make `offsetWidth` mean "the width these glyphs need", which
+ * is the number `table.ts` compares against the card's budget before deciding
+ * to scale. Clamped by `max-width: 100%`, the box reported the CLAMPED width,
+ * the comparison never fired, and the name ran on past its box to be cut off
+ * by the hand card's `overflow: hidden` — reported from a real match as a
+ * caption clipping mid-word.
+ */
 .tbl-card-name {
     display: inline-block;
-    max-width: 100%;
+    flex: 0 0 auto;
     padding: 0 3px;
     color: var(--color-text-primary);
     font-family: var(--font-ui);
@@ -419,9 +556,12 @@
     background: rgb(0 0 0 / 0.72);
 }
 
+/* No `max-width` and no flex shrink, for the reason `.tbl-card-name` gives:
+   `fitOverline` is handed `offsetWidth`, and a clamped box measures as fitting
+   however long the caption is. */
 .tbl-card-overline-text {
     display: inline-block;
-    max-width: 100%;
+    flex: 0 0 auto;
     color: var(--color-state-waiting);
     font-family: var(--font-ui);
     text-align: center;

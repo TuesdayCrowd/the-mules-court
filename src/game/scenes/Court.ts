@@ -555,7 +555,7 @@ export class Court extends Scene {
         // Only as wide as the values it backs, and absent entirely when the
         // seat has discarded nothing — an empty scrim is a bar over the art
         // saying nothing.
-        const pipsAcross = Math.min(seat.discardValues.length, pip.perRow);
+        const pipsAcross = Math.min(seat.discards.length, pip.perRow);
         const pipScrims =
             pipsAcross === 0
                 ? []
@@ -565,11 +565,11 @@ export class Court extends Scene {
                           .setOrigin(0, 0)
                   ];
 
-        const pips = seat.discardValues.map((value, index) =>
+        const pips = seat.discards.map((discard, index) =>
             this.add.text(
                 seat.rect.x + chip.pad + (index % pip.perRow) * pipStep,
                 pipsTop + Math.floor(index / pip.perRow) * pipStep,
-                String(value),
+                String(discard.value),
                 { fontFamily: FONT_UI, fontSize: `${pip.size}px`, color: '#9ca3af' }
             )
         );

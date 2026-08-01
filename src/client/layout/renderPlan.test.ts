@@ -234,7 +234,7 @@ describe("the viewer's own status", () => {
 
         expect(seats[0].state).toBe('disconnected');
         expect(seats[0].caption).toBe('Reconnecting…');
-        expect(seats[0].discardValues).toEqual([1]); // the seat is held, not cleared
+        expect(seats[0].discards).toEqual([{ cardId: 'informant', value: 1 }]); // the seat is held, not cleared
     });
 
     it('lets elimination outrank disconnection', () => {
@@ -254,8 +254,28 @@ describe("the viewer's own status", () => {
             players: [view.players[0], seat('p2', { discardPile: pile, discardValueTotal: 36 }), view.players[2], view.players[3]]
         }).seats;
 
-        expect(seats[0].discardValues).toHaveLength(8);
+        expect(seats[0].discards).toHaveLength(8);
         expect(seats[0].discardTotal).toBe(36);
+    });
+
+    it("keeps each discard's face beside its value, so a chip can draw the card", () => {
+        // The view has always carried `{cardId, value}`; this plan used to map
+        // it down to the number, which is the whole reason a seat chip could
+        // only ever show "1 1 3".
+        const view = fourSeats();
+        const pile = [
+            { cardId: 'informant' as const, value: 1 as const },
+            { cardId: 'mule' as const, value: 8 as const }
+        ];
+        const seats = plan({
+            ...view,
+            players: [view.players[0], seat('p2', { discardPile: pile, discardValueTotal: 9 }), view.players[2], view.players[3]]
+        }).seats;
+
+        expect(seats[0].discards).toEqual([
+            { cardId: 'informant', value: 1 },
+            { cardId: 'mule', value: 8 }
+        ]);
     });
 
     it("shows this viewer's own peek on a seat", () => {

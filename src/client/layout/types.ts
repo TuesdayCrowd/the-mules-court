@@ -30,11 +30,27 @@ export interface LayoutInput {
  * How the discard pips fit inside a seat chip (UIX §6.2).
  *
  * `perRow` is how many fit across at `size`; the renderer wraps at that count.
- * Between them they always account for every value in the pile — interface rule
+ * Between them they always account for every entry in the pile — interface rule
  * 7 makes truncation a design failure, not a fallback.
+ *
+ * A pip is a card face with its value beneath it, the way the viewer's own row
+ * already draws one (`OwnRowSpec`), so `size` is the face's **width** and the
+ * column step, and the face's height is `pipFaceHeight` — derived rather than
+ * stored, for the same reason `pipBlockHeight` is a function: it is geometry
+ * the layer already decided, and a renderer that recomputed the aspect itself
+ * is the drift `tableContract.test.ts` exists to catch.
  */
 export interface PipSpec {
+    /** Width of one discard face, and the distance between two columns' left edges. */
     readonly size: number;
+    /**
+     * Font size — and reserved height — of the value under each face.
+     *
+     * Floored independently of `size`, because the value is the deduction datum
+     * and the face is an aid: when the pile is deep enough that something has
+     * to give, the face is what shrinks.
+     */
+    readonly valuePx: number;
     readonly perRow: number;
     readonly rows: number;
 }

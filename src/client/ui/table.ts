@@ -31,7 +31,15 @@
 
 import { medallionPlan, type DeckPlan, type HandCardPlan, type OwnStatusPlan, type RenderPlan, type SeatPlan } from '../layout/renderPlan';
 import { buildRenderPlan } from '../layout/renderPlan';
-import { computeLayout, MEDALLION_GAP, pipBlockHeight, PIP_GAP_PX } from '../layout/tableLayout';
+import {
+    computeLayout,
+    MEDALLION_GAP,
+    medallionRunWidth,
+    pipBlockHeight,
+    pipFaceHeight,
+    pipRowHeight,
+    PIP_GAP_PX
+} from '../layout/tableLayout';
 import { fitOverline } from '../layout/overline';
 import {
     BADGE_FRACTION,
@@ -291,9 +299,18 @@ export function createTable(deps: TableDeps): Table {
 
         // The name gives way before the value does — the value is what every
         // rule in the game is written in, so it never shrinks.
+        //
+        // `offsetWidth`, not `scrollWidth`, and the span carries no
+        // `max-width` (table.css) so that the two agree on what it means. A
+        // box clamped by `max-width: 100%` reports the CLAMPED width from
+        // `scrollWidth`, so `width > available` was never true, no scale was
+        // ever applied, and the text simply overflowed its clamped box — where
+        // the hand card's `overflow: hidden` cut it off mid-word. Reported from
+        // a real match. `offsetWidth` is the border box the glyphs actually
+        // need, which is the number this comparison was always about.
         pendingFits.push(() => {
             const available = rect.w - LABEL_PAD;
-            const width = name.scrollWidth;
+            const width = name.offsetWidth;
             if (width > available && width > 0) {
                 name.style.transform = `scale(${available / width})`;
             }
@@ -325,7 +342,9 @@ export function createTable(deps: TableDeps): Table {
             // pure function `Court.ts` calls, so the two renderers agree on the
             // floor below which a caption stops being legible.
             pendingFits.push(() => {
-                const scale = fitOverline(captionW, caption.scrollWidth, fontSize);
+                // `offsetWidth` for the reason the name uses it: this caption
+                // is the one a human reported clipped mid-word.
+                const scale = fitOverline(captionW, caption.offsetWidth, fontSize);
                 if (scale === null) wrap.remove();
                 else caption.style.transform = `scale(${scale})`;
             });
@@ -378,11 +397,24 @@ export function createTable(deps: TableDeps): Table {
      * 10 — which is how the caption used to bleed into the pip row beneath it.
      */
     function appendChipLine(host: HTMLElement, chip: ChipSpec, seatW: number, top: number, text: string, colour: string): void {
+        const room = seatW - chip.pad * 2;
+
         const line = document.createElement('div');
         line.className = 'tbl-chip-line';
         line.style.left = px(chip.pad);
         line.style.top = px(top);
         line.style.height = px(chip.smallH);
+        // The SCRIM's own bound, not just the text's.
+        //
+        // A `transform` is a paint-time operation: scaling the label below
+        // leaves the line's layout width exactly what the unscaled text
+        // needed, and `.tbl-chip-line` is `width: fit-content` — so the black
+        // bar kept running out of the chip and over the seat beside it while
+        // the words inside it shrank obediently. `Court.ts#chipLine` sized its
+        // scrim from `label.displayWidth`, the width AFTER the scale, for
+        // exactly this reason; a `max-width` is the DOM's way of saying the
+        // same thing without measuring twice.
+        line.style.maxWidth = px(room);
         line.style.display = 'flex';
         line.style.alignItems = 'center';
         line.style.color = colour;
@@ -393,9 +425,12 @@ export function createTable(deps: TableDeps): Table {
         line.appendChild(label);
         host.appendChild(line);
 
-        const room = seatW - chip.pad * 2;
         pendingFits.push(() => {
-            const width = label.scrollWidth;
+            // `offsetWidth` of a span that cannot shrink (`flex: 0 0 auto` in
+            // table.css) is the width the glyphs need; under the default
+            // `flex-shrink: 1` the label would already have been squeezed to
+            // the line's `max-width` and would measure as fitting.
+            const width = label.offsetWidth;
             if (width > room && width > 0) label.style.transform = `scale(${room / width})`;
         });
     }
@@ -404,7 +439,11 @@ export function createTable(deps: TableDeps): Table {
 
     function seatAccessibleName(seat: SeatPlan, tokensToWin: number): string {
         const status = seat.caption ?? (seat.state === 'current' ? 'current turn' : 'in the round');
-        const discards = seat.discardValues.length === 0 ? '' : `, discards ${seat.discardValues.join(', ')}`;
+        // Values, not card names: eight names is a paragraph to listen through,
+        // and the value is what the pile is read for. `seatDossier.ts` names
+        // them, one tap away, where there is room to say it.
+        const discards =
+            seat.discards.length === 0 ? '' : `, discards ${seat.discards.map(discard => discard.value).join(', ')}`;
         const known = seat.knownCard === null ? '' : `, you know they hold ${cardLabel(seat.knownCard)}`;
         return `${seat.nickname} — ${status}, ${seat.tokens} of ${tokensToWin} devotion tokens${discards}${known}`;
     }
@@ -424,7 +463,17 @@ export function createTable(deps: TableDeps): Table {
         hit.type = 'button';
         hit.className = 'tbl-seat-hit';
         hit.dataset.state = seat.state;
-        hit.style.borderColor =
+        // An OUTLINE's colour, not a border's.
+        //
+        // `hit` is the box every `ChipSpec` offset is measured against, and
+        // `ChipSpec`'s own docblock says "every offset is from the chip's own
+        // top edge". A 2px border makes that false: absolutely positioned
+        // children resolve against the PADDING box, so the whole chip's
+        // contents landed 2px down and 2px right of the spec in a box 4px
+        // smaller than `seat.rect` — spending two of the six pixels `pipTop`
+        // leaves beneath the pip block. An outline paints the same 2px ring
+        // and takes no layout space, so the padding box IS `seat.rect`.
+        hit.style.outlineColor =
             seat.state === 'eliminated' ? rgba(SEAT_COLOURS[seat.state], 0.5) : hex(SEAT_COLOURS[seat.state]);
         hit.setAttribute('aria-label', seatAccessibleName(seat, tokensToWin));
         hit.addEventListener('click', () => deps.onSeatSelected(seat.playerId));
@@ -441,6 +490,17 @@ export function createTable(deps: TableDeps): Table {
         nameScrim.style.left = px(chip.pad);
         nameScrim.style.top = px(0);
         nameScrim.style.height = px(chip.nameBandH);
+        // The nickname is another player's free text, up to
+        // `maxNicknameLength` characters of it, and it was the ONE piece of
+        // chip text with no width budget at all: the card face clamps its name,
+        // `appendChipLine` clamps both small lines, and this scrim was
+        // `width: fit-content` with `white-space: nowrap` and nothing to stop
+        // it — 24 characters at `nameH` is roughly 170px in a 117px chip on a
+        // three-opponent phone, i.e. a black bar and a stranger's text painted
+        // over the seat next door. The height was always explicit; this is the
+        // other axis.
+        const nameRoom = seat.rect.w - chip.pad * 2;
+        nameScrim.style.maxWidth = px(nameRoom);
         nameScrim.style.display = 'flex';
         nameScrim.style.alignItems = 'center';
         const name = document.createElement('span');
@@ -449,6 +509,14 @@ export function createTable(deps: TableDeps): Table {
         name.style.fontSize = px(chip.nameH);
         nameScrim.appendChild(name);
         hit.appendChild(nameScrim);
+
+        // The same fit `appendChipLine` makes, for the same reason: a
+        // `max-width` alone would clip the nickname mid-word, and the scale is
+        // what keeps every character of it readable inside the budget.
+        pendingFits.push(() => {
+            const width = name.offsetWidth;
+            if (width > nameRoom && width > 0) name.style.transform = `scale(${nameRoom / width})`;
+        });
 
         if (seat.holdsCard) {
             const back = document.createElement('img');
@@ -466,12 +534,16 @@ export function createTable(deps: TableDeps): Table {
 
         appendMedallions(hit, seat.tokens, chip.pad, chip.tokenTop, chip.medallion);
 
-        // Interface rule 7: every discarded value, never a truncation. `pip`
-        // is the size `fitPips` already proved fits every value in the pile —
-        // read here, never reinvented.
+        // Interface rule 7: every discard, never a truncation. `pip` is the size
+        // `fitPips` already proved fits the whole pile — read here, never
+        // reinvented. A column steps by the face's width, a row by a face plus
+        // the value under it, and both come from `tableLayout` so the block the
+        // renderer draws is the block `chipBands` budgeted for.
         const pipStep = pip.size + PIP_GAP_PX;
+        const pipFaceH = pipFaceHeight(pip);
+        const pipRowStep = pipRowHeight(pip) + PIP_GAP_PX;
         const pipsTop = chip.pipTop;
-        const pipsAcross = Math.min(seat.discardValues.length, pip.perRow);
+        const pipsAcross = Math.min(seat.discards.length, pip.perRow);
 
         if (pipsAcross > 0) {
             const scrim = document.createElement('div');
@@ -484,30 +556,62 @@ export function createTable(deps: TableDeps): Table {
             // "re-derive geometry the pure layer already decided" mistake
             // `courtContract.test.ts` exists to catch; if the block wants room
             // around it, that belongs in `chipBands`, where it can be tested.
+            //
+            // The width is the same arithmetic one axis over, and it was the
+            // same mistake: a row of `n` pips starts at `chip.pad` and its last
+            // one ends at `pad + (n - 1) * step + size`, which is `pad + n *
+            // step - PIP_GAP_PX`. Counting a trailing inter-pip gap that the
+            // block does not contain made the scrim `PIP_GAP_PX` too wide, and
+            // since `fitPips` packs the pips against `chip.w * 0.88` there is
+            // not always three pixels of slack: on a three-opponent phone the
+            // scrim crossed the chip's own ring while the last pip stopped
+            // nine pixels short of it.
             setRect(scrim, {
                 x: 0,
                 y: pipsTop,
-                w: pipsAcross * pipStep + chip.pad * 2,
+                w: pipsAcross * pipStep - PIP_GAP_PX + chip.pad * 2,
                 h: pipBlockHeight(pip)
             });
             hit.appendChild(scrim);
         }
 
-        seat.discardValues.forEach((value, index) => {
+        // A face plus its value, mirroring the viewer's own row — the seat chips
+        // showed the same pile as bare numerals ("1 1 3") only because the plan
+        // above was throwing the card's identity away, never because a chip was
+        // entitled to less. A discard is public information.
+        seat.discards.forEach((discard, index) => {
+            const x = chip.pad + (index % pip.perRow) * pipStep;
+            const y = pipsTop + Math.floor(index / pip.perRow) * pipRowStep;
+
+            const face = document.createElement('img');
+            face.className = 'tbl-art tbl-seat-pip-face';
+            face.src = assetUrl(portraitPath(discard.cardId));
+            face.alt = '';
+            face.loading = 'lazy';
+            face.decoding = 'async';
+            // EXPLICIT width and height. An unsized <img> renders at the pixels
+            // the file happens to be — 512×720 for every portrait here — and
+            // `object-fit` cannot save it, because it only says how pixels fill
+            // a box that has already been sized. The hand portrait shipped that
+            // way once and hung off the bottom of the viewport.
+            setRect(face, { x, y, w: pip.size, h: pipFaceH });
+            hit.appendChild(face);
+
             const numeral = document.createElement('span');
             numeral.className = 'tbl-seat-pip';
-            numeral.textContent = String(value);
-            numeral.style.left = px(chip.pad + (index % pip.perRow) * pipStep);
-            numeral.style.top = px(pipsTop + Math.floor(index / pip.perRow) * pipStep);
-            numeral.style.fontSize = px(pip.size);
+            numeral.textContent = String(discard.value);
+            numeral.style.left = px(x);
+            numeral.style.top = px(y + pipFaceH);
+            numeral.style.width = px(pip.size);
+            numeral.style.fontSize = px(pip.valuePx);
             // An EXPLICIT row height, for the same reason `nameBandH` is an
-            // explicit band height. `pipBlockHeight` budgets each row at
-            // exactly `pip.size`, but a span's line box is `font-size ×
-            // line-height` — about 1.2 × — so the last row overran the block by
-            // a fifth of a pip and crossed the chip's bottom border, which is
-            // the entire six-pixel pad `pipTop` leaves beneath it. Paired with
+            // explicit band height. `pipRowHeight` budgets the value at exactly
+            // `pip.valuePx`, but a span's line box is `font-size × line-height`
+            // — about 1.2 × — so the last row overran the block by a fifth of a
+            // value and crossed the chip's bottom border, which is the entire
+            // six-pixel pad `pipTop` leaves beneath it. Paired with
             // `line-height: 1` in table.css.
-            numeral.style.height = px(pip.size);
+            numeral.style.height = px(pip.valuePx);
             hit.appendChild(numeral);
         });
 
@@ -545,10 +649,15 @@ export function createTable(deps: TableDeps): Table {
         tokenHit.type = 'button';
         tokenHit.className = 'tbl-seat-tokens-hit';
         tokenHit.setAttribute('aria-label', `${seat.nickname}'s devotion tokens: ${seat.tokens}`);
+        // `medallionRunWidth` is the run `appendMedallions` actually draws —
+        // the same measurement `ownRow.medallionSpan` is built from, so the
+        // chip and the viewer's own row cannot drift. It replaces a literal
+        // `chip.medallion * 5`, which was a guess at a run of four medallions
+        // stepping by `medallion + MEDALLION_GAP` and missed it by 4px.
         setRect(tokenHit, {
             x: chip.pad,
             y: chip.tokenTop,
-            w: Math.max(1, Math.min(seat.rect.w - chip.pad * 2, chip.medallion * 5)),
+            w: Math.max(1, Math.min(seat.rect.w - chip.pad * 2, medallionRunWidth(chip.medallion))),
             h: chip.medallion
         });
         tokenHit.addEventListener('click', () => deps.onTokensSelected(seat.playerId));
@@ -640,7 +749,28 @@ export function createTable(deps: TableDeps): Table {
         plate.className = 'tbl-banner-plate';
         plate.textContent = banner.text;
         plate.style.color = hex(banner.colour);
-        plate.style.fontSize = px(Math.max(MIN_BANNER_PX, Math.round(banner.rect.h * 0.7)));
+        /**
+         * The font has to fit the band INCLUDING the plate's own padding.
+         *
+         * `round(h * 0.7)` is `Court.ts`'s size, and on a canvas it was right:
+         * the text was its own object and the plate was a rectangle clamped
+         * separately to `min(text height + pad, rect.h)`, so a short band gave
+         * a short plate and the words never lost pixels. In DOM the padding is
+         * part of the same box, so the plate's height is `fontSize +
+         * BANNER_PLATE_PAD` (with `line-height: 1` from table.css) — larger
+         * than the band at every viewport under about 1100px tall, which is
+         * every phone. Taking the padding out of the budget is what makes the
+         * rendered box equal `banner.rect.h` instead of exceeding it.
+         *
+         * `MIN_BANNER_PX` still floors it, and below a ~34px band the floor
+         * wins and the plate is a little taller than its band. That is the
+         * legibility floor doing its job, the same trade `MIN_PIP_PX` makes;
+         * it overflows by a bounded amount rather than clipping the words,
+         * which is why table.css no longer caps the plate's height.
+         */
+        plate.style.fontSize = px(
+            Math.max(MIN_BANNER_PX, Math.min(Math.round(banner.rect.h * 0.7), Math.floor(banner.rect.h - BANNER_PLATE_PAD)))
+        );
         plate.style.padding = `${px(BANNER_PLATE_PAD / 2)} ${px(BANNER_PLATE_PAD)}`;
         el.appendChild(plate);
 
@@ -742,7 +872,21 @@ export function createTable(deps: TableDeps): Table {
 
             const plate = document.createElement('div');
             plate.className = 'tbl-own-discard-plate';
-            setRect(plate, { x, y: faceTop + row.iconH, w: row.iconW, h: row.valuePx + 2 });
+            // BOTTOM-anchored on the face, which is what `Court.ts:393` means
+            // by drawing this rectangle at `faceTop + row.iconH` with
+            // `.setOrigin(0, 1)`: the plate rides over the face's lower edge
+            // and its bottom edge IS the face's bottom edge. Translated as a
+            // top-anchored rect it grew downward out of the row instead — past
+            // `ownStatus.h` at every viewport, and in landscape the hand cards
+            // are drawn after the own row and painted over the numeral.
+            //
+            // An origin is a property of a canvas draw call; in DOM it is the
+            // choice of which edge you anchor from — the same mistranslation
+            // `.tbl-seat-revealed-value` shipped with `translate(100%, 100%)`.
+            // `row.valuePx` exactly, with no `+2`: `OwnRowSpec.valuePx` is the
+            // budget, the span's `line-height: 1` fits it, and a pad invented
+            // here is a number the pure layer cannot be held to.
+            setRect(plate, { x, y: faceTop + row.iconH - row.valuePx, w: row.iconW, h: row.valuePx });
             const value = document.createElement('span');
             value.textContent = String(discard.value);
             value.style.fontSize = px(row.valuePx);
@@ -806,6 +950,18 @@ export function createTable(deps: TableDeps): Table {
         portrait.alt = '';
         portrait.loading = 'lazy';
         portrait.decoding = 'async';
+        // Sized from `card.rect`, like every other piece of art on this table.
+        //
+        // It was the one image left to CSS (`width: 100%; height: 100%`), and
+        // so the one image whose box was a function of its parent's padding box
+        // rather than of the spec field that governs it — which is how the
+        // playable card's 2px border used to shrink and shift the portrait on
+        // every turn boundary while `card.rect` never moved. It was also the
+        // last `position: static` image here, sitting in an inline line box and
+        // relying on `overflow: hidden` to swallow the baseline descender gap.
+        // The rule that caught the original unsized-portrait bug is that every
+        // image takes its dimensions from the spec; this one now does.
+        setRect(portrait, { x: 0, y: 0, w: card.rect.w, h: card.rect.h });
         portrait.style.opacity = card.dimmed ? '0.4' : '1';
         button.appendChild(portrait);
 
