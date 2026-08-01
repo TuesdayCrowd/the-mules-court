@@ -1,0 +1,124 @@
+# Builds the five single-file executables and attaches them to a release.
+#
+# Triggered by publishing a release rather than by pushing a tag, because the
+# release notes here are written by hand — see the v1.0.0–v1.2.0 bodies, which
+# are the CHANGELOG section verbatim under a titled headline. A tag-push trigger
+# would have to invent notes or create the release itself, and would race the
+# person writing them.
+#
+# ONE RUNNER, NOT A MATRIX. `bun build --compile --target=` cross-compiles every
+# platform from any host, so a build matrix would spend five runners to produce
+# what one produces sequentially in the same wall-clock order of minutes. The
+# only thing a matrix would buy is native smoke-testing per platform, and the
+# binaries are not signed or notarised, so there is nothing platform-specific to
+# verify beyond "it compiled".
+name: Release binaries
+
+on:
+  release:
+    types: [published]
+  # Re-run against an existing release: a failed upload, or backfilling assets
+  # onto a release published before this workflow existed.
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: Existing release tag to build and attach to (e.g. v1.2.0)
+        required: true
+        type: string
+
+# Uploading a release asset is a write to repository contents.
+permissions:
+  contents: write
+
+# Never let two runs upload to the same release at once. Not cancel-in-progress:
+# a half-finished upload replaced mid-flight is worse than a slow one.
+concurrency:
+  group: release-binaries-${{ github.event.release.tag_name || inputs.tag }}
+  cancel-in-progress: false
+
+jobs:
+  binaries:
+    runs-on: ubuntu-latest
+    timeout-minutes: 30
+
+    env:
+      TAG: ${{ github.event.release.tag_name || inputs.tag }}
+
+    steps:
+      - name: Check out the tagged tree
+        uses: actions/checkout@v4
+        with:
+          # The tag, never the default branch. A release is a promise about a
+          # specific tree, and main may already have moved past it.
+          ref: ${{ github.event.release.tag_name || inputs.tag }}
+          persist-credentials: false
+
+      - name: Install Bun
+        uses: oven-sh/setup-bun@v2
+        with:
+          # Pinned to the version that built v1.2.0. Bump deliberately: the
+          # runtime is most of what these binaries are.
+          bun-version: 1.3.14
+
+      - name: Install dependencies
+        run: bun install --frozen-lockfile
+
+      - name: Check the tag and package.json agree
+        # Catches the release cut without the version bump. Cheap, and the
+        # mismatch is invisible afterwards — nothing at runtime prints a version.
+        run: |
+          declared=$(bun --print "require('./package.json').version")
+          expected=${TAG#v}
+          if [ "$declared" != "$expected" ]; then
+            echo "::error::package.json is $declared but the tag is $TAG (expected $expected)"
+            exit 1
+          fi
+          echo "version $declared matches $TAG"
+
+      - name: Type-check
+        # Neither `vite build` nor the dev server type-checks, so this is the
+        # only thing that catches a type error.
+        run: bunx tsc --noEmit
+
+      - name: Test
+        # Engine and client under Vitest, then server and MCP under `bun test`.
+        # `test:visual` is deliberately not here: it drives a real browser
+        # against two running servers and is a capture harness for human eyes,
+        # not a pass/fail oracle.
+        run: bun run test
+
+      - name: Compile every target
+        # Each `compile:*` script runs `bun run build` first, which also
+        # regenerates the embedded asset manifest — so the binaries always carry
+        # the client they were built beside, whatever is committed.
+        run: |
+          mkdir -p dist-bin
+          for target in linux-x64 linux-arm64 darwin-arm64 darwin-x64 windows-x64; do
+            echo "::group::$target"
+            bun run "compile:$target"
+            echo "::endgroup::"
+          done
+          ls -l dist-bin/
+
+      - name: Checksum
+        # These binaries are unsigned; macOS quarantines them and Windows
+        # SmartScreen flags them. A checksum file is the only way a downloader
+        # can tell a good copy from a bad one.
+        working-directory: dist-bin
+        run: |
+          sha256sum mules-court-* > SHA256SUMS.txt
+          cat SHA256SUMS.txt
+
+      - name: Attach to the release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        # --clobber so a re-run replaces assets rather than failing on conflict.
+        run: |
+          gh release upload "$TAG" \
+            dist-bin/mules-court-darwin-arm64 \
+            dist-bin/mules-court-darwin-x64 \
+            dist-bin/mules-court-linux-arm64 \
+            dist-bin/mules-court-linux-x64 \
+            dist-bin/mules-court-windows-x64.exe \
+            dist-bin/SHA256SUMS.txt \
+            --clobber
