@@ -337,13 +337,40 @@ The slug does **not** always match the card's display name. Mapping (README card
 
 Other asset dirs: `card-back/` (the deck and face-down cards), `shaders/` (`rainbow_gradient.png` for the devotion-token shimmer, `sparkle_pattern.png` for the victory burst), and `misc/` (the playfield background and the devotion token badge). Catalogued in `VISUAL_SHOWCASE.md`.
 
+## Skills
+
+`.agents/skills/` holds six, and they divide along the seams this file already
+describes rather than by file type:
+
+| Skill | Reach for it when |
+| --- | --- |
+| `adding-to-the-pure-layer` | Editing `layout/`, `content/`, `store/` or `tokens/`, or when `purity.test.ts` fails |
+| `laying-out-the-table` | Changing table geometry, or adding a field to `LayoutSpec`, `RenderPlan`, `SeatPlan` or `ChipSpec` |
+| `writing-a-dom-surface` | Adding or changing anything in `src/client/ui/` |
+| `animating-with-waapi` | Adding or changing motion — a beat, a reveal, a transition |
+| `changing-the-wire` | Touching `RedactedView`, protocol messages, engine types or room state |
+| `running-the-test-gates` | Before claiming any change is done, or when a failure does not match what you edited |
+
+Two of those exist because of failures this repo has actually had, and are worth
+knowing about before you need them. `changing-the-wire` covers the version skew
+that presents as anything but — "cards stopped responding" and a rule being
+misreported were both one added field, not two bugs. `running-the-test-gates`
+exists because `vitest.config.ts` enumerates globs while the `bun test` scripts
+name directories, so a new top-level directory under `src/` is type-checked
+automatically and **silently untested** until a script names it.
+
+The split is not filing. A change that spans two of them is usually a change
+that should have been one: geometry belongs in `layout/`, the renderer obeys it,
+and a surface that computes its own position has taken a decision away from a
+layer that can be tested without a browser.
+
 ## Agent configuration files
 
 This repo follows the cross-tool [AGENTS.md](https://agents.md) convention: **this file is the single source of truth.**
 
 - `CLAUDE.md` contains one line — `@AGENTS.md` — which Claude Code expands into this file's contents during preprocessing, before the model sees it. See [Write an effective CLAUDE.md](https://code.claude.com/docs/en/best-practices#write-an-effective-claude-md).
-- `.claude/` is a symlink to `.agents/`, which holds shared agent configuration.
+- `.claude/` is a symlink to `.agents/`, which holds shared skills (`.agents/skills/`).
 
-The symlink is load-bearing and deliberate. Claude Code discovers skills only under a `.claude/skills/` path: `--add-dir` looks for `.claude/skills/` *inside* the added directory, `permissions.additionalDirectories` in `settings.json` grants file access but explicitly does not load skills, and skills-directory plugins are themselves found only under `.claude/skills/`. There is no supported way to point Claude Code at a bare `.agents/skills/`, so anything added there is reachable only through the symlink. (Windows checkouts need `core.symlinks=true`.)
+The symlink is load-bearing and deliberate. Claude Code discovers skills only under a `.claude/skills/` path: `--add-dir` looks for `.claude/skills/` *inside* the added directory, `permissions.additionalDirectories` in `settings.json` grants file access but explicitly does not load skills, and skills-directory plugins are themselves found only under `.claude/skills/`. There is no supported way to point Claude Code at a bare `.agents/skills/`, so removing the symlink silently hides every skill. (Windows checkouts need `core.symlinks=true`.)
 
 When updating project guidance, edit `AGENTS.md` — never fork the content into a tool-specific copy.
