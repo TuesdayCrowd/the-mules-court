@@ -21,7 +21,7 @@ import { embeddedLookup, serveFrom } from './staticAssets';
 
 const config = configFromLaunch();
 const lookup = embeddedLookup(EMBEDDED);
-const running = startServer(config, pathname => serveFrom(lookup, pathname));
+const running = startServer(config, (pathname, acceptEncoding) => serveFrom(lookup, pathname, acceptEncoding));
 
 // Say where the database went. It is created relative to the working directory,
 // so a binary launched by double-click from a downloads folder writes there —

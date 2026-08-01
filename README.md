@@ -209,7 +209,9 @@ working memory, so nobody has to hold ten turns of public information in their h
 
 ### Tech Stack
 
-[Phaser](https://github.com/phaserjs/phaser) 4.2.1 · [Vite](https://github.com/vitejs/vite) 6 · [TypeScript](https://github.com/microsoft/TypeScript) 5.7 · [Bun](https://bun.sh) 1 (package manager, script runner, and the server's runtime)
+[Vite](https://github.com/vitejs/vite) 6 · [TypeScript](https://github.com/microsoft/TypeScript) 5.7 · [Bun](https://bun.sh) 1 (package manager, script runner, and the server's runtime)
+
+No runtime dependencies. `package.json` declares none: the client is TypeScript and CSS, and the server is Bun's own APIs.
 
 ### Architecture
 
@@ -219,8 +221,8 @@ Four layers, each testable without the one above it:
 | -------------------- | ------------------- | ------------------------------------------------------------------------------ |
 | **Engine**           | `src/game/engine/`  | The rules, as pure functions. No I/O, no rendering, seeded RNG                 |
 | **Server**           | `src/server/`       | `Bun.serve` WebSocket transport that wraps the engine and owns match state     |
-| **Client (pure)**    | `src/client/`       | Layout, copy, palette, and state — no Phaser, no DOM                          |
-| **Client (surface)** | `src/client/ui/`, `src/game/scenes/` | The DOM chrome and the Phaser table                          |
+| **Client (pure)**    | `src/client/`       | Layout, copy, palette, and state — no DOM, no ambient globals                 |
+| **Client (surface)** | `src/client/ui/`    | The table and the chrome, one factory per DOM surface                        |
 
 The interface holds no game state. The server pushes a `RedactedView` — one player's
 redacted picture of the match — and the client sends back a single `PLAY_CARD` message.
@@ -277,8 +279,6 @@ one process serving the built `dist/` as well.
 | `bun run test:watch`  | Vitest in watch mode                                                                 |
 | `bun run build`       | Minified production build into `dist/` (`vite/config.prod.mjs`)                      |
 | `bun run serve`       | Serve the built `dist/` and the game server from one process                         |
-| `bun run dev-nolog`   | Same as `dev`, without the `log.js` analytics ping                                   |
-| `bun run build-nolog` | Same as `build`, without the `log.js` analytics ping                                 |
 
 Type-check with `bunx tsc --noEmit`. Neither `vite build` nor the dev server checks types —
 Vite transpiles without checking — so this is the only command that catches a type error.
@@ -302,18 +302,6 @@ and `navigator.clipboard` do not exist. Both are guarded — `src/client/store/i
 `src/client/ui/clipboard.ts` prefer the real API and fall back — so hosting, joining, and the
 lobby's **Copy** button all work on a phone.
 
-#### About `log.js`
-
-`bun run dev` and `bun run build` first run `bun log.js <mode>`, which sends one anonymous
-GET request to the Phaser template maintainer's endpoint at `gryzor.co` — the event name,
-the package name, and the Phaser version. No personal or project data, and the response is
-never read.
-
-**It is not silent on failure.** `log.js` exits with status 1 when the request errors, and
-the scripts chain it with `&&`, so an unreachable host stops the command before Vite starts.
-Offline, behind a firewall, or on a plane, use the `-nolog` variants — or delete `log.js`
-and its two references in `package.json` to remove the ping entirely.
-
 ### Testing
 
 ```bash
@@ -332,8 +320,8 @@ There is no linter configured.
 Three gates fail for reasons worth knowing in advance:
 
 - **`src/client/__tests__/purity.test.ts`** — `layout/`, `content/`, `store/`, and
-  `tokens/` may not import Phaser, touch a DOM global, or import server runtime. It
-  reads raw file text, so a *comment* naming a banned global fails too.
+  `tokens/` may not touch a DOM global or import server runtime. It reads raw file
+  text, so a *comment* naming a banned global fails too.
 - **`src/client/__tests__/axe.test.ts`** — axe-core over every DOM surface.
   `color-contrast` is the only disabled rule, because jsdom has no layout; contrast is
   checked arithmetically in `src/client/tokens/contrast.test.ts` instead.
@@ -343,14 +331,15 @@ Three gates fail for reasons worth knowing in advance:
 
 ### Accessibility
 
-The canvas table has an offscreen twin in the DOM (`#a11y-twin`): a per-seat status
-list plus focusable proxies for the viewer's own hand, so a screen reader gets the
-table without a WebGL context. Announcements go to a separate toast channel rather
-than a live region, so re-rendering a snapshot does not read every seat aloud again.
+The table is ordinary DOM, so it is reachable without a parallel accessibility
+tree: seat chips and hand cards are real `<button>`s with accessible names, and a
+card a rule forbids carries `aria-disabled` with the reason wired up by
+`aria-describedby`. Announcements go to a separate toast channel rather than a
+live region, so re-rendering a snapshot does not read every seat aloud again.
 
-Phone-landscape is in scope, so **nothing depends on hover**. Every DOM surface is
-covered by axe-core, and the palette is checked against WCAG contrast ratios
-arithmetically.
+Phone-landscape is in scope, so **nothing depends on hover**. Every surface —
+the table included — is covered by axe-core, and the palette is checked against
+WCAG contrast ratios arithmetically.
 
 Screen-reader gesture navigation on real hardware is the one thing the test suite
 cannot assert — see [Status](#status).
@@ -359,28 +348,21 @@ cannot assert — see [Status](#status).
 
 | Path                | Description                                                                    |
 | ------------------- | ------------------------------------------------------------------------------ |
-| `index.html`        | Root HTML entry point: the canvas container, the DOM layer, the a11y twin      |
+| `index.html`        | Root HTML entry point: the table container and the chrome layer above it      |
 | `public/`           | Static assets copied as-is to the `dist` root at build time                    |
 | `public/assets/`    | Game art and media (character portraits, cards, UI panels, shaders)            |
-| `src/main.ts`       | Composition root — wires store, socket, DOM, and canvas together               |
-| `src/game/main.ts`  | Phaser game config (renderer, scale, scene list)                               |
-| `src/game/scenes/`  | `Boot.ts` → `Preloader.ts` → `Court.ts`, plus `beats.ts` for cinematic beats   |
+| `src/main.ts`       | Composition root — wires store, socket, and every surface together            |
 | `src/game/engine/`  | The rules as pure functions — setup, legality, effects, round flow, redaction  |
 | `src/game/ai/`      | The computer opponents: policies, trained weights, self-play and arena harness |
 | `src/server/`       | The WebSocket transport: rooms, seats, dispatch, persistence, rate limiting    |
 | `src/client/`       | Browser-independent client: `layout/`, `content/`, `store/`, `tokens/`         |
-| `src/client/ui/`    | One factory per DOM surface, each with `mount` / `update` / `destroy`          |
-| `src/client/styles/`| Self-hosted fonts, the authoritative palette, and the two-layer shell CSS      |
+| `src/client/ui/`    | One factory per surface with `mount`/`update`/`destroy`; `table.ts` draws the table, `beats.ts` animates it |
+| `src/client/styles/`| Self-hosted fonts, the authoritative palette, and the shell and table CSS      |
 | `docs/plans/`       | Design documents and implementation plans for each layer                       |
-
-`MainMenu`, `Game`, and `GameOver` — the Phaser starter's scenes — were deleted rather
-than replaced. The menu and game-over screens are DOM surfaces now
-(`src/client/ui/menuScreen.ts`, `overlays.ts`), and an empty scene behind each would be
-dead weight.
 
 ### Assets
 
-Portrait art lives under `public/assets/<character-slug>/` — one directory per card (`bail-channis/`, `bayta-darell/`, `ebling-mis/`, `first-speaker/`, `han-pritcher/`, `informant/`, `magnifico/`, `mayor-indbur/`, `mule/`, `shielded-mind/`, `toran-darell/`). Card backs, card fronts, shader maps, and other shared UI art live in their own top-level `public/assets/` folders.
+Portrait art lives under `public/assets/<character-slug>/` — one directory per card (`bail-channis/`, `bayta-darell/`, `ebling-mis/`, `first-speaker/`, `han-pritcher/`, `informant/`, `magnifico/`, `mayor-indbur/`, `mule/`, `shielded-mind/`, `toran-darell/`). The card back, the two effect textures and the playfield background live in their own top-level `public/assets/` folders.
 
 Four thematic variants exist for every character, but **only the one the game
 uses ships**. Vite copies `public/` into the bundle verbatim, so the three
@@ -394,10 +376,10 @@ The slug does not always match the card's display name: Magnifico Giganticus is
 `magnifico/`, and The First Speaker is `first-speaker/`.
 
 - `public/assets/PORTRAIT_PROMPTS.md` documents the generation prompts and settings behind every portrait, and how each character's color scheme is meant to map onto its card definition.
-- `VISUAL_SHOWCASE.md` (repo root) is the original interface mockup. Its interaction
-  design is implemented; its fixed 1024×768 layout system was superseded by the
-  responsive layout in `docs/plans/2026-07-23-uix-design.md`. Where the two disagree,
-  the design document wins.
+- `VISUAL_SHOWCASE.md` (repo root) is the interface reference: seat states, the
+  action panel, the quick reference, the palette. It carries no layout metrics —
+  geometry is computed from the live viewport by `src/client/layout/` — and
+  `docs/plans/2026-07-23-uix-design.md` is authoritative where the two disagree.
 
 ## Self-hosting
 
@@ -443,7 +425,7 @@ create a room.
 one executable that runs with nothing installed and no `dist/` beside it:
 
 ```bash
-bun run compile              # → ./mules-court, ~71 MB
+bun run compile              # → ./mules-court, ~73 MB
 ./mules-court                # http://localhost:3000
 MULES_PORT=8080 ./mules-court
 ```
@@ -470,9 +452,9 @@ than editing it.
 
 ## Status
 
-Version 1.1.0. The engine, the transport, the client, and the Phaser table are built
-and tested — 1453 tests across 82 files — and a match is playable end to end, from a
-checkout or from a single-file binary you compile yourself.
+Version 1.1.0. The engine, the transport, and the client are built and tested —
+1546 tests across 85 files — and a match is playable end to end, from a checkout
+or from a single-file binary you compile yourself.
 
 Known limitations:
 

@@ -16,7 +16,14 @@ let styles: string | null = null;
 
 /** Injects the real `tokens.css` and `ui.css` into the document once per test file. */
 export function loadRealStyles(): void {
-    styles ??= `${readFileSync('src/client/styles/tokens.css', 'utf8')}\n${readFileSync('src/client/styles/ui.css', 'utf8')}`;
+    styles ??= [
+        readFileSync('src/client/styles/tokens.css', 'utf8'),
+        readFileSync('src/client/styles/ui.css', 'utf8'),
+        // The table's own sheet, so a test can hold it to the same standard —
+        // an unsized `<img>` renders at its natural size, and that is a rule
+        // only the real stylesheet can be asked about.
+        readFileSync('src/client/styles/table.css', 'utf8')
+    ].join('\n');
 
     const style = document.createElement('style');
     style.textContent = styles;

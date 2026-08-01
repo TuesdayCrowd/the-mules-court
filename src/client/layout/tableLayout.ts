@@ -14,6 +14,7 @@
  * defined by its neighbours' edges, so it cannot collide with them.
  */
 
+import { MEDALLIONS_BEFORE_COLLAPSE } from './renderPlan';
 import { classifyTopology } from './topology';
 import type { Topology } from './topology';
 import type { ChipSpec, LayoutInput, LayoutSpec, OwnRowSpec, PipSpec, Rect } from './types';
@@ -117,7 +118,7 @@ const PROPORTIONS: Readonly<Record<Topology, Proportions>> = {
  */
 export const MAX_DISCARDS = 8;
 
-/** Below this a pip stops reading as a value and becomes a dot. */
+/** Below this a pip's face stops reading as a card and becomes a smudge. */
 export const MIN_PIP_PX = 8;
 /**
  * The comfortable pip size on the smallest screen the game supports.
@@ -137,18 +138,66 @@ export const PIP_GAP_PX = 3;
 function comfortablePipPx(viewportH: number): number {
     return Math.max(BASE_PIP_PX, Math.round(viewportH * PIP_H_FRACTION));
 }
-/** Share of the chip's height the pip block may claim. */
-const PIP_AREA_H = 0.22;
+/**
+ * Share of the chip's height the pip block may claim.
+ *
+ * **0.4, where a block of bare numerals took 0.22.** A pip is a card face with
+ * its value under it now, so one row is roughly two and a half times as tall as
+ * the numeral it replaces: the face alone is `size / CARD_ASPECT` — a third
+ * taller than it is wide — and the value rides beneath it. Left at 0.22 the
+ * search below would have shrunk every face towards the floor to fit a share of
+ * the chip sized for something else, and `chipHeightFor` would then have grown
+ * the chip by the same misjudged ratio — on a 320px phone to nearly three times
+ * its nominal height, pushing the deck and the hand off the bottom of the
+ * table. The fraction describes what the block actually contains.
+ *
+ * It is not the safety net. `chipBands` still anchors the block to the chip's
+ * bottom edge and `bandsFit` still holds the bands above it clear, so this only
+ * decides how hard the pips are squeezed before the chip is asked to give.
+ */
+const PIP_AREA_H = 0.4;
 /** Share of the chip's width, inside its padding. */
 const PIP_AREA_W = 0.88;
+
+/**
+ * The value under a face, as a share of the face's width, with a legible floor.
+ *
+ * The floor is the point. A face may shrink until it is barely a card, but the
+ * number under it is what every rule in the game is written in and what a player
+ * counts to work out who is holding what — so it stops at the same 10px the own
+ * row and the chip's small lines already stop at, whatever the pile does.
+ */
+const PIP_VALUE_FRACTION = 0.85;
+const MIN_PIP_VALUE_PX = 10;
+
+function pipValuePx(size: number): number {
+    return Math.max(MIN_PIP_VALUE_PX, Math.round(size * PIP_VALUE_FRACTION));
+}
 
 function pipRowsAt(size: number, count: number, areaW: number): { perRow: number; rows: number } {
     const perRow = Math.max(1, Math.floor((areaW + PIP_GAP_PX) / (size + PIP_GAP_PX)));
     return { perRow, rows: Math.ceil(count / perRow) };
 }
 
+/**
+ * How tall one discard's face is: `size` is its width, and a card is a card.
+ *
+ * A function rather than a field for the reason `pipBlockHeight` is one — it is
+ * derived geometry, and the renderer must read it rather than reach for an
+ * aspect constant of its own. Rounded so the block's height is the sum of whole
+ * pixels the renderer actually writes into `style.height`.
+ */
+export function pipFaceHeight(spec: PipSpec): number {
+    return Math.round(spec.size / CARD_ASPECT);
+}
+
+/** One face plus the value beneath it — what a row of the block occupies. */
+export function pipRowHeight(spec: PipSpec): number {
+    return pipFaceHeight(spec) + spec.valuePx;
+}
+
 export function pipBlockHeight(spec: PipSpec): number {
-    return spec.rows * spec.size + (spec.rows - 1) * PIP_GAP_PX;
+    return spec.rows * pipRowHeight(spec) + (spec.rows - 1) * PIP_GAP_PX;
 }
 
 /** The chip height a pip block needs, given the share of the chip it may claim. */
@@ -267,16 +316,22 @@ function chipHeightForBands(floor: number, pip: PipSpec): number {
 }
 
 /**
- * The largest legible pip size that shows every value in the pile (UIX §6.2).
+ * The largest legible pip size that shows every discard in the pile (UIX §6.2).
  *
  * Searched downward from the comfortable size rather than solved, because
  * `perRow` steps in integers: shrinking a pip can drop a whole row, so the
  * height needed is not a smooth function of the size and a closed form would be
- * a rounding bug waiting to happen. Seven candidate sizes, once per resize.
+ * a rounding bug waiting to happen. Candidate sizes are cheap and this runs
+ * once per resize.
  *
- * Pips give way before the chip does — interface rule 7 makes a hidden value a
+ * Pips give way before the chip does — interface rule 7 makes a hidden discard a
  * design failure, and a chip that grew instead would push the deck off a phone.
  * Only when the floor itself will not fit does the caller widen the block.
+ *
+ * Faces are wider than the numerals this used to pack, so a size that fitted one
+ * row of eight numerals fits fewer faces and the search settles lower. That is
+ * the trade the design asks for: the face is an aid, and it is the aid that
+ * shrinks — `pipValuePx` floors the value it sits above.
  */
 function fitPips(count: number, chip: { w: number; h: number }, maxSize: number): PipSpec {
     const areaW = chip.w * PIP_AREA_W;
@@ -285,14 +340,15 @@ function fitPips(count: number, chip: { w: number; h: number }, maxSize: number)
 
     for (let size = maxSize; size >= MIN_PIP_PX; size--) {
         const { perRow, rows } = pipRowsAt(size, pips, areaW);
-        if (pipBlockHeight({ size, perRow, rows }) <= areaH) return { size, perRow, rows };
+        const spec: PipSpec = { size, valuePx: pipValuePx(size), perRow, rows };
+        if (pipBlockHeight(spec) <= areaH) return spec;
     }
 
-    // The floor still overflows on a very small phone: keep every value and let
-    // the block be tall. `computeLayout` grows the chip to match — the values do
-    // not disappear, which is the whole of interface rule 7.
+    // The floor still overflows on a very small phone: keep every discard and
+    // let the block be tall. `computeLayout` grows the chip to match — nothing
+    // disappears, which is the whole of interface rule 7.
     const { perRow, rows } = pipRowsAt(MIN_PIP_PX, pips, areaW);
-    return { size: MIN_PIP_PX, perRow, rows };
+    return { size: MIN_PIP_PX, valuePx: pipValuePx(MIN_PIP_PX), perRow, rows };
 }
 
 // ------------------------------------------------------------------- helpers
@@ -356,7 +412,7 @@ const OWN_TOTAL_RESERVE = 52;
  * viewport, the same promise `fitPips` makes for a chip.
  */
 function fitOwnRow(row: Rect, count: number, medallion: number): OwnRowSpec {
-    const medallionSpan = medallion * 4 + MEDALLION_GAP * 3 + 12;
+    const medallionSpan = medallionRunWidth(medallion) + 12;
     const slots = Math.max(1, count);
     const available = Math.max(0, row.w - medallionSpan - OWN_TOTAL_RESERVE);
 
@@ -376,9 +432,35 @@ function fitOwnRow(row: Rect, count: number, medallion: number): OwnRowSpec {
     };
 }
 
-/** The gap between two devotion medallions, shared with the scene's drawing. */
-const MEDALLION_GAP = 2;
+/**
+ * The gap between two devotion medallions.
+ *
+ * Exported because the drawing needs the same number: `ownRow.medallionSpan` is
+ * measured with it here, and whatever paints the medallions steps by it. It was
+ * declared twice — once here, once at the bottom of `Court.ts` — with a comment
+ * on each asking the reader to keep them in step by hand. One of the two is now
+ * the other's import.
+ */
+export const MEDALLION_GAP = 2;
 const MIN_OWN_VALUE_PX = 10;
+
+/**
+ * How wide a full run of devotion medallions is, at this medallion size.
+ *
+ * The run is what `medallionPlan` allows to be drawn — at most
+ * `MEDALLIONS_BEFORE_COLLAPSE` of them, stepping by `medallion + MEDALLION_GAP`
+ * — and `ownRow.medallionSpan` is this plus the multiplier's own room.
+ *
+ * Published because a renderer needs the same number for the run's tap target,
+ * and the seat chip had been guessing at it with a literal `medallion * 5`
+ * while the viewer's own row read `medallionSpan`: two formulas for one
+ * measurement, neither of them the run actually drawn (46px against a 50px
+ * target at `medallion = 10`). Re-deriving geometry the pure layer already
+ * decided is exactly what `tableContract.test.ts` exists to catch.
+ */
+export function medallionRunWidth(medallion: number): number {
+    return medallion * MEDALLIONS_BEFORE_COLLAPSE + MEDALLION_GAP * (MEDALLIONS_BEFORE_COLLAPSE - 1);
+}
 
 // ------------------------------------------------------------------- layout
 

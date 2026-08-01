@@ -25,3 +25,20 @@ export const TOKENS = {
     colorDeckLow: 0xb45309,
     colorDeckEmpty: 0x991b1b
 } as const;
+
+/**
+ * A palette integer as the `#rrggbb` string CSS and canvas text both want.
+ *
+ * Here rather than in a scene because it is a fact about the palette, and
+ * because the direction of travel needs it everywhere: canvas takes integers,
+ * every style declaration takes a string, and a table drawn in DOM would reach
+ * for this on each of these values rather than on the handful a scene happens
+ * to render as text.
+ *
+ * Padded, because `0x000000` is `'0'` without it — a two-character colour that
+ * silently becomes transparent black in some parsers and is refused outright by
+ * others.
+ */
+export function hex(colour: number): string {
+    return `#${colour.toString(16).padStart(6, '0')}`;
+}

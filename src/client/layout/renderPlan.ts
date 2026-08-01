@@ -27,8 +27,26 @@ export interface SeatPlan {
     /** Shown beneath the seat when its state needs words. Never colour alone (UIX §6.3). */
     readonly caption: string | null;
     readonly tokens: number;
-    /** Every discarded value, oldest first. Interface rule 7: never truncated. */
-    readonly discardValues: readonly number[];
+    /**
+     * The pile in play order, each entry keeping its face as well as its value.
+     *
+     * `RedactedView` has always carried `{cardId, value}` here and this plan
+     * mapped it down to the number, so a seat chip could only ever draw bare
+     * numerals — "1 1 3" — while the viewer's own row drew a portrait for every
+     * card they had played. The identity was not missing; it was being discarded
+     * one layer above the renderer, which is the same sentence
+     * `OwnStatusPlan.discards` below was fixed by.
+     *
+     * Nothing is disclosed by carrying it. A discarded card is face up on the
+     * table by definition, so interface rule 4 — which governs what may be said
+     * about a hand — is not in play here at all.
+     *
+     * Interface rule 7 is, exactly as before: every entry, oldest first, never a
+     * truncation. Faces are wider than numerals, so `fitPips` settles on a
+     * smaller pip and, on a small enough screen, `computeLayout` grows the chip;
+     * what it never does is drop the last discard.
+     */
+    readonly discards: readonly { readonly cardId: CardTypeId; readonly value: number }[];
     readonly discardTotal: number;
     /**
      * The card revealed atop this seat's discard pile.
@@ -287,7 +305,10 @@ export function buildRenderPlan(input: RenderInput, spec: LayoutSpec): RenderPla
             state,
             caption: SEAT_CAPTIONS[state],
             tokens: seat.tokens,
-            discardValues: seat.discardPile.map(entry => entry.value),
+            // Passed through whole, for the reason the own row is (below): the
+            // view already carries the face beside the value, and mapping it
+            // away here is what left a seat chip unable to show one.
+            discards: seat.discardPile.map(entry => ({ cardId: entry.cardId, value: entry.value })),
             discardTotal: seat.discardValueTotal,
             revealedCard: revealedCardFor(seat, input.phase, showdown),
             holdsCard: seat.alive,

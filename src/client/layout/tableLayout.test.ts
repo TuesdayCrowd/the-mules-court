@@ -1,6 +1,15 @@
 import { describe, expect, it } from 'vitest';
 import { bottom, contains, intersects, right } from './rect';
-import { MAX_DISCARDS, MIN_PIP_PX, computeLayout, pipBlockHeight } from './tableLayout';
+import {
+    MAX_DISCARDS,
+    MEDALLION_GAP,
+    MIN_PIP_PX,
+    computeLayout,
+    medallionRunWidth,
+    pipBlockHeight,
+    pipFaceHeight,
+    pipRowHeight
+} from './tableLayout';
 import type { LayoutInput, LayoutSpec, Rect } from './types';
 
 // ------------------------------------------------------------------ helpers
@@ -596,6 +605,24 @@ describe('the own-status row', () => {
         expect(desktop.ownRow.medallionSpan).toBeGreaterThan(phone.ownRow.medallionSpan);
         expect(phone.ownRow.medallionSpan).toBeGreaterThanOrEqual(phone.chip.medallion * 4);
     });
+
+    /**
+     * One definition of the medallion run, read by both places that draw one.
+     *
+     * The seat chip's token tap target used to guess at it with a literal
+     * `medallion * 5` while the viewer's own row read `medallionSpan` — two
+     * formulas for one measurement, and neither of them the run actually
+     * drawn (46px against a 50px target at `medallion = 10`).
+     */
+    it('publishes the medallion run width the renderer draws, and builds the span from it', () => {
+        const spec = ownRowAt(390, 844, 4);
+        const size = spec.chip.medallion;
+
+        // Four medallions stepping by `size + MEDALLION_GAP`: the last one's
+        // right edge, measured from the first one's left edge.
+        expect(medallionRunWidth(size)).toBe(3 * (size + MEDALLION_GAP) + size);
+        expect(spec.ownRow.medallionSpan).toBeGreaterThan(medallionRunWidth(size));
+    });
 });
 
 describe('discard pips', () => {
@@ -652,6 +679,78 @@ describe('discard pips', () => {
             const spec = portrait({ maxDiscards });
             expect(pipBlockHeight(spec.pip), `pile of ${maxDiscards}`).toBeLessThanOrEqual(spec.opponents[0].h);
         }
+    });
+
+    /**
+     * A pip is a card face with its value under it, mirroring the own row.
+     *
+     * The chips used to draw the pile as bare numerals while the viewer's own
+     * row drew portraits — not because a chip was entitled to less (a discard is
+     * public information) but because `SeatPlan` mapped the card's identity away
+     * before the renderer ever saw it. Faces are wider and taller than numerals,
+     * so the block's budget has to account for both parts of a pip, and the
+     * value — the deduction datum — has to survive whatever the face gives up.
+     */
+    describe('a pip is a face plus its value', () => {
+        it('budgets a row as a face AND the value beneath it', () => {
+            const spec = portrait({ maxDiscards: MAX_DISCARDS });
+            expect(pipRowHeight(spec.pip)).toBe(pipFaceHeight(spec.pip) + spec.pip.valuePx);
+            expect(pipBlockHeight(spec.pip)).toBeGreaterThanOrEqual(spec.pip.rows * pipRowHeight(spec.pip));
+        });
+
+        it('keeps the face card-shaped rather than square, at every viewport', () => {
+            for (const viewport of VIEWPORTS) {
+                const spec = computeLayout({
+                    w: viewport.w,
+                    h: viewport.h,
+                    opponentCount: 3,
+                    handCount: 2,
+                    showsRemovedCard: false,
+                    maxDiscards: MAX_DISCARDS
+                });
+                expect(spec.pip.size / pipFaceHeight(spec.pip), viewport.name).toBeCloseTo(0.75, 1);
+            }
+        });
+
+        it('never shrinks the value below the legible floor, however deep the pile', () => {
+            // The face may shrink to its own floor and does, on a small phone
+            // with a full pile. The value may not: it is what the pile is read
+            // for, and the face is the aid beside it.
+            for (let pile = 0; pile <= 20; pile++) {
+                expect(portrait({ maxDiscards: pile }).pip.valuePx, `pile of ${pile}`).toBeGreaterThanOrEqual(10);
+            }
+        });
+
+        it('grows the value with the chip, so a desktop is not read at phone size', () => {
+            const phone = portrait({ maxDiscards: MAX_DISCARDS });
+            const desktop = computeLayout({
+                w: 1920,
+                h: 1080,
+                opponentCount: 3,
+                handCount: 2,
+                showsRemovedCard: false,
+                maxDiscards: MAX_DISCARDS
+            });
+            expect(desktop.pip.valuePx).toBeGreaterThan(phone.pip.valuePx);
+        });
+
+        it('still gives the deepest pile a slot per discard at every viewport and seat count', () => {
+            for (const viewport of VIEWPORTS) {
+                for (const opponentCount of [1, 2, 3] as const) {
+                    const spec = computeLayout({
+                        w: viewport.w,
+                        h: viewport.h,
+                        opponentCount,
+                        handCount: 2,
+                        showsRemovedCard: opponentCount === 1,
+                        maxDiscards: MAX_DISCARDS
+                    });
+                    const label = `${viewport.name} · ${opponentCount} seats`;
+                    expect(spec.pip.perRow * spec.pip.rows, label).toBeGreaterThanOrEqual(MAX_DISCARDS);
+                    expect(spec.chip.pipTop + pipBlockHeight(spec.pip), label).toBeLessThanOrEqual(spec.opponents[0].h);
+                }
+            }
+        });
     });
 
     it('survives a small phone with a full pile without breaking the table', () => {

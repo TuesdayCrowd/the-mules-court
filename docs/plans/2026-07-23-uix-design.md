@@ -196,7 +196,7 @@ Unchanged from the baseline:
 | --- | --- |
 | Current turn | Red border, slow scale pulse (1.0 → 1.03), banner names the player |
 | Protected | Pulsing cyan strip: "Protected — cannot be targeted"; clears on the update that begins their turn |
-| Eliminated | Grayscale Filter, 50% dim, skull badge — and their held card revealed face-up atop their discard pile. That reveal is core deduction data; the seat hides nothing. |
+| Eliminated | Desaturating wash, 50% dim, skull badge — and their held card revealed face-up atop their discard pile. That reveal is core deduction data; the seat hides nothing. |
 | Disconnected | Dashed gray border, "Reconnecting…"; cards stay, the seat is held |
 
 ### 6.4 Deck and turn banner
@@ -262,7 +262,12 @@ Han Pritcher, Bail Channis — and both comparison cards, whose participants lea
 
 ### 8.2 Eliminations
 
-Banner fades in (200 ms) → seat desaturates and dims (500 ms, grayscale Filter) → the victim's held card flips face-up onto their discard pile. The flip is the information, so it stages last and biggest. ~1 s total, non-blocking.
+Banner fades in (200 ms) → seat desaturates and dims (500 ms) → the victim's held card flips face-up onto their discard pile. The flip is the information, so it stages last and biggest. ~1 s total, non-blocking.
+
+> **Corrected, 2026-07-30.** This said "grayscale Filter", and §6.3 above said the
+> same. It is not a filter: `beats.ts:94-108` tweens the alpha of a rectangle
+> tinted `colorSeatEliminated` over the seat. The effect is a wash, not a
+> desaturation, and no GPU filter is involved. See §8.5.
 
 ### 8.3 The Mule
 
@@ -274,11 +279,25 @@ The `aria-live` narration and any DOM result text hold until the matching canvas
 
 ### 8.5 Shader map assignments
 
-| Map | Owner |
-| --- | --- |
-| `distortion_map.png` | The Mule beat (displacement Filter) |
-| `sparkle_pattern.png` | Match victory particles |
-| `rainbow_gradient.png` | Devotion-token award shimmer |
+| Map | Owner | As built |
+| --- | --- | --- |
+| `distortion_map.png` | The Mule beat (displacement Filter) | **A real GPU filter** — `beats.ts:132`, `camera.filters.internal.addDisplacement` |
+| `sparkle_pattern.png` | Match victory particles | One image, one scale/alpha tween — `beats.ts:202-217` |
+| `rainbow_gradient.png` | Devotion-token award shimmer | One image, one tween — `beats.ts:190-200` |
+
+> **Corrected, 2026-07-30.** The third column is new, and it exists because this
+> table overstated the engine's real footprint three-to-one. Grepping
+> `src/game/` for `Filter|grayscale|ColorMatrix|ParticleEmitter` returns exactly
+> **one** hit: the Mule's displacement. There are no particles — `beats.ts:205`
+> declines an emitter in so many words, *"the emitter can come later if it earns
+> its keep"* — and the shimmer is a tween, not a shader.
+>
+> This is a documentation gap rather than a bug: the code chose the simplest
+> primitive that sufficed each time and said so. But the gap mattered. A
+> renderer decision taken from this table alone would have been taken on the
+> belief that three GPU effects were load-bearing when one is, and that one is
+> the only thing standing between this design and a DOM table. See
+> `2026-07-30-renderer-architecture-research.md` §6 and §8.
 
 `prefers-reduced-motion` collapses every beat to plain fades; countdowns and pips are unaffected.
 

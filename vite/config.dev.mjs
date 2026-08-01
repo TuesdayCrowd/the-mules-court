@@ -6,15 +6,6 @@ export default defineConfig({
     // link, so the app never boots. The relative base existed so dist/ could be
     // hosted from a subpath; those routes trade that away deliberately.
     base: '/',
-    build: {
-        rollupOptions: {
-            output: {
-                manualChunks: {
-                    phaser: ['phaser']
-                }
-            }
-        },
-    },
     server: {
         port: 8080,
         // Same-origin in dev, so socketUrl() derives ws://localhost:8080/ws and

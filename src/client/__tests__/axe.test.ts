@@ -17,6 +17,7 @@ import { createEliminationNotice } from '../ui/eliminationNotice';
 import { createReferenceDock } from '../ui/referenceDock';
 import { createSeatDossier } from '../ui/seatDossier';
 import type { Surface } from '../ui/surface';
+import { createTable } from '../ui/table';
 import { createToasts } from '../ui/toasts';
 
 /**
@@ -204,6 +205,62 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
         }
     ],
     [
+        // The first time this surface has been reachable by axe at all — its
+        // predecessor was a `<canvas>`, which is one opaque node to an
+        // accessibility tree no matter what is drawn on it. A dimmed hand
+        // card, a protected seat with a discard, and a revealed elimination
+        // are included deliberately: three of this file's own `<button>`s
+        // (a hand card, a seat chip, its token run) with non-trivial
+        // `aria-*` wiring, not just the empty table an idle round would show.
+        'table',
+        root => {
+            const table = createTable({
+                onCardSelected: noop,
+                onCardHinted: noop,
+                onCardHintCleared: noop,
+                onSeatSelected: noop,
+                onTokensSelected: noop,
+                viewport: () => ({ w: 1280, h: 800 }),
+                timers: fakeTimers().timers
+            });
+            drive(
+                table,
+                root,
+                makeState({
+                    screen: 'table',
+                    table: makeTable({
+                        nicknames: { p1: 'Ana', p2: 'Bayta', p3: 'Toran' },
+                        view: makeView({
+                            playerCount: 3,
+                            own: { hand: ['informant#1', 'mule#2'], legalPlays: ['informant#1'] },
+                            players: [
+                                { id: 'p1', seat: 0, tokens: 2, alive: true, protected: false, discardPile: [], discardValueTotal: 0 },
+                                {
+                                    id: 'p2',
+                                    seat: 1,
+                                    tokens: 1,
+                                    alive: true,
+                                    protected: true,
+                                    discardPile: [{ cardId: 'informant', value: 1 }],
+                                    discardValueTotal: 1
+                                },
+                                {
+                                    id: 'p3',
+                                    seat: 2,
+                                    tokens: 0,
+                                    alive: false,
+                                    protected: false,
+                                    discardPile: [{ cardId: 'mule', value: 8 }],
+                                    discardValueTotal: 8
+                                }
+                            ]
+                        })
+                    })
+                })
+            );
+        }
+    ],
+    [
         'seat dossier',
         root => {
             const dossier = createSeatDossier();
@@ -330,11 +387,11 @@ describe('the gate itself', () => {
         // A surface added to the DOM layer but not to this list would ship
         // unchecked, and nothing else in the suite would notice.
         //
-        // Sixteen cases across fifteen surfaces: the reference dock appears
+        // Seventeen cases across sixteen surfaces: the reference dock appears
         // twice, because its two tabs render entirely different markup and
         // checking only the one it happens to open on would leave the other
         // unchecked.
-        expect(SURFACES).toHaveLength(16);
+        expect(SURFACES).toHaveLength(17);
     });
 
     it('detects a violation rather than passing over it', async () => {

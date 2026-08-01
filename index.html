@@ -10,19 +10,21 @@
 
 <body>
     <main id="app">
+        <!-- The table, and the transient layer the cinematic beats draw into.
+             Both are populated by src/main.ts; this element used to hold the
+             Phaser canvas. -->
         <div id="game-container"></div>
-        <!-- The DOM layer (UIX §2). Fixed above the canvas, pointer-events:none at
+        <!-- The chrome layer (UIX §2). Above the table, pointer-events:none at
              the root; interactive children restore auto, so the two layers never
-             fight for the same tap. Anchored to the viewport, never to a canvas
-             coordinate — the layers share design tokens, not geometry. -->
+             fight for the same tap. Anchored to the viewport, never to a table
+             coordinate — the layers share design tokens, not geometry.
+
+             The offscreen accessibility twin that used to sit beside this is
+             gone. It existed to give a screen reader focusable proxies for cards
+             painted onto a canvas; the cards are real buttons now, so the proxy
+             and the thing it proxied are one object, and keeping both would have
+             announced every seat twice. -->
         <div id="ui-root"></div>
-        <!-- The canvas table's offscreen twin (UIX §11): a per-seat status list
-             plus focusable proxies for this viewer's hand. Visually hidden, but
-             never aria-hidden or display:none — either would remove it from the
-             accessibility tree it exists to populate. NOT a live region either:
-             announcements belong to the toast channel, and a list re-rendered on
-             every snapshot would read every seat aloud each time. -->
-        <div id="a11y-twin"></div>
     </main>
     <!-- No <link rel="stylesheet"> here: src/main.ts imports the stylesheets so
          Vite bundles and fingerprints them. -->

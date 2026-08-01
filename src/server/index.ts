@@ -41,8 +41,8 @@ export interface RunningServer {
  * separators survive that normalisation — and an upstream proxy may well decode
  * them, so the guard is tested against raw pathnames instead.
  */
-export function serveStatic(root: string, pathname: string): Promise<Response> {
-    return serveFrom(filesystemLookup(root), pathname);
+export function serveStatic(root: string, pathname: string, acceptEncoding: string | null = null): Promise<Response> {
+    return serveFrom(filesystemLookup(root), pathname, acceptEncoding);
 }
 
 /** Builds the JSON `201` body for a successful `POST /api/rooms` (Design §3). */
@@ -55,7 +55,7 @@ function roomCreatedResponse(created: { matchId: string; joinUrl: string; hostSe
  * compiled-in manifest; everything else leaves it null and gets `config
  * .staticRoot`, or no hosting at all.
  */
-export type StaticHandler = (pathname: string) => Promise<Response>;
+export type StaticHandler = (pathname: string, acceptEncoding: string | null) => Promise<Response>;
 
 export function startServer(config: TransportConfig, serveAsset: StaticHandler | null = null): RunningServer {
     const store = new MatchStore(config.dbPath);
@@ -120,8 +120,9 @@ export function startServer(config: TransportConfig, serveAsset: StaticHandler |
             // An explicit handler wins over a directory: a binary carries its
             // client inside itself and never sets `staticRoot`, so the two are
             // alternatives rather than layers.
-            if (serveAsset !== null) return serveAsset(url.pathname);
-            if (config.staticRoot !== null) return serveStatic(config.staticRoot, url.pathname);
+            const acceptEncoding = req.headers.get('accept-encoding');
+            if (serveAsset !== null) return serveAsset(url.pathname, acceptEncoding);
+            if (config.staticRoot !== null) return serveStatic(config.staticRoot, url.pathname, acceptEncoding);
 
             return new Response('Not Found', { status: 404 });
         },

@@ -14,6 +14,7 @@
  * right in the file everybody reads and be wrong in the file nobody does.
  */
 import { resolve, sep } from 'node:path';
+import { shouldCompress } from './compression';
 
 /** Resolves an already-decoded, in-root request path to a file, or null. */
 export type Lookup = (pathname: string) => Promise<Bun.BunFile | null>;
@@ -31,7 +32,11 @@ export type Lookup = (pathname: string) => Promise<Bun.BunFile | null>;
  * basename was the directory's own name, and a root whose name contained a dot
  * refused to serve the homepage. `staticAssets.test.ts` pins that.
  */
-export async function serveFrom(lookup: Lookup, pathname: string): Promise<Response> {
+export async function serveFrom(
+    lookup: Lookup,
+    pathname: string,
+    acceptEncoding: string | null = null
+): Promise<Response> {
     let decoded: string;
     try {
         decoded = decodeURIComponent(pathname);
@@ -51,15 +56,72 @@ export async function serveFrom(lookup: Lookup, pathname: string): Promise<Respo
     }
 
     const hit = await lookup(decoded);
-    if (hit !== null) return new Response(hit);
+    if (hit !== null) return respond(hit, decoded, acceptEncoding);
 
     const lastSegment = decoded.slice(decoded.lastIndexOf('/') + 1);
     if (!lastSegment.includes('.')) {
         const shell = await lookup(SHELL_PATH);
-        if (shell !== null) return new Response(shell);
+        // Keyed by SHELL_PATH rather than by the route that fell back to it, so
+        // every client route shares one cache entry instead of minting one per
+        // invite link.
+        if (shell !== null) return respond(shell, SHELL_PATH, acceptEncoding);
     }
 
     return new Response('Not Found', { status: 404 });
+}
+
+/**
+ * A found file, compressed if the client asked and the bytes are worth it.
+ *
+ * `Vary` rides on the compressed branch alone, and that asymmetry is the point:
+ * a shared cache that stores gzipped bytes and replays them to a client which
+ * never asked serves a body that client cannot decode. The reverse is harmless
+ * — identity is acceptable to everybody.
+ */
+async function respond(file: Bun.BunFile, key: string, acceptEncoding: string | null): Promise<Response> {
+    if (!shouldCompress(acceptEncoding, file.type, file.size)) return new Response(file);
+
+    return new Response(await gzipped(file, key), {
+        headers: {
+            // Set explicitly: the body is now a Uint8Array, so the content-type
+            // `Bun.file` would have supplied is no longer inferred for us.
+            'content-type': file.type,
+            'content-encoding': 'gzip',
+            vary: 'accept-encoding'
+        }
+    });
+}
+
+interface CachedGzip {
+    readonly size: number;
+    readonly lastModified: number;
+    readonly bytes: Uint8Array;
+}
+
+/**
+ * Compressed bytes, kept so the 1.3 MB client chunk is gzipped once rather than
+ * once per page load.
+ *
+ * Without it this trade is not obviously a win: compressing that chunk on every
+ * request spends real CPU on a process that is also running game rooms, and a
+ * turn-based card game's server has better things to do between plays.
+ *
+ * Bounded by the asset set, not by traffic — a miss is only cached after a
+ * successful lookup, so an unknown path 404s without touching this. Freshness
+ * is size-and-mtime rather than path alone, because `/index.html` keeps its
+ * name across a rebuild while every hashed chunk beside it changes its own.
+ */
+const gzipCache = new Map<string, CachedGzip>();
+
+async function gzipped(file: Bun.BunFile, key: string): Promise<Uint8Array> {
+    const cached = gzipCache.get(key);
+    if (cached !== undefined && cached.size === file.size && cached.lastModified === file.lastModified) {
+        return cached.bytes;
+    }
+
+    const bytes = Bun.gzipSync(new Uint8Array(await file.arrayBuffer()));
+    gzipCache.set(key, { size: file.size, lastModified: file.lastModified, bytes });
+    return bytes;
 }
 
 /** The app shell every client route falls back to. */

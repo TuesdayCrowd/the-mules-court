@@ -18,12 +18,13 @@
 import './client/styles/fonts.css';
 import './client/styles/tokens.css';
 import './client/styles/ui.css';
+import './client/styles/table.css';
 
 import type { CardInstanceId, CardTypeId, PlayerId, RedactedView } from './game/engine';
 import { cardTypeOf } from './game/engine';
 import type { PresentationEvent } from './client/store/diff';
 import { announcementFor } from './client/content/announce';
-import { cardCopyFor, cardLabel } from './client/content/cardCopy';
+import { cardLabel } from './client/content/cardCopy';
 import { failureCopy } from './client/content/failureCopy';
 import { diffSnapshots } from './client/store/diff';
 import { beatForEvent } from './client/store/motion';
@@ -37,7 +38,6 @@ import type { WebSocketLike } from './client/store/socket';
 import { createStore } from './client/store/store';
 import { sheetTargetsFor, unplayableReason } from './client/store/targets';
 import type { ClientState } from './client/store/types';
-import { createA11yTwin } from './client/ui/a11yTwin';
 import { createActionSheet } from './client/ui/actionSheet';
 import type { SheetRequest, SheetTarget } from './client/ui/actionSheet';
 import { createClipboard } from './client/ui/clipboard';
@@ -54,10 +54,11 @@ import { createSeatDossier } from './client/ui/seatDossier';
 import { REAL_TIMERS } from './client/ui/surface';
 import { createToasts } from './client/ui/toasts';
 import { createUiRoot } from './client/ui/uiRoot';
-import { CARD_HINTED, CARD_HINT_CLEARED, CARD_SELECTED, SEAT_SELECTED, TOKENS_SELECTED } from './game/scenes/Court';
-import type { Court } from './game/scenes/Court';
-import StartGame from './game/main';
-import { WAKE_EVENTS, createRenderPump } from './game/renderPolicy';
+import { assetUrl, createTable } from './client/ui/table';
+import { createBeatRunner } from './client/ui/beats';
+import type { BeatContext } from './client/ui/beats';
+import { portraitPath } from './client/content/portraits';
+import { RESIZE_DEBOUNCE_MS } from './client/layout/tableMetrics';
 
 /**
  * The real `WebSocket`, adapted to the shape the client tests against.
@@ -235,118 +236,109 @@ function boot(): void {
         })
     );
 
-    // --- the canvas, and the accessibility twin that shadows it
-    const game = StartGame('game-container');
+    // --- the table
+    //
+    // DOM, not a canvas. Three modules went away with the renderer rather than
+    // being ported, because each existed only to pay for one:
+    //
+    //  - `renderPolicy.ts`, a pump that stopped Phaser's loop when nothing
+    //    moved. Its own words: "Phaser renders every frame, unconditionally …
+    //    no dirty check anywhere in the path." The browser's compositor has
+    //    that dirty check, so there is no loop to stop and nothing to wake.
+    //  - `inputPolicy.ts`, which turned `windowEvents` off so a tap on the DOM
+    //    layer stopped also hit-testing the canvas underneath. There is no
+    //    second hit-test layer now; the seam it patched cannot occur.
+    //  - `a11yTwin.ts`, an offscreen shadow of focusable proxies for canvas
+    //    cards. The cards ARE buttons here, so the proxy and the thing it
+    //    proxied are one object. Keeping both would announce every seat twice.
+    //
+    // Full reasoning: `docs/plans/2026-07-30-renderer-architecture-research.md`.
+    const container = document.getElementById('game-container') as HTMLElement;
 
-    /**
-     * Draw only when there is something to draw.
-     *
-     * Phaser's `Game.step` renders unconditionally on every animation frame —
-     * right for a game with a simulation, wrong for a turn-based card game whose
-     * table is a still image between actions and whose scenes define no
-     * `update()` at all. Left alone it redrew an unchanged picture at the
-     * display's refresh rate for as long as the tab was open.
-     *
-     * The pump only ever *asks* to sleep; `court.isAnimating()` is what answers,
-     * and it names every source of motion explicitly. See `renderPolicy.ts`.
-     */
-    const pump = createRenderPump({
-        // `pause`/`resume` are the timing bookkeeping either side of a real
-        // stop — `resume` resets the delta and shifts `startTime` by however
-        // long the loop was down. Without them the first frame back reports the
-        // whole idle period as one enormous delta, and every tween created just
-        // before it jumps most of the way to its end.
-        startLoop: () => {
-            game.loop.wake();
-            game.loop.resume();
-        },
-        stopLoop: () => {
-            game.loop.pause();
-            game.loop.sleep();
-        },
-        animating: () => court?.isAnimating() ?? true,
-        // Boot and Preloader advance on the loop — the loading bar and
-        // `document.fonts.ready` both do — so nothing may sleep before Court.
-        ready: () => court !== null,
-        now: () => Date.now(),
-        schedule: (fn, ms) => window.setInterval(fn, ms),
-        cancel: handle => window.clearInterval(handle)
-    });
-
-    /**
-     * Phaser's mouse and touch managers bind to the canvas and QUEUE what they
-     * receive; the queue drains in the loop's pre-step. So a tap that lands
-     * while the loop is stopped is captured and never processed — the card does
-     * nothing. Listening on the same element, in the capture phase, brings the
-     * loop back before that queue matters.
-     *
-     * Passive: none of these are cancelled here, and saying so keeps the
-     * listener off the browser's scroll-blocking path.
-     */
-    const container = document.getElementById('game-container');
-    const wake = (): void => pump.wake();
-    for (const event of WAKE_EVENTS) {
-        container?.addEventListener(event, wake, { capture: true, passive: true });
-    }
-    // The table follows the viewport, so a resize is a reason to draw even
-    // though no pointer touched the canvas.
-    window.addEventListener('resize', wake);
-    let court: Court | null = null;
-
-    const twin = createA11yTwin({
-        layout: () => court?.currentLayout() ?? null,
-        onSelect: id => openSheetFor(id)
-    });
-    twin.mount(document.getElementById('a11y-twin') as HTMLElement);
-
-    game.events.once('court-ready', () => {
-        court = game.scene.getScene('Court') as Court;
-        // Tapping a card on the canvas and activating its accessibility proxy
-        // are the same intent, so both land here.
-        court.events.on(CARD_SELECTED, (id: CardInstanceId) => openSheetFor(id));
+    const table = createTable({
+        onCardSelected: id => openSheetFor(id),
         // Hover on a pointer device, long-press on touch. Both are enhancements
-        // — UIX §349 keeps hover out of the critical path — so the hint is a
-        // DOM surface the scene only signals, never a state it holds. draw()
-        // destroys every interactive object on each STATE_UPDATE.
-        court.events.on(CARD_HINTED, (cardId: CardTypeId, at: { x: number; y: number }) =>
-            cardHint.show(cardId, at)
-        );
-        court.events.on(CARD_HINT_CLEARED, () => cardHint.hide());
+        // — UIX §349 keeps hover out of the critical path — so the hint stays a
+        // separate surface the table only signals, never a state it holds.
+        onCardHinted: (cardId, at) => cardHint.show(cardId, at),
+        onCardHintCleared: () => cardHint.hide(),
         // UIX §6.2. The dossier is supplementary detail — every value it holds
         // is already legible on the chip — but it is the only place the pile
         // appears in play order with card names, and the match log with it.
-        court.events.on(SEAT_SELECTED, (id: PlayerId) => seatDossier.open(id));
+        onSeatSelected: id => seatDossier.open(id),
         // A devotion token IS a round won, so tapping one opens the log at that
         // round — the most recent the seat took, which is the token that just
         // landed. Without this the round's narration is gone the moment the next
         // is dealt, which is what the engine's roundHistory now prevents.
-        court.events.on(TOKENS_SELECTED, (id: PlayerId) => {
+        onTokensSelected: id => {
             const history = store.getState().table?.view.roundHistory ?? [];
             const won = history.filter(round => round.winnerIds.includes(id));
             const latest = won[won.length - 1];
             referenceDock.open('log', ...(latest === undefined ? [] : [{ round: latest.roundNumber }]));
-        });
-        court.renderView(store.getState());
-        // Court exists now, so the pump may finally consider sleeping — and the
-        // first frame of the real table still has to be drawn.
-        pump.wake();
+        },
+        viewport: () => ({ w: window.innerWidth, h: window.innerHeight }),
+        timers
     });
+    table.mount(container);
+
+    /**
+     * Where the beats draw.
+     *
+     * Its own element rather than the table's, so a beat can never leave a
+     * stray node inside the thing `update()` rebuilds — and so `destroy()` can
+     * clear every transient at once. Above the table and below `#ui-root`,
+     * taking no pointer events: a beat is something you watch, never something
+     * you touch.
+     */
+    const beatLayer = document.createElement('div');
+    beatLayer.className = 'beat-layer';
+    container.appendChild(beatLayer);
+
+    const beats = createBeatRunner(beatLayer, {
+        // Read per beat, never cached: a player can change the system setting
+        // mid-session and the next beat has to obey it (UIX §8.5).
+        reducedMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
+        viewport: () => ({ w: window.innerWidth, h: window.innerHeight }),
+        tableRoot: () => container
+    });
+
+    // The table follows the viewport, so a resize has to redraw it. Debounced
+    // by the same reasoning the scene used: long enough to ride out an iOS
+    // toolbar collapse, short enough to feel immediate.
+    let resizeHandle: ReturnType<typeof setTimeout> | null = null;
+    window.addEventListener('resize', () => {
+        if (resizeHandle !== null) clearTimeout(resizeHandle);
+        resizeHandle = setTimeout(() => {
+            resizeHandle = null;
+            table.update(store.getState());
+        }, RESIZE_DEBOUNCE_MS);
+    });
+
 
     /**
      * Where a beat plays and what art it shows.
      *
-     * Assembled here because it needs the live layout, which only the scene
-     * has; the beat itself takes a rect and a texture key and knows nothing
+     * Assembled here because it needs the live layout, which only the table
+     * has; the beat itself takes a rect and an image URL and knows nothing
      * about seats or cards.
+     *
+     * `portraitKey` keeps its name from the Phaser original but no longer means
+     * a texture key — there is no atlas to look one up in. It is an `<img src>`
+     * now, built through `assetUrl` so there is exactly one definition of the
+     * loader root.
+     *
+     * The snapshot is deliberately NOT called `table`: that name belongs to the
+     * surface in this scope, and shadowing it here would silently point
+     * `currentLayout()` at a `ClientState` field instead.
      */
-    function beatContext(event: PresentationEvent): Parameters<Court['playBeat']>[1] {
-        const table = store.getState().table;
-        const spec = court?.currentLayout() ?? null;
-        const nameOf = (id: PlayerId) => table?.nicknames[id] ?? id;
+    function beatContext(event: PresentationEvent): BeatContext {
+        const snapshot = store.getState().table;
+        const spec = table.currentLayout();
+        const nameOf = (id: PlayerId) => snapshot?.nicknames[id] ?? id;
 
         if (event.kind === 'peek-gained') {
             return {
-                portraitKey: cardCopyFor(event.cardTypeId).portraitKey,
+                portraitKey: assetUrl(portraitPath(event.cardTypeId)),
                 // The caption sits under the portrait, so it labels a card face
                 // and takes the value-first form the faces use. Without it the
                 // reveal is art alone — the one moment the table shows a card
@@ -358,23 +350,23 @@ function boot(): void {
         // UIX §9.1: the medallion drifts onto the winner's seat. The viewer's
         // own award lands on the own-status row, which is where their tokens
         // actually are — a shimmer over an empty rect would say nothing.
-        if (event.kind === 'round-over' && table !== null && spec !== null) {
+        if (event.kind === 'round-over' && snapshot !== null && spec !== null) {
             const winner = event.result.winnerIds[0];
             if (winner === undefined) return {};
-            if (winner === table.view.own.playerId) return { rect: spec.ownStatus };
+            if (winner === snapshot.view.own.playerId) return { rect: spec.ownStatus };
 
-            const opponents = table.view.players.filter(p => p.id !== table.view.own.playerId);
+            const opponents = snapshot.view.players.filter(p => p.id !== snapshot.view.own.playerId);
             const index = opponents.findIndex(p => p.id === winner);
             return index >= 0 ? { rect: spec.opponents[index] } : {};
         }
 
-        if (event.kind === 'log' && table !== null && spec !== null) {
+        if (event.kind === 'log' && snapshot !== null && spec !== null) {
             // Bound to a local: narrowing `event.entry.kind` inside a compound
             // condition does not survive repeated access to a union member.
             const entry = event.entry;
             if (entry.kind !== 'ELIMINATED') return {};
 
-            const opponents = table.view.players.filter(p => p.id !== table.view.own.playerId);
+            const opponents = snapshot.view.players.filter(p => p.id !== snapshot.view.own.playerId);
             const index = opponents.findIndex(p => p.id === entry.playerId);
             const rect = index >= 0 ? spec.opponents[index] : undefined;
 
@@ -384,12 +376,12 @@ function boot(): void {
             // every elimination beat an undefined portrait and `flip()` returned
             // without drawing. The card is on the victim's own discard pile,
             // pushed there by `eliminate()` before this entry was ever logged.
-            const held = topOfPile(table.view.players.find(p => p.id === entry.playerId));
+            const held = topOfPile(snapshot.view.players.find(p => p.id === entry.playerId));
 
             // The Mule's loom is the one beat whose face is a rule rather than
             // a lookup: `cause` already says which card did this.
             const mule = entry.cause === 'mule-voluntary' || entry.cause === 'mule-forced';
-            const portraitKey = mule ? cardCopyFor('mule').portraitKey : held === null ? undefined : cardCopyFor(held).portraitKey;
+            const portraitKey = mule ? assetUrl(portraitPath('mule')) : held === null ? undefined : assetUrl(portraitPath(held));
 
             return {
                 ...(rect === undefined ? {} : { rect }),
@@ -510,24 +502,20 @@ function boot(): void {
         // seconds. Only "Take over here" reopens it.
         if (state.fatal !== null && previous.fatal === null) socket?.close();
 
-        // Before anything else: `renderView` builds the objects, and the loop
-        // has to be running to put them on screen.
-        pump.wake();
-
         uiRoot.update(state);
 
         /**
-         * The scene before the twin, and that order is load-bearing.
+         * The table is now one update rather than two.
          *
-         * `a11yTwin` positions its hand proxies from `court.currentLayout()`,
-         * which `renderView` is what sets. Updated first, the twin read the
-         * layout from the PREVIOUS push — so on the first deal there was no
-         * layout at all and a keyboard or screen-reader player was handed an
-         * empty hand. Measured in a browser: nought proxies until some second
-         * state update happened along, then one.
+         * It used to be the scene and then its offscreen twin, in that order,
+         * and the order was load-bearing: the twin positioned its hand proxies
+         * from `currentLayout()`, which only the scene's render set, so
+         * updating it first handed a keyboard or screen-reader player the
+         * PREVIOUS push's layout — an empty hand on the first deal, measured in
+         * a browser. Real buttons cannot desynchronise from themselves, so the
+         * ordering hazard is gone with the twin that created it.
          */
-        court?.renderView(state);
-        twin.update(state);
+        table.update(state);
 
         // After uiRoot, which is what tells the sheet about the connection and
         // the screen. This adds the half uiRoot cannot: the sheet's request is
@@ -551,22 +539,12 @@ function boot(): void {
                 // makes interface rule 8 real: the announcement is released
                 // only once the table has actually shown the thing.
                 queue.enqueue({
-                    ...(beat === null
-                        ? {}
-                        : {
-                              animate: () => {
-                                  // The queue releases a beat only when the one
-                                  // before it has finished, which can be long
-                                  // after the state push that queued it — and
-                                  // between beats nothing is animating, so the
-                                  // loop is entitled to have stopped. A beat
-                                  // started against a stopped loop never
-                                  // advances, never resolves, and stalls the
-                                  // queue behind it forever.
-                                  pump.wake();
-                                  return court?.playBeat(beat, beatContext(event)) ?? Promise.resolve();
-                              }
-                          }),
+                    // The context is assembled when the beat RUNS, not when it
+                    // is queued: the queue holds a beat until the one before it
+                    // finishes, by which time the layout may have moved under a
+                    // resize, and a rect measured at queue time would place it
+                    // where the seat used to be.
+                    ...(beat === null ? {} : { animate: () => beats.run(beat, beatContext(event)) }),
                     ...(line === null ? {} : { announce: line })
                 });
             }
@@ -582,7 +560,7 @@ function boot(): void {
     });
 
     uiRoot.update(store.getState());
-    twin.update(store.getState());
+    table.update(store.getState());
 }
 
 document.addEventListener('DOMContentLoaded', boot);

@@ -1,5 +1,6 @@
 // @vitest-environment jsdom
 import { beforeEach, describe, expect, it } from 'vitest';
+import { readFileSync } from 'node:fs';
 import { loadRealStyles, makeState, makeUiRootElement } from './__fixtures__/dom';
 import type { Surface } from './surface';
 import { createUiRoot } from './uiRoot';
@@ -141,5 +142,46 @@ describe('the ui root', () => {
 
         expect(() => root.update(makeState())).not.toThrow();
         expect(healthy.calls).toContain('update');
+    });
+});
+
+/**
+ * A screen taller than the viewport must still be usable.
+ *
+ * `.screen` is a centred grid, and a plain `place-content: center` overflows in
+ * BOTH directions once the content outgrows the box — the half above the start
+ * edge unreachable, because centring pushes it past the scroll origin. The lobby
+ * shipped exactly that when the difficulty fieldset arrived: the title and the
+ * invite line were cut off the top, Start Match off the bottom, and neither
+ * could be scrolled to.
+ *
+ * jsdom performs no layout, so the overflow itself is invisible here. What is
+ * visible is the pair of declarations that prevent it, which is the same bargain
+ * every other rendering test in this repo makes: assert the numbers that cause
+ * the visual bug.
+ */
+describe('a screen that outgrows the viewport', () => {
+    it('can scroll to what no longer fits', () => {
+        const screen = document.createElement('div');
+        screen.className = 'screen';
+        document.body.appendChild(screen);
+
+        expect(getComputedStyle(screen).overflowY, 'an overflowing screen with no scroll strands its own content').toBe(
+            'auto'
+        );
+    });
+
+    it('falls back to start alignment rather than centring past the top edge', () => {
+        // Read from the stylesheet text, not from `getComputedStyle`: jsdom's
+        // CSS parser does not implement the `safe` alignment keyword and drops
+        // the declaration, so the computed value would report the fallback and
+        // prove nothing. The rule's presence is the assertable fact.
+        const css = readFileSync('src/client/styles/ui.css', 'utf8');
+        const rule = css.slice(css.indexOf('.screen {'), css.indexOf('.screen:empty'));
+
+        expect(rule, '`safe` is what makes overflowing content reachable').toContain('place-content: safe center');
+        expect(rule, 'the unprefixed declaration must stay first, as the fallback').toMatch(
+            /place-content:\s*center;[\s\S]*place-content:\s*safe center;/
+        );
     });
 });

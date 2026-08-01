@@ -1,0 +1,587 @@
+/**
+ * The DOM table (`ui/table.ts`) — `Court.ts`'s canvas, redrawn in HTML.
+ *
+ * Structural rule only: every position and size is set inline from a
+ * `LayoutSpec`/`RenderPlan` rect at draw time (interface rule 1 — this file
+ * decides no geometry), so nothing here carries a `top`/`left`/`width` for a
+ * plan-driven element. What lives here is typography, colour, and the small
+ * set of effects CSS can express better than inline styles: the deck's
+ * warning pulse, focus rings, and `prefers-reduced-motion`.
+ *
+ * Palette values are `var(--color-*)` from `tokens.css` wherever the colour
+ * is fixed by design; wherever `RenderPlan` itself chose the colour (a seat's
+ * state, the deck's fill, the banner's tint) `table.ts` sets it inline via
+ * `hex()`, the DOM-string form of the same `TOKENS` integers. Never a literal
+ * hex value in either place.
+ */
+
+/**
+ * Mounted into `#game-container` in place of the canvas (`ui.css:50-53`
+ * already gives that element `position: absolute; inset: 0`), so the table
+ * inherits the same full-bleed box the canvas used to fill.
+ */
+.table-root {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+}
+
+/**
+ * The idling nebula (UIX §6). `Court.ts` computes a manual `cover` fit —
+ * `scale = max(w / source.w, h / source.h)` — on every resize; `background-size:
+ * cover` is the same fit, done by the browser instead of by hand, and it never
+ * leaves an unpainted edge for the same reason the manual version did not.
+ */
+.table-background {
+    position: absolute;
+    inset: 0;
+    background-position: center;
+    background-size: cover;
+    background-repeat: no-repeat;
+}
+
+/** Rebuilt wholesale on every `update()` — see `table.ts#draw`. */
+.table-plan {
+    position: absolute;
+    inset: 0;
+}
+
+/**
+ * Card and portrait art, everywhere it appears on the table.
+ *
+ * `object-fit: contain` deliberately, not `cover`: the portrait art is
+ * 512×720 (aspect ≈0.711) and the card back is 768×1024 (aspect 0.75), while
+ * `tableLayout.ts` sizes every rect at a flat 0.75 for the hand, the deck and
+ * the removed card alike (see `IMPLEMENTATION_PLAN.md` Stage 2's open items 2
+ * and 3 — this setting is what settles them for the DOM renderer). `contain`
+ * means neither art file is ever stretched to fill a rect built for the
+ * other's proportions; a `cover` fit would crop a portrait's edges to close
+ * that five-per-cent gap, which is a worse trade than a sliver of the rect's
+ * own background showing at the long edge.
+ */
+/*
+ * `object-fit` alone does NOTHING to an unsized <img>.
+ *
+ * It describes how the pixels fill the element's box; with no width or height
+ * the box IS the natural size, so there is nothing to fit and the declaration
+ * is inert. Every other piece of art here is given an explicit rect in
+ * `table.ts` — the medallions, the card-back marker, the chip's revealed card,
+ * the burn panel and its slivers, the own-row faces — and the hand portrait was
+ * the one that was not, so it rendered at its native 512×720 and hung off the
+ * bottom of the viewport with the card's name strip stranded across its middle.
+ *
+ * `.tbl-art` therefore carries no sizing of its own on purpose: the sized ones
+ * would fight it. The fill belongs to the one class that means "fill your
+ * parent", below.
+ */
+.tbl-art {
+    object-fit: contain;
+    pointer-events: none;
+}
+
+/*
+ * `.tbl-hand-portrait` carries NO sizing, and that is the point.
+ *
+ * It used to be the one image sized from its parent (`width: 100%; height:
+ * 100%`) rather than from the rect that governs it — so its box was whatever
+ * the hand card's padding box happened to be, and the 2px ring `.is-playable`
+ * used to add shrank and shifted the art on every turn boundary. `table.ts`
+ * gives it `card.rect` inline now, like every other piece of art here.
+ *
+ * `.tbl-art`'s `contain` is the right fit for THIS box and settles the aspect
+ * question the metrics hoist opened: portraits are 512×720 (0.711) and
+ * `tableLayout` sizes the hand at 0.75, so something has to give. Containing
+ * letterboxes by about five per cent against a dark table; covering would crop
+ * the same five per cent off a portrait's head. Nothing stretches either way.
+ */
+
+/* ----------------------------------------------------------------- seats */
+
+.tbl-seat {
+    position: absolute;
+}
+
+.tbl-seat-hit,
+.tbl-seat-tokens-hit,
+.tbl-seat-revealed-hit,
+.tbl-own-tokens-hit,
+[data-role='hand-card'] {
+    position: absolute;
+    inset: 0;
+    margin: 0;
+    padding: 0;
+    background: transparent;
+    border: none;
+    font: inherit;
+    color: inherit;
+    text-align: left;
+    cursor: pointer;
+}
+
+/*
+ * The chip's state ring is an OUTLINE, its colour set inline from
+ * `SeatPlan.state`.
+ *
+ * It was `border-width: 2px` on this element — the element every `ChipSpec`
+ * offset is measured against — and a border makes the padding box, which is
+ * what absolutely positioned children resolve against, 4px smaller than
+ * `seat.rect` and 2px off in both directions. `ChipSpec`'s "every offset is
+ * from the chip's own top edge" was quietly untrue, and the bottom-anchored
+ * pip block spent two of the six pixels `pipTop` reserves under it. An outline
+ * is drawn outside the layout entirely, and `outline-offset: -2px` puts it
+ * exactly where the border was — over the chip's own edge, and over the pip
+ * scrim rather than under it.
+ *
+ * The `:focus-visible` rule above still wins: it is one specificity step
+ * higher, so a focused chip shows the focus ring and not this one.
+ */
+.tbl-seat-hit {
+    outline-style: solid;
+    outline-width: 2px;
+    outline-offset: -2px;
+}
+
+
+.tbl-seat-hit:focus-visible,
+.tbl-seat-tokens-hit:focus-visible,
+.tbl-seat-revealed-hit:focus-visible,
+.tbl-own-tokens-hit:focus-visible,
+[data-role='hand-card']:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+}
+
+/*
+ * Everything placed from a spec rect gets `inset: auto` back.
+ *
+ * The shared rule above stretches its elements to fill a parent, which is right
+ * for the chip-wide button and wrong for anything `setRect` positions: with
+ * `inset: 0` still in force, an inline `left`+`width` leaves the element
+ * over-constrained on both axes, and it only lands where the layout put it
+ * because CSS resolves that by dropping `right` in a left-to-right writing
+ * mode. The hand card was missing from this list — in an RTL document `left`
+ * is the declaration dropped instead, and every hand card would snap to the
+ * right edge of the viewport.
+ */
+.tbl-seat-tokens-hit,
+.tbl-seat-revealed-hit,
+.tbl-own-tokens-hit,
+[data-role='hand-card'] {
+    inset: auto;
+}
+
+.tbl-seat-name-scrim {
+    position: absolute;
+    display: inline-block;
+    width: fit-content;
+    background: rgb(0 0 0 / 0.6);
+    padding: 0;
+}
+
+.tbl-seat-name {
+    display: block;
+    /*
+     * Never shrunk by the flex line it sits in: `table.ts` measures
+     * `offsetWidth` against the chip's own budget and scales the span itself,
+     * and a label already squeezed to its container's `max-width` measures as
+     * fitting no matter how long the nickname is.
+     */
+    flex: 0 0 auto;
+    /*
+     * `transform-origin` on the box that is actually transformed: scaled about
+     * its own centre the nickname floats in from both ends of a scrim pinned at
+     * `chip.pad`, so its first glyph no longer starts where the spec says.
+     */
+    transform-origin: left center;
+    padding: 0 2px;
+    color: var(--color-text-primary);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+}
+
+.tbl-seat-back,
+.tbl-seat-revealed {
+    position: absolute;
+}
+
+.tbl-seat-revealed-value {
+    position: absolute;
+    color: var(--color-text-primary);
+    font-family: var(--font-display);
+    font-size: 15px;
+    /*
+     * NO transform. It carried `translate(100%, 100%)`, which was Phaser's
+     * `.setOrigin(1, 1)` translated literally — and `right`/`bottom` already
+     * anchor an absolutely positioned element by its bottom-right corner, so
+     * the offset applied twice and pushed the numeral right by its own width
+     * and DOWN by its own height, straight through the chip's bottom border.
+     * An origin is a property of a canvas draw call; in DOM it is the choice
+     * of which edges you anchor from.
+     */
+    line-height: 1;
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+.tbl-seat-pip-scrim {
+    background: rgb(0 0 0 / 0.6);
+}
+
+.tbl-seat-pip {
+    position: absolute;
+    color: var(--color-state-waiting);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+    pointer-events: none;
+    /*
+     * One pip occupies exactly one budgeted row.
+     *
+     * `pipBlockHeight` reserves `pip.size` per row, and the default
+     * `line-height: normal` makes a span about 1.2 × its font size — so the
+     * block overran its budget by a fifth of a pip and the last row sat on the
+     * chip's bottom border. Digits have no descender, so a line box of exactly
+     * the font size clips nothing. The height itself is set from `pip.size` in
+     * table.ts, beside the offsets it is measured against.
+     */
+    line-height: 1;
+}
+
+.tbl-chip-line {
+    position: absolute;
+    display: inline-block;
+    width: fit-content;
+    padding: 1px 4px;
+    background: rgb(0 0 0 / 0.6);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+}
+
+/*
+ * The span `table.ts` actually scales.
+ *
+ * `transform-origin` was declared on the line above — the element that is not
+ * transformed — so the label shrank about its own centre and floated in from
+ * both ends of a scrim that had not shrunk at all. The origin belongs on the
+ * transformed box, and `flex: 0 0 auto` is what makes its `offsetWidth` the
+ * width the glyphs need rather than the width the line's `max-width` allowed.
+ */
+.tbl-chip-line > span {
+    display: inline-block;
+    flex: 0 0 auto;
+    transform-origin: left center;
+}
+
+/* ------------------------------------------------------------ medallions */
+
+/*
+ * `ChipSpec.medallion` is an EDGE LENGTH, and the box `table.ts` draws is
+ * square — but `misc/devotion_token.png` is 512×720, a portrait-shaped plaque.
+ * Under `.tbl-art`'s `contain` the token painted at 71% of its box's width,
+ * centred, so the run read as sparse and misaligned, the first medallion's
+ * pixels no longer began at `chip.pad`, and both `medallionRunWidth` and the
+ * tap target reserved width for squares that were never drawn. `cover` crops
+ * the outer frame of the plaque (y 104..616 of 720) and leaves the eye
+ * medallion itself — the part that carries the meaning — intact.
+ */
+.tbl-medallion {
+    position: absolute;
+    object-fit: cover;
+    pointer-events: none;
+}
+
+.tbl-medallion-count {
+    position: absolute;
+    transform: translateY(-50%);
+    color: var(--color-text-primary);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* ------------------------------------------------------------------ deck */
+
+.tbl-deck {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    opacity: 0.85;
+}
+
+.tbl-deck-count {
+    color: var(--color-text-primary);
+    font-family: var(--font-display);
+    pointer-events: none;
+}
+
+/**
+ * The warning breathes, bounded rather than endless (UIX §6.4). `table.ts`
+ * sets `--pulse-floor`, `animation-duration` and `animation-iteration-count`
+ * per draw from `DeckPlan`; a fresh element on every `update()` gets a fresh
+ * animation for free, which is what makes "re-fires on every redraw" true
+ * without any explicit restart logic.
+ */
+@media (prefers-reduced-motion: no-preference) {
+    .tbl-deck[data-pulse] {
+        animation-name: tbl-deck-pulse;
+        animation-timing-function: ease-in-out;
+        animation-direction: alternate;
+    }
+}
+
+@keyframes tbl-deck-pulse {
+    from {
+        opacity: 0.85;
+    }
+    to {
+        opacity: var(--pulse-floor, 0.85);
+    }
+}
+
+/* --------------------------------------------------------------- banner */
+
+.tbl-banner {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+}
+
+/*
+ * The plate's height is its font plus its own padding, and nothing else.
+ *
+ * `line-height: 1` because the default `normal` is about 1.2 ×, which put the
+ * plate outside `banner.rect` at every viewport a phone has; `table.ts` sizes
+ * the font so that `fontSize + BANNER_PLATE_PAD` fits the band, and that
+ * arithmetic is only true if the line box is the font size. No `max-height`:
+ * capping the padded box only clipped the glyphs inside it (the words lost
+ * their descenders, and most of their body on a short band), and `Court.ts`
+ * never clipped the text — it shrank the plate and left the words alone.
+ */
+.tbl-banner-plate {
+    max-width: 100%;
+    line-height: 1;
+    background: rgb(0 0 0 / 0.72);
+    border-radius: var(--radius);
+    font-family: var(--font-display);
+    text-align: center;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* --------------------------------------------------------- removed card */
+
+.tbl-removed {
+    position: absolute;
+}
+
+/*
+ * The burn panel is where `.tbl-art`'s `contain` is the WRONG fit rule.
+ *
+ * `contain` is reasoned about above on the grounds that the box and the art
+ * disagree by about five per cent — true of a hand card, false here. Both of
+ * these boxes are deliberately narrow: the face-up card gives up width to the
+ * fan (`faceW = panel.w - sliverStep * hidden`) and each sliver is only the
+ * edge of a card peeking out, so the boxes run to an aspect near 0.44 against
+ * art at 0.71–0.75. Contained, the card back floated inside its own 1px border
+ * with empty box above and below it, and the burn card's portrait shrank to a
+ * third of its panel while the "Removed" caption and the card's name — both
+ * positioned from the BOX by `buildCardFaceLabel` — sat on bare table above
+ * and below the art they exist to caption.
+ *
+ * `cover`, not `fill`: `Court.ts` filled these rects with `setDisplaySize`,
+ * which stretches, and a portrait squashed from 0.71 to 0.44 is its own defect.
+ * Cropping is the correct read for a card the fan is partly covering, and for
+ * a card back, which is an ornamental pattern with nothing to lose.
+ */
+.tbl-removed-sliver {
+    position: absolute;
+    object-fit: cover;
+    border: 1px solid var(--color-seat-other);
+    box-sizing: border-box;
+}
+
+.tbl-removed-face {
+    position: absolute;
+    object-fit: cover;
+}
+
+/* -------------------------------------------------------------- own row */
+
+.tbl-own {
+    position: absolute;
+}
+
+.tbl-own-discard-plate {
+    position: absolute;
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    background: rgb(0 0 0 / 0.72);
+    pointer-events: none;
+}
+
+.tbl-own-discard-plate span {
+    color: var(--color-text-primary);
+    font-family: var(--font-display);
+    line-height: 1;
+}
+
+.tbl-own-discard-hit {
+    position: absolute;
+    cursor: pointer;
+}
+
+.tbl-own-total {
+    position: absolute;
+    right: 0;
+    top: 50%;
+    transform: translateY(-50%);
+    color: var(--color-state-waiting);
+    font-family: var(--font-ui);
+    white-space: nowrap;
+    pointer-events: none;
+}
+
+/* -------------------------------------------------------------- hand */
+
+[data-role='hand-card'] {
+    box-sizing: border-box;
+    /*
+     * Belt and braces. The card is positioned at a rect the pure layer chose,
+     * and nothing inside it has any business extending past that rect — a
+     * child that does is overlapping whatever the layout put next to it. This
+     * would have contained the unsized-portrait bug instead of letting it run
+     * off the screen.
+     */
+    overflow: hidden;
+}
+
+/*
+ * The playable ring must not consume the card's box.
+ *
+ * As a `border: 2px` it did: the button is `box-sizing: border-box` with
+ * `overflow: hidden`, and absolutely positioned children resolve against the
+ * padding box — so `.tbl-card-parts` (`inset: 0`) lost 4px in each dimension,
+ * the portrait lost the same and shifted 2px, and the name scrim, placed at
+ * `rect.h - nameH`, had its bottom edge clipped away. The art and the name
+ * strip visibly jumped and shrank at the moment a card became playable, i.e.
+ * on every turn boundary, while `HandCardPlan.rect` never moved. An outline is
+ * drawn outside the layout entirely; `outline-offset: -2px` puts it back on
+ * the card's own edge.
+ */
+[data-role='hand-card'].is-playable {
+    outline-width: 2px;
+    outline-style: solid;
+    outline-color: var(--color-state-your-turn);
+    outline-offset: -2px;
+}
+
+/* The playable ring and the focus ring are both outlines and both land on the
+   same element, so the focus ring has to out-specify the state ring or a
+   keyboard player loses it on exactly the cards they can play. */
+[data-role='hand-card'].is-playable:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+}
+
+[data-role='hand-card'][aria-disabled='true'] {
+    cursor: default;
+}
+
+/* ---------------------------------------------------- shared card face */
+
+.tbl-card-parts {
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+}
+
+.tbl-card-name-scrim {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(0 0 0 / 0.72);
+}
+
+/*
+ * NO `max-width`, and never shrunk by its flex line.
+ *
+ * Both are what make `offsetWidth` mean "the width these glyphs need", which
+ * is the number `table.ts` compares against the card's budget before deciding
+ * to scale. Clamped by `max-width: 100%`, the box reported the CLAMPED width,
+ * the comparison never fired, and the name ran on past its box to be cut off
+ * by the hand card's `overflow: hidden` — reported from a real match as a
+ * caption clipping mid-word.
+ */
+.tbl-card-name {
+    display: inline-block;
+    flex: 0 0 auto;
+    padding: 0 3px;
+    color: var(--color-text-primary);
+    font-family: var(--font-ui);
+    text-align: center;
+    white-space: nowrap;
+    transform-origin: center;
+}
+
+.tbl-card-badge-plate {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(0 0 0 / 0.78);
+    border: 1px solid var(--color-nebula-purple);
+    box-sizing: border-box;
+}
+
+.tbl-card-badge-value {
+    color: var(--color-text-primary);
+    font-family: var(--font-display);
+    line-height: 1;
+}
+
+.tbl-card-overline {
+    position: absolute;
+    pointer-events: none;
+}
+
+.tbl-card-overline-inner {
+    position: absolute;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background: rgb(0 0 0 / 0.72);
+}
+
+/* No `max-width` and no flex shrink, for the reason `.tbl-card-name` gives:
+   `fitOverline` is handed `offsetWidth`, and a clamped box measures as fitting
+   however long the caption is. */
+.tbl-card-overline-text {
+    display: inline-block;
+    flex: 0 0 auto;
+    color: var(--color-state-waiting);
+    font-family: var(--font-ui);
+    text-align: center;
+    white-space: nowrap;
+    transform-origin: center;
+}
+
+/* ------------------------------------------------------------ beat layer
+ *
+ * Where `ui/beats.ts` draws its transients, above the table and below
+ * `#ui-root`. Its own element rather than the table's, so a beat can never
+ * leave a stray node inside the tree `update()` rebuilds.
+ *
+ * `pointer-events: none` is the whole interaction policy: a beat is something
+ * you watch, never something you touch, and a full-viewport overlay that took
+ * taps would swallow every play for as long as it ran.
+ */
+.beat-layer {
+    position: absolute;
+    inset: 0;
+    overflow: hidden;
+    pointer-events: none;
+}

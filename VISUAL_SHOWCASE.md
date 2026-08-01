@@ -1,8 +1,8 @@
 # The Mule's Court — Visual Showcase
 
-> **Superseded in part by [`docs/plans/2026-07-23-uix-design.md`](docs/plans/2026-07-23-uix-design.md).** That document absorbs this one's interaction design (action panel, quick reference, seat states, palette, interface rules) and replaces its fixed 1024×768 layout system with a responsive DOM+canvas hybrid. Where the two disagree — layout metrics, the `Scale.FIT` assumption, the paused overlay's "after 10 min" figure — the design doc wins.
+> **[`docs/plans/2026-07-23-uix-design.md`](docs/plans/2026-07-23-uix-design.md) is authoritative where the two disagree.** This document is the interface reference — seat states, the action panel, the quick reference, the palette, the interface rules. It carries no layout metrics, because there are none to carry: geometry is computed from the live viewport.
 
-Design reference for the game's interface. Both halves are implemented: the DOM chrome in `src/client/ui/`, and the canvas table in `src/game/scenes/Court.ts`, laid out from a `LayoutSpec` computed by `src/client/layout/` and animated by `beats.ts`.
+Design reference for the game's interface, and all of it is implemented. Every surface is DOM, one factory each in `src/client/ui/`: the chrome, and the table itself in `table.ts`, laid out from a `LayoutSpec` computed by `src/client/layout/` and animated by `beats.ts` on the Web Animations API.
 
 This document describes appearance and interaction only. The rules live in `README.md`, the state model in `docs/plans/2026-07-22-engine-architecture-design.md`, and the client-server protocol in `docs/plans/2026-07-22-transport-design.md`.
 
@@ -10,7 +10,7 @@ This document describes appearance and interaction only. The rules live in `READ
 
 The interface holds no game state. It renders a `RedactedView` pushed by the server and sends back one message, `PLAY_CARD`. Anything it appears to "decide" — whose turn it is, which cards are playable, who may be targeted — it read from that view.
 
-~~The design space is a fixed 1024×768 landscape, scaled to any screen by Phaser's `Scale.FIT`.~~ **Superseded.** The table is laid out by `src/client/layout/`, which computes every position as a fraction of the live viewport across three topology classes — see *UIX §2.2*. Phone-landscape is in scope, so **nothing may depend on hover**.
+There is no design resolution. `src/client/layout/` computes every position as a fraction of the live viewport across three topology classes — see *UIX §2.2*. Phone-landscape is in scope, so **nothing may depend on hover**.
 
 ---
 
@@ -30,33 +30,32 @@ An all-seeing eye in a red and purple medallion — the Mule's power. One badge 
 
 Note the counts this must display: **7 tokens to win at two players, 5 at three, 4 at four.** A two-player match therefore needs room for seven badges per seat, which is the layout's worst case.
 
-### UI panel texture
-
-**File:** `public/assets/misc/ui_panel_metal.png`
-
-Metallic sci-fi surface with purple energy highlights. Used for the action panel, the lobby, and the round-over overlay.
-
 ### Cards
 
 | Directory | Contents | Use |
 | --- | --- | --- |
 | `card-back/` | 3 designs | Face-down cards: opponents' hands, the deck |
-| `card-front/` | `card_front_1`, `card_front_3` | Frame behind each portrait. **No `_2` exists** — pick one of the two |
 | `<character>/` | `portrait_0..3` per card | One variant per character is curated for the game; the other three ship unused |
 
-### Shader maps
+A card is its portrait. There is no frame drawn behind one — the value badge and
+the name strip are drawn over the art, which is why `object-fit: contain` is what
+keeps a 512×720 portrait honest inside a rect the layout sized.
 
-`shaders/` holds `distortion_map.png`, `rainbow_gradient.png`, and `sparkle_pattern.png`, for use with Phaser 4 Filters.
+### Effect textures
+
+`shaders/` holds `rainbow_gradient.png`, which shimmers over a devotion token as
+it is awarded, and `sparkle_pattern.png`, which bursts on match victory. Each is
+one image and one animation, not a particle system.
 
 ---
 
 ## 🖥️ Screens
 
 ```
-Boot → Preloader → MainMenu → Lobby → Game → GameOver
+Menu → Lobby → Table
 ```
 
-`MainMenu` and `Lobby` are their own scenes. Everything from here down — the table, the round-over overlay, the paused overlay — lives inside `Game`, because the table stays visible underneath all of them.
+Menu and lobby are full-screen surfaces over an idling background. Everything from here down — the round-over overlay, the paused overlay, the match-over screen — is drawn over the table rather than instead of it, because the table stays visible underneath all of them.
 
 ### Lobby
 
@@ -196,7 +195,7 @@ Protection lasts until the start of that player's own next turn. It is stripped 
 ┃ └────────────────────┘   ┃
 ┃ Discards: ▪1 ▪8 ← revealed┃
 ┗━━━━━━━━━━━━━━━━━━━━━━━━━━┛
-   ↑ Grayscale (Phaser 4 Filter)
+   ↑ Desaturating wash over the seat
 ```
 
 **An eliminated player's held card becomes public.** It moves face-up into their discard pile, where everyone can read it. The seat never shows an empty hand and hides nothing — that reveal is core deduction information.
@@ -372,7 +371,7 @@ The count comes from `view.deckCount`. An empty deck means the round ends after 
 ╚═══════════════════════════════════════════╝
 ```
 
-The showdown reveals every surviving hand, then holds for a flat **five seconds** before the next hand is dealt. The countdown reads from `revealDeadline`, a server timestamp — the interface counts toward it but decides nothing from it.
+The showdown reveals every surviving hand, then holds for a flat **ten seconds** before the next hand is dealt. The countdown reads from `revealDeadline`, a server timestamp — the interface counts toward it but decides nothing from it.
 
 A round won by elimination shows the winner without a hand comparison, since the eliminations were already narrated as they happened.
 
@@ -392,7 +391,7 @@ A round won by elimination shows the winner without a hand comparison, since the
 ╚═══════════════════════════════════════════╝
 ```
 
-The table stays visible and dimmed beneath. No card can be played while paused. If a player drops during a round-over countdown, the countdown restarts at five seconds when they return rather than resuming — otherwise they come back to a showdown that vanishes instantly.
+The table stays visible and dimmed beneath. No card can be played while paused. If a player drops during a round-over countdown, the countdown restarts in full when they return rather than resuming — otherwise they come back to a showdown that vanishes instantly.
 
 ### Match over
 
@@ -419,11 +418,11 @@ The table stays visible and dimmed beneath. No card can be played while paused. 
 | Current turn | Seat pulses 1.0 → 1.03 scale, ~1.5 s loop |
 | Protection | Cyan panel pulses 0.3 → 0.7 alpha, fast loop |
 | Card played | Card travels from hand to the discard pile, ~300 ms |
-| Showdown reveal | Hands flip face-up, staggered ~150 ms, inside the five-second window |
-| Elimination | Banner fades in 200 ms, seat dims to 50 % over 500 ms, grayscale Filter applied |
+| Showdown reveal | Hands flip face-up, staggered ~150 ms, inside the reveal window |
+| Elimination | Banner fades in 200 ms, seat dims to 50 % over 500 ms under a desaturating wash |
 | Victory | Text fades in 300 ms, then gold pulse 0.9 → 1.15, 800 ms loop |
 
-The showdown flip must fit comfortably inside five seconds. Staggering four reveals at 150 ms costs 600 ms and leaves the rest for reading.
+The showdown flip must fit comfortably inside the reveal window. Staggering four reveals at 150 ms costs 600 ms and leaves the rest for reading.
 
 ---
 
@@ -469,16 +468,15 @@ Empty    #991b1b   Dark red
 
 ## 📐 Layout
 
-**Superseded by `src/client/layout/`.** The fixed-pixel tables that stood here
-described a 1024×768 design space scaled by `Scale.FIT`; the client instead
-computes geometry from the live viewport, so there are no fixed numbers left to
-document. `computeLayout(input) → LayoutSpec` is the whole surface, its
-constants are named and commented in `tableLayout.ts`, and the design's spatial
-promises are assertions in `tableLayout.test.ts` rather than prose here.
+**Geometry lives in `src/client/layout/`, not here.** The client computes every
+position from the live viewport, so there are no fixed numbers to document.
+`computeLayout(input) → LayoutSpec` is the whole surface, its constants are named
+and commented in `tableLayout.ts`, and the design's spatial promises are
+assertions in `tableLayout.test.ts` rather than prose in this file.
 
-One figure from the old table was also simply wrong, and is worth recording:
-a single seat can reach **eight** discards in a two-player round, not seven.
-See Task 18 of the implementation plan for the derivation.
+One figure is worth recording because it is easy to get wrong by counting: a
+single seat can reach **eight** discards in a two-player round, not seven.
+`discardCapacity.test.ts` derives it by simulation rather than by argument.
 
 ## ✅ Interface rules
 

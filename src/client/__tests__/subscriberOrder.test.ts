@@ -3,17 +3,27 @@
  *
  * `main.ts` is the composition root and has no test of its own — it is the one
  * file that supplies the real `window`, `WebSocket` and `localStorage`, so there
- * is nothing to construct it against. What it does have is an order, and one
- * step of that order is a correctness requirement rather than a preference:
- *
- *   `a11yTwin` positions its hand proxies from `court.currentLayout()`, and
- *   `renderView` is what sets that layout. With the twin updated first it read
- *   the layout from the previous push, so on the first deal there was none and
- *   the accessible hand was empty. Measured in a browser: nought proxies until
- *   some later state update happened along, then one.
+ * is nothing to construct it against. What it does have is an order, and parts
+ * of that order are correctness requirements rather than preferences.
  *
  * So this reads `main.ts` as text, the way `purity.test.ts` does. It cannot
  * prove the surfaces agree; it can prove nobody quietly swaps two lines back.
+ *
+ * **Two of these constraints retired with the canvas**, and they are recorded
+ * here rather than deleted, because both look like things a future change might
+ * reintroduce:
+ *
+ *   - *Draw before mirroring.* `a11yTwin` positioned its hand proxies from
+ *     `court.currentLayout()`, which `renderView` set, so updating the twin
+ *     first read the PREVIOUS push's layout — an empty accessible hand on the
+ *     first deal, measured in a browser. There is no twin now: the cards are
+ *     real buttons, so nothing mirrors anything and the hazard cannot recur.
+ *   - *Wake before drawing.* The Phaser loop stopped when the table was still
+ *     and had to be running for a new frame to reach the screen. The browser's
+ *     compositor has no loop to wake.
+ *
+ * If either a shadow tree or a render pump ever comes back, the corresponding
+ * ordering test has to come back with it.
  */
 
 import { readFileSync } from 'node:fs';
@@ -31,27 +41,40 @@ function positionOf(call: string): number {
 }
 
 describe('the single subscriber', () => {
-    it('draws the table before mirroring it', () => {
-        const render = positionOf('court?.renderView(state)');
-        const twin = positionOf('twin.update(state)');
-
-        expect(render, 'renderView left the subscriber').toBeGreaterThan(-1);
-        expect(twin, 'the twin left the subscriber').toBeGreaterThan(-1);
-        expect(render, 'the twin reads the layout renderView has not computed yet').toBeLessThan(twin);
-    });
-
-    it('wakes the render loop before anything that needs drawing', () => {
-        // The loop stops when the table is still, and a push is the commonest
-        // reason it must start again. Waking after the draw would leave the
-        // new frame sitting unrendered until the next thing woke it.
-        const wake = positionOf('pump.wake()');
-        const render = positionOf('court?.renderView(state)');
-
-        expect(wake, 'the pump left the subscriber').toBeGreaterThan(-1);
-        expect(wake).toBeLessThan(render);
-    });
-
     it('reassembles an open action sheet after the state it reassembles from', () => {
-        expect(positionOf('resyncOpenSheet(state)')).toBeGreaterThan(positionOf('uiRoot.update(state)'));
+        // `uiRoot.update` is what tells the sheet about the connection and the
+        // screen; `resyncOpenSheet` adds the half it cannot, and needs the
+        // first to have happened.
+        const resync = positionOf('resyncOpenSheet(state)');
+        const uiRoot = positionOf('uiRoot.update(state)');
+
+        expect(uiRoot, 'uiRoot left the subscriber').toBeGreaterThan(-1);
+        expect(resync, 'resyncOpenSheet left the subscriber').toBeGreaterThan(-1);
+        expect(resync).toBeGreaterThan(uiRoot);
+    });
+
+    it('redraws the table before queueing the beats that animate over it', () => {
+        // A beat measures its rect from `table.currentLayout()`. Queued before
+        // the table has taken this push, the layout it reads is the previous
+        // one — so an elimination beat would play over the seat's OLD position
+        // on any push that moved it. This is the surviving shape of the
+        // draw-before-mirror constraint the twin used to impose.
+        const update = positionOf('table.update(state)');
+        const enqueue = positionOf('queue.enqueue(');
+
+        expect(update, 'the table left the subscriber').toBeGreaterThan(-1);
+        expect(enqueue, 'the beat queue left the subscriber').toBeGreaterThan(-1);
+        expect(update, 'a beat would measure the layout from the previous push').toBeLessThan(enqueue);
+    });
+
+    it('closes the socket on a fatal before anything else reacts to it', () => {
+        // Reconnecting into SEAT_TAKEN makes two tabs evict each other forever
+        // — 22 evictions in three seconds against the real server. Every other
+        // step in the subscriber may run on a fatal push; none may run first.
+        const close = positionOf('socket?.close()');
+        const uiRoot = positionOf('uiRoot.update(state)');
+
+        expect(close, 'the fatal guard left the subscriber').toBeGreaterThan(-1);
+        expect(close).toBeLessThan(uiRoot);
     });
 });

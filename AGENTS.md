@@ -6,13 +6,11 @@ Guidance for coding agents working in this repository. Human contributors are we
 
 **The Mule's Court** is a _Love Letter_-style deduction/elimination card game reskinned into Isaac Asimov's Foundation universe (2–4 players, first to N Devotion Tokens wins). The complete game design — rules, turn structure, and all 11 card types with values/counts/abilities — lives in `README.md`. Treat that file as the gameplay spec.
 
-**Status:** three of the four layers are **built and tested**. The headless game engine (`src/game/engine/`, Vitest), the WebSocket transport that wraps it (`src/server/`, `bun test`), and now the client's browser-independent half (`src/client/`, Vitest) — its pure layer of geometry, copy, state and palette, plus the whole DOM chrome, all testable under Node and jsdom with no WebGL context and no socket.
+**Status:** three of the four layers are **built and tested**. The headless game engine (`src/game/engine/`, Vitest), the WebSocket transport that wraps it (`src/server/`, `bun test`), and now the client's browser-independent half (`src/client/`, Vitest) — its pure layer of geometry, copy, state and palette, plus the whole DOM chrome, all testable under Node and jsdom with no socket.
 
-The Phaser layer now exists too: `src/game/scenes/Court.ts` draws the table, `src/game/scenes/beats.ts` runs the cinematic beats, and `src/main.ts` is the composition root that wires store, socket, DOM and canvas together. **A match is playable in a browser.** Every stage of `docs/plans/2026-07-24-uix-implementation-plan.md` is complete bar the real-device QA pass (Task 34), which needs hardware and a person — see `docs/plans/2026-07-24-uix-qa-checklist.md`.
+The table is DOM too: `src/client/ui/table.ts` draws it, `src/client/ui/beats.ts` runs the cinematic beats on the Web Animations API, and `src/main.ts` is the composition root that wires store, socket and surfaces together. **A match is playable in a browser.** Every stage of `docs/plans/2026-07-24-uix-implementation-plan.md` is complete bar the real-device QA pass (Task 34), which needs hardware and a person — see `docs/plans/2026-07-24-uix-qa-checklist.md`.
 
 A fifth layer now sits beside those four: `src/mcp/` supplies the opponents. It is a Model Context Protocol server that seats a model at two or three chairs of a live table, so a person can play a four-player match alone — see [MCP seat server](#mcp-seat-server-srcmcp).
-
-This started life as the Phaser "template-bun" starter (some scene code and `logo.png`/`bg.png` are still theirs), but `package.json` metadata has been reclaimed for the game (`name: the-mules-court`).
 
 ## Setup commands
 
@@ -25,7 +23,6 @@ Requires [Bun](https://bun.sh).
 | `bun run dev:server`                        | The API and WebSocket half, on `:3000`. Run it in a second terminal        |
 | `bun run dev:host`                          | Like `dev`, but reachable from other devices on the network               |
 | `bun run build`                             | Production build to `dist/`                                               |
-| `bun run dev-nolog` / `bun run build-nolog` | Same, but skip the `log.js` telemetry ping                                |
 | `bun run compile`                           | Single-file executable → `./mules-court` (see below)                      |
 | `bun run mcp`                               | The MCP seat server on stdio. Needs a game server running                 |
 | `bun run compile:mcp`                       | Single-file MCP executable → `./mules-court-mcp`                          |
@@ -51,8 +48,7 @@ engine file changes, while a plain `bun src/server/index.ts` keeps running the
 engine it booted with. The halves then disagree about the shape of a
 `RedactedView`, and the symptoms do not look like a version skew at all — one
 added field presented first as "cards stopped being clickable" (a `TypeError`
-in the only handler that opens the action sheet, silent because a throw in a
-Phaser pointer handler goes nowhere a player can see) and then as a *rule* being
+in the only handler that opens the action sheet) and then as a *rule* being
 misreported, with an unprotected opponent announced as protected. Restarting
 the backend was the cure for both. `--watch` means it never needs diagnosing.
 
@@ -93,10 +89,6 @@ Verified both ways — the same config that times out under `bunx --bun vite`
 connects immediately under `bunx vite`. `build` still uses `--bun`, which is
 fine: nothing is proxied during a build.
 
-### About `log.js`
-
-The `dev`/`build` scripts first run `bun log.js <mode>`, which makes one silent, anonymous ping to Phaser Studio's `gryzor.co` (template name / dev-vs-prod / Phaser version — no personal or project data). Use the `-nolog` variants to skip it, or delete `log.js` and its calls in `package.json`.
-
 ## Testing instructions
 
 Two test runners and three suites. Engine **and client** tests run under **Vitest** (`bun run test:engine` — the name predates the client; `vitest.config.ts` collects `src/game/**/*.test.ts` and `src/client/**/*.test.ts`). Server/transport tests run under **Bun's own test runner** (`bun run test:server`, i.e. `bun test src/server`), and so do the MCP tests (`bun run test:mcp`). The split isn't stylistic: Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun globals the transport depends on, so `src/server/` has to run on `bun test` instead — and `src/mcp/` inherits that, since it opens real WebSockets and spawns its own server as a subprocess. `bun run test` runs all three in sequence. There is still **no linter** configured.
@@ -107,8 +99,8 @@ Client tests default to the **Node** environment; a file needing a DOM opts in w
 
 Three gates worth knowing about, because they fail for reasons that are not obvious:
 
-- **`src/client/__tests__/purity.test.ts`** — `layout/`, `content/`, `store/` and `tokens/` may not import Phaser, reach a DOM global, or import server *runtime* (one documented exception: `content/nickname.ts` takes the nickname limit from `src/server/config.ts`, which has zero imports). It reads raw file text, so a *comment* naming a banned global fails too.
-- **`src/client/__tests__/axe.test.ts`** — axe-core over every DOM surface. `color-contrast` is the only disabled rule, because jsdom has no layout; contrast is covered arithmetically in `src/client/tokens/contrast.test.ts` instead.
+- **`src/client/__tests__/purity.test.ts`** — `layout/`, `content/`, `store/` and `tokens/` may not reach a DOM global or import server *runtime* (one documented exception: `content/nickname.ts` takes the nickname limit from `src/server/config.ts`, which has zero imports). It reads raw file text, so a *comment* naming a banned global fails too.
+- **`src/client/__tests__/axe.test.ts`** — axe-core over every DOM surface, the table included. `color-contrast` is the only disabled rule, because jsdom has no layout; contrast is covered arithmetically in `src/client/tokens/contrast.test.ts` instead.
 - **`src/client/layout/discardCapacity.test.ts`** — drives thousands of real matches through the engine to prove the layout reserves room for the deepest discard pile that can actually occur (eight, not the seven the design states).
 
 The verification gate before considering any change done is:
@@ -123,75 +115,71 @@ bun run build        # confirm the production bundle still builds
 
 ### Tech stack
 
-Phaser **4.2.1** · Vite 6 · TypeScript 5.7 · Bun. The client ships as a static bundle; a small Bun backend (`src/server/`) now exists to host multiplayer matches over WebSocket — see [Server (transport layer)](#server-transport-layer) below.
+Vite 6 · TypeScript 5.7 · Bun, and **no runtime dependencies at all** — `package.json` declares none. The client ships as a static bundle; a small Bun backend (`src/server/`) now exists to host multiplayer matches over WebSocket — see [Server (transport layer)](#server-transport-layer) below.
 
-### Bootstrap & scene flow
+### Bootstrap
 
-`index.html` loads `src/main.ts` → calls `StartGame('game-container')` in `src/game/main.ts`, which builds the `Phaser.Types.Core.GameConfig` (AUTO renderer, `Scale.RESIZE` at `100%` × `100%` so the canvas fills the viewport 1:1 with no design resolution, mounts into `#game-container`) and registers scenes **in order**:
+`index.html` loads `src/main.ts`, which is the composition root: it constructs
+the store, the socket, the chrome, the table and the beat runner, and wires them
+together.
 
-```
-Boot → Preloader → Court
-```
+The table is DOM. `src/client/ui/table.ts` mounts into `#game-container` —
+absolutely-positioned elements placed at the rects `computeLayout` and
+`buildRenderPlan` return — with `src/client/ui/beats.ts` drawing the cinematic
+beats into a transient layer above it on the Web Animations API. `#ui-root`
+sits over both and holds the chrome (menu, lobby, action sheet, overlays).
 
-- `Boot` loads the one asset the preloader itself needs (the playfield background), then starts `Preloader`.
-- `Preloader` shows the progress bar and loads the real assets — every portrait derived from `CARD_CATALOG`, the card faces, the devotion token, the three shader maps — then **awaits `document.fonts.ready`** before starting `Court`. Canvas text is painted pixels: created before the face loads it renders in a fallback and never re-renders itself the way DOM text does.
-- `Court` is the only gameplay scene. Between matches it idles as the ambient nebula behind the DOM screens; during one it draws the table from a `LayoutSpec`.
+Two rules about the table read as arbitrary and are not:
 
-**Loader paths are absolute (`/assets`), and that is load-bearing.** A relative path resolves against `/join/:matchId`, which the SPA fallback answers with `index.html` and a **200** — so the loader never sees a 404, decodes HTML as an image, and silently substitutes a missing texture. Same reason Vite's `base` is `/`.
+**Asset paths are absolute (`/assets/…`), and that is load-bearing.** A relative
+path resolves against `/join/:matchId`, which the SPA fallback answers with
+`index.html` and a **200** — so nothing 404s; the browser decodes HTML as an
+image and silently renders nothing. `assetUrl()` in `table.ts` is the single
+definition, exported so the beats share it. Same reason Vite's `base` is `/`.
 
-**`input.windowEvents` is off** (`src/game/inputPolicy.ts`), also load-bearing. With Phaser's default, `MouseManager` binds `mousedown` to `window.top` and processes it precisely when `event.target !== canvas` — so a tap on the DOM layer hit-tests the table beneath it, and every tap on the action sheet also selected the card under it.
+**Geometry is data, and the renderer only obeys it.** `computeLayout` and
+`buildRenderPlan` decide every position and size; `table.ts` may not re-derive,
+pad, or round any of it. Every visual bug this table has shipped was that rule
+being broken, and they rhyme: an unsized `<img>` rendering at its natural size,
+a text line box overrunning a band budgeted in pixels, a scrim inventing its own
+padding, an element anchored twice, and a global `object-fit` that was wrong for
+one box's meaning. When adding to the table, put the *decision* in a pure module
+and let the renderer walk the result.
 
-**The render loop stops when the table is still** (`src/game/renderPolicy.ts`), and this
-one looks removable in a way the others do not. Phaser's `Game.step` renders
-unconditionally on every animation frame and no scene here defines `update()`, so a
-turn-based card game was redrawing an unchanged picture at the display's refresh rate
-for as long as the tab was open. `createRenderPump` stops the loop once nothing is
-animating and `main.ts` wakes it on state pushes, canvas input and every beat.
-
-It was built for a report of 80% GPU that turned out to be **Edge's "Transparency
-effects" setting** — browser chrome, not this page — and it is kept anyway. The waste it
-removes is arithmetic rather than a hypothesis (measured in a visible window: 60–120
-redraws a second of an unchanged picture, now zero), and this design is touch-first, so
-a phone otherwise spends battery holding a still image on screen. The full provenance is
-in the module header; do not delete it as complexity that solved a non-problem without
-reading that first.
-
-Two obligations follow. **Nothing may animate forever** — `Court.isAnimating()` is what
-permits sleep, so a `repeat: -1` tween pins the loop awake and silently undoes all of it
-(`courtContract.test.ts` guards this; the deck's warning pulse broke it for exactly one
-round). And **`isAnimating()` must stay honest**: a false positive wastes frames, a false
-negative freezes the table, and those are not comparable.
-
-`MainMenu`, `Game`, and `GameOver` were **deleted**, not replaced — a deliberate deviation from this file's former "keep the Scene chain as the skeleton" guidance, recorded in *UIX §2.5* rather than decided ad hoc. Menu and game-over are DOM surfaces now (`src/client/ui/menuScreen.ts`, `overlays.ts`), and an empty Phaser scene behind each would be dead weight.
-
-When adding gameplay, put the *decision* in a pure module and let `Court` walk the result. `buildRenderPlan` and `computeLayout` are both tested without a WebGL context; the scene is glue thin enough to review by reading, and that is the property to preserve.
+**`src/client/ui/tableContract.test.ts` guards the first half of that** by
+reading `table.ts` as text and asserting every field the pure layer publishes is
+named. It cannot prove a field is *obeyed* — the nickname scrim read
+`nameBandH` and then let text metrics decide its height, which passed — so its
+`NOT_DRAWN` allowlist is only as strong as the scrutiny applied to each entry's
+reason. "`fit-content` needs no explicit height" was mechanically true and
+substantively wrong, and hid a real overlap.
 
 ### Build config
 
 Two Vite configs in `vite/`, selected per script:
 
 - `config.dev.mjs` — dev server on port 8080.
-- `config.prod.mjs` — Terser minification (2 passes, comments stripped) + a `phasermsg` plugin that prints a build banner.
+- `config.prod.mjs` — Terser minification (2 passes, comments stripped) + a small `buildBanner` plugin.
 
-Both use `base: '/'` (absolute asset paths) and split Phaser into its own `phaser` chunk via `manualChunks`. The base is **not** relative, and deliberately so: the client owns the `/join/:matchId` route (*UIX §2.6*), and a relative base resolves `./assets/index-abc.js` against `/join/` on a real invite link, so the app never boots. The dev config also proxies `/api` and `/ws` to the server on :3000, which is what lets `socketUrl()` derive one same-origin URL for dev and production alike.
+Both use `base: '/'` (absolute asset paths); neither splits chunks, the whole client being ~86 KB of JS. The base is **not** relative, and deliberately so: the client owns the `/join/:matchId` route (*UIX §2.6*), and a relative base resolves `./assets/index-abc.js` against `/join/` on a real invite link, so the app never boots. The dev config also proxies `/api` and `/ws` to the server on :3000, which is what lets `socketUrl()` derive one same-origin URL for dev and production alike.
 
 ### Client (`src/client/`)
 
 Everything the client can decide without a browser, so Vitest can hold it to the
-design without booting a WebGL context. Full design: `docs/plans/2026-07-23-uix-design.md`.
+design in a plain Node process. Full design: `docs/plans/2026-07-23-uix-design.md`.
 
-**The pure layer** — no Phaser, no DOM, no ambient globals, enforced by
+**The pure layer** — no DOM, no ambient globals, enforced by
 `__tests__/purity.test.ts`:
 
-- `tokens/` — the palette as numbers for canvas draw calls, mirroring `styles/tokens.css`, with a drift test and a WCAG contrast check.
+- `tokens/` — the palette as integers, mirroring `styles/tokens.css`, with a drift test and a WCAG contrast check. `hex()` converts one to the `#rrggbb` string every style declaration wants.
 - `content/` — every string a player reads: card copy, quick reference, log narration, failure copy, nickname rules, the countdown.
-- `layout/` — table geometry as data. `computeLayout(input) → LayoutSpec` across three topology classes; the `Court` scene will consume a spec rather than compute one.
+- `layout/` — table geometry as data. `computeLayout(input) → LayoutSpec` across three topology classes, plus `tableMetrics.ts`'s fractions and floors; `ui/table.ts` consumes a spec rather than computing one.
 - `store/` — the WebSocket, the seat token, route parsing, room creation, and one immutable `ClientState` that never derives a game rule.
 
 **The DOM layer** — `ui/`, one factory per surface with `mount`/`update`/`destroy`.
 Menu, join, lobby, action sheet, quick reference, seat dossier, overlays, fatal
-screen, toasts, connection dot, and the offscreen accessibility twin. No surface
-reads the store; `update(state)` is pushed by a single subscriber.
+screen, toasts, connection dot, and the table itself. No surface reads the
+store; `update(state)` is pushed by a single subscriber.
 
 **Styles** — `styles/fonts.css` (self-hosted Exo 2 and Inter), `tokens.css`
 (authoritative palette), `ui.css` (the two-layer shell plus component styling).
@@ -321,7 +309,7 @@ plays a whole match through a spawned server.
 
 ### TypeScript gotchas
 
-`tsconfig.json` sets `strict: true` **but** `strictPropertyInitialization: false`. This is deliberate for Phaser: scenes declare game objects as class fields without initializers (e.g. `camera: Phaser.Cameras.Scene2D.Camera;`) and assign them in `create()`. Follow that pattern rather than fighting it with `!` or constructors.
+`tsconfig.json` sets `strict: true` **but** `strictPropertyInitialization: false`. Nothing in the codebase needs the exemption — no class declares a field it fills in later — so treat the flag as off and do not write code that relies on it.
 
 `noUnusedLocals` and `noUnusedParameters` are on, so dead code fails type-checking. But `noEmit: true` and **neither `vite build` nor the dev server type-checks** — Vite transpiles without checking. Run `bunx tsc --noEmit` yourself to catch type errors before considering work done.
 
@@ -347,31 +335,48 @@ The slug does **not** always match the card's display name. Mapping (README card
 | The First Speaker    | `first-speaker/` | 7     |
 | The Mule             | `mule/`          | 8     |
 
-Other asset dirs: `card-back/`, `card-front/`, `shaders/` (distortion/sparkle/rainbow maps for effects), `misc/` (playfield background, devotion token badge, UI panel textures — catalogued in `VISUAL_SHOWCASE.md`).
+Other asset dirs: `card-back/` (the deck and face-down cards), `shaders/` (`rainbow_gradient.png` for the devotion-token shimmer, `sparkle_pattern.png` for the victory burst), and `misc/` (the playfield background and the devotion token badge). Catalogued in `VISUAL_SHOWCASE.md`.
 
-## Phaser 4 skills — use them
+## Skills
 
-`.agents/skills/` holds 28 reference skills covering the Phaser 4.2.1 API, surfaced to Claude Code through the `.claude` symlink and invoked as `/scenes`, `/tweens`, and so on. Each skill's own description lists what triggers it, and agent tools load that list automatically — so the rules below are about **when to invoke**, not what each skill contains.
+`.agents/skills/` holds nine, in two groups.
 
-**Invoke the matching skill _before_ writing Phaser code, not after the code misbehaves.** These skills are the API reference for this project; guessing at the API and correcting later wastes a cycle and tends to produce Phaser 3 idioms.
+**Where a change belongs** — these divide along the seams this file already
+describes, not by file type:
 
-**The version trap — this is the one that bites.** This project is Phaser **4**. Nearly every Phaser example in the wild, and most recalled API knowledge, is Phaser **3**, and the two differ substantially: pipelines became render nodes, FX and masks became filters, tint and camera-matrix behavior changed, and some game objects were removed outright. If you are about to write Phaser code from memory, or you are adapting a snippet found online, consult `/v3-to-v4-migration` first. `/v4-new-features` covers what v4 added (Filters, RenderNodes, SpriteGPULayer, Gradient, Noise).
+| Skill | Reach for it when |
+| --- | --- |
+| `adding-to-the-pure-layer` | Editing `layout/`, `content/`, `store/` or `tokens/`, or when `purity.test.ts` fails |
+| `laying-out-the-table` | Changing table geometry, or adding a field to `LayoutSpec`, `RenderPlan`, `SeatPlan` or `ChipSpec` |
+| `writing-a-dom-surface` | Adding or changing anything in `src/client/ui/` |
+| `changing-the-wire` | Touching `RedactedView`, protocol messages, engine types or room state |
+| `running-the-test-gates` | Before claiming any change is done, or when a failure does not match what you edited |
 
-Rough routing for this game, since a card game exercises an unusual slice of the engine:
+The split is not filing. A change that spans two of them is usually a change
+that should have been one: geometry belongs in `layout/`, the renderer obeys it,
+and a surface that computes its own position has taken a decision away from a
+layer that can be tested without a browser.
 
-| Working on                                              | Start with                                                                  |
-| ------------------------------------------------------- | --------------------------------------------------------------------------- |
-| Scene chain, transitions, per-round state               | `/scenes`, `/game-setup-and-config`                                         |
-| Cards on screen — dealing, flipping, hovering, layout   | `/sprites-and-images`, `/tweens`, `/groups-and-containers`                  |
-| Clicking cards, targeting opponents, drag               | `/input-keyboard-mouse-touch`                                               |
-| Card text, player names, Devotion Token counts          | `/text-and-bitmaptext`                                                      |
-| Loading the portrait/card art in `Preloader`            | `/loading-assets`                                                           |
-| Effects from `public/assets/shaders/`                   | `/filters-and-postfx`, `/particles`                                         |
-| Game state, turn order, event plumbing between scenes   | `/data-manager`, `/events-system`                                           |
-| Turn timers, deal/reveal delays                         | `/time-and-timers`                                                          |
-| Fitting 1024×768 to real browser windows                | `/scale-and-responsive`, `/cameras`                                         |
+Two exist because of failures this repo has actually had. `changing-the-wire`
+covers the version skew that presents as anything but — "cards stopped
+responding" and a rule being misreported were one added field, not two bugs.
+`running-the-test-gates` exists because `vitest.config.ts` enumerates globs while
+the `bun test` scripts name directories, so a new top-level directory under
+`src/` is type-checked automatically and **silently untested** until a script
+names it.
 
-`/physics-arcade`, `/physics-matter`, and `/tilemaps` are almost certainly irrelevant here — this game has no physics simulation and no tile grid. Reach for them only if the design changes.
+**How it should look and move** — the visual half, which has no compiler to
+answer to and therefore needs its judgement written down:
+
+| Skill | Reach for it when |
+| --- | --- |
+| `designing-an-effect` | Deciding whether an effect belongs at all, or when the table starts to feel noisy |
+| `easing-and-choreography` | Motion feels cheap, linear, floaty or simultaneous |
+| `svg-filters-and-gradients` | Building glow, bloom, warp, shimmer or grain — or tempted to add a graphics library to get them |
+
+That last one is the standing answer to a recurring question. This client has no
+runtime dependencies, and the visual budget it spends is spent through the
+platform: CSS, SVG filters and the Web Animations API.
 
 ## Agent configuration files
 
@@ -380,6 +385,6 @@ This repo follows the cross-tool [AGENTS.md](https://agents.md) convention: **th
 - `CLAUDE.md` contains one line — `@AGENTS.md` — which Claude Code expands into this file's contents during preprocessing, before the model sees it. See [Write an effective CLAUDE.md](https://code.claude.com/docs/en/best-practices#write-an-effective-claude-md).
 - `.claude/` is a symlink to `.agents/`, which holds shared skills (`.agents/skills/`).
 
-The symlink is load-bearing and deliberate. Claude Code discovers skills only under a `.claude/skills/` path: `--add-dir` looks for `.claude/skills/` *inside* the added directory, `permissions.additionalDirectories` in `settings.json` grants file access but explicitly does not load skills, and skills-directory plugins are themselves found only under `.claude/skills/`. There is no supported way to point Claude Code at a bare `.agents/skills/`, so removing the symlink silently hides all 28 skills. (Windows checkouts need `core.symlinks=true`.)
+The symlink is load-bearing and deliberate. Claude Code discovers skills only under a `.claude/skills/` path: `--add-dir` looks for `.claude/skills/` *inside* the added directory, `permissions.additionalDirectories` in `settings.json` grants file access but explicitly does not load skills, and skills-directory plugins are themselves found only under `.claude/skills/`. There is no supported way to point Claude Code at a bare `.agents/skills/`, so removing the symlink silently hides every skill. (Windows checkouts need `core.symlinks=true`.)
 
 When updating project guidance, edit `AGENTS.md` — never fork the content into a tool-specific copy.

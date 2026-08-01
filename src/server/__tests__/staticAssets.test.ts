@@ -150,3 +150,88 @@ describe('filesystemLookup', () => {
         }
     });
 });
+
+/**
+ * Compression is negotiated in `serveFrom` rather than in a lookup, for the
+ * same reason the traversal guard is: it is policy, and forking it per source
+ * is what this file's split exists to prevent. A binary that served
+ * uncompressed while the directory server gzipped would be a silent 1.3 MB
+ * regression nobody would think to look for.
+ */
+describe('compression', () => {
+    /** Big enough to clear the floor, and compressible enough to prove it ran. */
+    const scriptBody = `// ${'the mule looms. '.repeat(400)}\n`;
+
+    function withScript<T>(run: (root: string) => Promise<T>): Promise<T> {
+        const root = mkdtempSync(join(tmpdir(), 'mules-gzip-'));
+        mkdirSync(join(root, 'assets'), { recursive: true });
+        writeFileSync(join(root, 'index.html'), '<!doctype html><title>court</title>');
+        writeFileSync(join(root, 'assets', 'app.js'), scriptBody);
+        writeFileSync(join(root, 'assets', 'card.png'), 'PNGDATA'.repeat(500));
+
+        return run(root).finally(() => rmSync(root, { recursive: true, force: true }));
+    }
+
+    it('gzips a script when the client asks, and the body still decodes to the original', async () => {
+        await withScript(async root => {
+            const res = await serveFrom(filesystemLookup(root), '/assets/app.js', 'gzip, deflate, br');
+
+            expect(res.headers.get('content-encoding')).toBe('gzip');
+            expect(res.headers.get('content-type')).toContain('javascript');
+
+            const raw = new Uint8Array(await res.arrayBuffer());
+            expect(new TextDecoder().decode(Bun.gunzipSync(raw))).toBe(scriptBody);
+            expect(raw.length).toBeLessThan(scriptBody.length);
+        });
+    });
+
+    it('varies on accept-encoding, so a shared cache cannot replay gzip at a client that never asked', async () => {
+        await withScript(async root => {
+            const res = await serveFrom(filesystemLookup(root), '/assets/app.js', 'gzip');
+            expect(res.headers.get('vary')?.toLowerCase()).toContain('accept-encoding');
+        });
+    });
+
+    it('sends the raw bytes when the client offers no encoding', async () => {
+        await withScript(async root => {
+            const res = await serveFrom(filesystemLookup(root), '/assets/app.js');
+
+            expect(res.headers.get('content-encoding')).toBeNull();
+            expect(await res.text()).toBe(scriptBody);
+        });
+    });
+
+    it('leaves an already-compressed format alone however much of it there is', async () => {
+        await withScript(async root => {
+            const res = await serveFrom(filesystemLookup(root), '/assets/card.png', 'gzip');
+
+            expect(res.headers.get('content-encoding')).toBeNull();
+            expect(await res.text()).toBe('PNGDATA'.repeat(500));
+        });
+    });
+
+    it('compresses the shell a client route falls back to, not just an exact hit', async () => {
+        await withScript(async root => {
+            // A long shell, so the fallback branch clears the floor too.
+            writeFileSync(join(root, 'index.html'), `<!doctype html><title>court</title><!--${'x'.repeat(2000)}-->`);
+
+            const res = await serveFrom(filesystemLookup(root), '/join/K7QX2', 'gzip');
+            expect(res.headers.get('content-encoding')).toBe('gzip');
+            expect(new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(await res.arrayBuffer())))).toContain('court');
+        });
+    });
+
+    it('serves fresh bytes after a rebuild renames nothing, which is what /index.html does', async () => {
+        await withScript(async root => {
+            const shell = join(root, 'index.html');
+            writeFileSync(shell, `<!doctype html><title>court one</title><!--${'x'.repeat(2000)}-->`);
+            const first = await serveFrom(filesystemLookup(root), '/join/A', 'gzip');
+            expect(new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(await first.arrayBuffer())))).toContain('court one');
+
+            // Same path, different bytes — the cache key has to notice.
+            writeFileSync(shell, `<!doctype html><title>court two</title><!--${'y'.repeat(2100)}-->`);
+            const second = await serveFrom(filesystemLookup(root), '/join/A', 'gzip');
+            expect(new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(await second.arrayBuffer())))).toContain('court two');
+        });
+    });
+});

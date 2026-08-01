@@ -53,13 +53,11 @@ export function portraitPath(id: CardTypeId): string {
 /**
  * The card stock, chosen by measurement rather than taste.
  *
- * `card_front_3.png` is 512×720 — exactly the portrait dimensions, so art drops
- * in 1:1 with no crop window to define or maintain. `card_back_2.png` is
- * 768×1024, the same 0.75 aspect the layout gives every card; the square
- * alternate would have needed cropping to sit in the same box.
+ * `card_back_2.png` is 768×1024, the same 0.75 aspect the layout gives every
+ * card; the square alternate would have needed cropping to sit in the same box.
  *
- * That measurement settled it, so the rejected stock was deleted rather than
- * shipped — unlike the portrait variants, this was not a pending aesthetic call.
+ * There is no matching card FRONT. A card is its portrait, with the value badge
+ * and the name strip drawn over the art — so a frame to drop that art into is a
+ * thing this game does not have.
  */
-export const CARD_FRONT_ASSET = 'card-front/card_front_3.png';
 export const CARD_BACK_ASSET = 'card-back/card_back_2.png';
