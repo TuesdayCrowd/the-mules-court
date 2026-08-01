@@ -425,7 +425,7 @@ create a room.
 one executable that runs with nothing installed and no `dist/` beside it:
 
 ```bash
-bun run compile              # → ./mules-court, ~73 MB
+bun run compile              # → ./mules-court, ~72 MB
 ./mules-court                # http://localhost:3000
 MULES_PORT=8080 ./mules-court
 ```
@@ -433,7 +433,42 @@ MULES_PORT=8080 ./mules-court
 Cross-compile with `bun run compile:linux-x64`, `compile:linux-arm64`,
 `compile:darwin-arm64`, `compile:darwin-x64` or `compile:windows-x64`; those land in
 `dist-bin/`. The size is Bun's runtime rather than the game, and is unavoidable with
-`--compile`.
+`--compile`: the entire client accounts for about 7.6 MB of it, and only 104 KB of
+*that* is JavaScript and CSS — the rest is portrait art.
+
+**It lists every address it can be reached on**, because it is reachable on all of
+them: the server is given no bind hostname, so it listens on every interface from the
+moment it starts. Hosting a game across the house needs no flag and no environment
+variable — only the right address:
+
+```
+  The Mule's Court
+
+  Playing at   http://localhost:3000       this machine
+               http://192.168.1.24:3000    en0
+               http://100.101.102.103:3000 tailscale
+  Database     /Users/you/mules-court.sqlite
+  Assets       27 files compiled in
+
+  Other devices can use any address below the first. Open that same
+  one here too, before you invite anyone — the invite link is built
+  from your browser's address bar, so a link copied from localhost
+  works only on this machine.
+```
+
+Loopback comes first and is always offered. Every other line is an external IPv4
+address, labelled with the interface carrying it — and a Tailscale address is named
+rather than shown as the `utun` tunnel it rides on, so a machine on a LAN and a tailnet
+at once presents three legible choices. Link-local addresses and IPv6 are left out: a
+laptop can report a dozen of them and none is something a person types into a phone.
+
+**Open the address you intend to share, on your own machine too.** The lobby builds its
+invite link from `location.origin`, so a link copied from a `localhost` session sends
+every guest back to their own machine. This is the one way to set the binary up wrong,
+which is why the banner says so.
+
+`bun run serve` prints no banner — it is the same server, and equally reachable, but the
+addresses above are the binary's own startup output.
 
 The binary still writes `mules-court.sqlite` to whatever directory it was launched
 from — so a copy double-clicked out of a downloads folder keeps its matches there.
