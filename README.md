@@ -3,7 +3,8 @@
 **The Mule's Court** is a 2-4 player card game of deduction, risk, and elimination set in Isaac Asimov's Foundation universe. Inspired by Love Letter, this game explores the tragic irony of the Mule's mind control: every player believes they act independently, but all have been emotionally converted.
 
 Play it in a browser, over the network, with 2-4 people. One player hosts, shares a
-link, and the rest join from any device — phone, tablet, or desktop.
+link, and the rest join from any device — phone, tablet, or desktop. Seats nobody takes
+can be filled with [computer opponents](#computer-opponents), so it plays solo too.
 
 ## Play it
 
@@ -21,9 +22,54 @@ Open `http://localhost:8080`, click **Host a game**, pick a nickname, and share 
 invite link the lobby shows you. Everyone who opens it lands on `/join/:matchId` and
 takes a seat. Start the match when 2-4 people are seated.
 
+<img src="docs/gameplay/start.png" alt="The opening screen against a dark nebula: a field labelled 'Your name at this court' holding the nickname 'cddigi', a 'Host a game' button beneath it, then a field for pasting an invite link and a 'Join a game' button." width="640">
+
+_The opening screen. Name yourself, then either host a court or paste a link into
+someone else's._
+
+<img src="docs/gameplay/lobby.png" alt="The lobby: the title 'The Mule's Court', an invite link with a Copy button, a radio group headed 'Computer opponents play as' offering Converted, Officer and Mentalic, four numbered seats — seat 1 the host, seat 3 a computer, seats 2 and 4 open with 'Add computer' buttons — and a Start Match button." width="560">
+
+_The lobby. The invite link is the whole of joining. Any seat still open when you want
+to begin can be filled by a computer opponent instead._
+
 To play across a room instead of across tabs, use `bun run dev:host` in terminal 2 —
 it binds to the network and prints an address other devices can open. See
 [Playing from a phone](#playing-from-a-phone).
+
+### Computer opponents
+
+You do not need three other people. Any seat still open in the lobby can be filled with a
+computer opponent, so the game plays solo — and a table can mix, two friends and one
+machine. The controls belong to the host, and the difficulty is chosen per seat: the
+picker sets what the *next* opponent is added at, so one court can hold a hard opponent
+and two soft ones.
+
+| Opponent      | In the code | What it does                                        |
+| ------------- | ----------- | --------------------------------------------------- |
+| **Converted** | `novice`    | Forgets the cards played earlier in the round.       |
+| **Officer**   | `adept`     | Remembers every card played, and what it has seen.   |
+| **Mentalic**  | `master`    | Remembers everything, and plays the odds forward.    |
+
+All three run the same scorer on the same trained weights. What changes is how much of the
+table a seat is allowed to remember, and whether it gets to search the futures its
+uncertainty allows. That is the design rule and it is easy to get backwards: **an easy
+opponent should reason well about less, not badly about everything.** One that throws away
+a winning line reads as broken and teaches a new player nothing, while one that forgets a
+discard from four turns ago and therefore guesses wrong reads as a person — and beating the
+next tier up feels earned rather than granted.
+
+**They cannot cheat, and not because they were told not to.** A policy is handed the same
+`RedactedView` your browser receives, from the same call, so the deck, the set-aside card,
+the seed and another player's hand have nowhere to reach it from. It cannot name a seat
+either: the driver supplies the player id from whoever actually holds the turn, so a policy
+cannot move for a seat it does not occupy. Both are missing capabilities rather than rules.
+
+A computer seat waits 1.2 seconds before it plays. That is pacing, not thinking — deciding
+takes well under a millisecond — because three seats resolving instantly is a table nobody
+can read.
+
+Filling a seat is one-way: the lobby has no button to empty it again, so a misclick means
+starting a new court.
 
 ## Game Rules
 
@@ -54,6 +100,18 @@ On your turn:
 3. **Resolve** the card's ability (targeting other players)
 4. **End** your turn (the played card goes to your discard pile)
 
+<img src="docs/gameplay/turn-1.png" alt="The table on your own turn: two opponent boxes across the top labelled Arkady Darell and Lathan Devers, a purple deck in the middle showing 11 cards left with a 'Your turn' badge beneath it, and your two cards at the bottom — a 5, Toran Darell, and a 1, Informant." width="560">
+
+_The table. Opponents across the top, the deck and its remaining count in the middle,
+your two cards along the bottom. There is nowhere else to look._
+
+Tapping a card opens its action sheet — the card's ability, the legal targets, and
+nothing that is not a decision you have to make:
+
+![The action sheet for 5 · Toran Darell, sliding over the table from the right. It states the ability — choose any player to discard their hand and draw a new card — then offers three target buttons: cddigi (you), Arkady Darell and Lathan Devers, with Cancel and Play at the foot.](docs/gameplay/targeting.png)
+
+_Playing Toran Darell. It may be aimed at yourself, so all three seats are offered._
+
 ### Winning a Round
 
 A round ends when:
@@ -66,6 +124,11 @@ still tied after that share the round, and each earns a token.
 
 The round winner earns 1 Devotion Token. Reset the round and continue until a player
 reaches the winning token count.
+
+![The end of a round. Arkady Darell's box is outlined in red as the winner; Lathan Devers is greyed out and marked 'Out of the round' with a face-up hand. A banner reads 'Round over — Arkady Darell is the last one standing. Arkady Darell takes the round. Next round in 1…'](docs/gameplay/round-over.png)
+
+_Every discard pile turns face up when the round ends, so the deduction you were doing
+all round can be checked against what was actually there._
 
 ### Sudden death
 
@@ -81,6 +144,14 @@ You are eliminated from the round if:
 - Another player's card effect eliminates you
 - You discard **The Mule** card (value 8)
 - You must discard **The First Speaker** when holding Mayor Indbur or either Darell
+
+A player who has played Shielded Mind cannot be chosen at all, and the interface says so
+rather than letting you find out by trying:
+
+![The Informant's action sheet. Arkady Darell is selected as the target; Lathan Devers is dimmed and annotated 'protected', and his box on the table carries a cyan 'Protected' tag. Guess buttons 2 through 8 sit below, with 6 chosen and 'Mayor Indbur' named beneath as the card that value would catch.](docs/gameplay/protected-player.png)
+
+_An Informant guess names a value, not a character — so the sheet spells out which card
+the chosen number would actually catch._
 
 ## The Cards
 
@@ -105,6 +176,11 @@ different characters — Pritcher and Channis at 2, Mis and Magnifico at 3, the 
 Darells at 5 — and each keeps its own name and portrait while resolving through the
 same ability.
 
+The same table is a keystroke away during a match, ordered the way you need it there —
+by value, highest first, with the count still in the deck beside each row:
+
+![The 'Every card, by value' overlay: a table with Value, In deck, Characters and Ability columns, running from 8 (The Mule, ×1) down to 1 (Informant, ×5), with tabs for Card reference, How to play and Match log across the top.](docs/gameplay/card-reference.png)
+
 ### Key Mechanics
 
 - **Protection**: Playing Shielded Mind grants immunity until your next turn
@@ -112,6 +188,22 @@ same ability.
 - **The Mule**: Never willingly discard The Mule (value 8)—hold it to win if the deck runs out
 - **The First Speaker**: Automatically discards if paired with specific high-value cards
 - **Guessing is by value, not by name**: several values are shared by two characters, so guessing 5 catches either Darell. The Informant may never guess its own value of 1
+
+### Reference without leaving the table
+
+The **Reference** button in the corner of the table opens three tabs, and none of them
+ends your turn. Beside the card reference above sit the rules and the log:
+
+<img src="docs/gameplay/rules.png" alt="The 'How to play' overlay, a scrolling page of rules under the headings Winning the match, Your turn, Winning a round, Being eliminated, and 'Two rules that catch people out'." width="400">
+
+_**How to play** — the whole game in one scroll, including the two rules that catch
+people out: discarding The Mule for any reason puts you out, and holding The First
+Speaker beside a 5 or a 6 takes the choice away from you._
+
+![The 'Match log' overlay listing Round 1 in progress as a numbered sequence: cddigi played Toran Darell; Arkady Darell discarded their hand and drew from the deck; Arkady Darell guessed 2 against cddigi — missed; Lathan Devers played Shielded Mind; and so on.](docs/gameplay/match-log.png)
+
+_**Match log** — every play, guess and consequence in order. It is the deduction game's
+working memory, so nobody has to hold ten turns of public information in their head._
 
 ## Development
 
@@ -138,8 +230,18 @@ Rooms persist `{seed, actionLog}` rather than a state snapshot, and rebuild by r
 actions through the engine. A server restart mid-match is therefore safe: clients
 reconnect with backoff and resume their seat.
 
+Beside those sits `src/game/ai/`, the [computer opponents](#computer-opponents). It is a
+client of the engine rather than a layer of it: a policy takes the same `RedactedView` a
+browser gets and returns a move, which is why it cannot read a deck or move for a seat it
+does not hold. The scorer's weights are trained offline by the cross-entropy method
+(`bun scripts/trainAi.ts`) and committed as `weights.generated.ts`, for the same reason
+the embedded asset manifest is: `heuristic.ts` imports it, so a clone without it fails
+`bunx tsc --noEmit`. `selfPlay.ts` and `arena.ts` are how a change to those numbers is
+judged — by win rate over seeded matches, not by inspection.
+
 The full design documents live in `docs/plans/` — engine architecture, transport
-protocol, and the UI/UX design.
+protocol, the UI/UX design, and `2026-07-30-computer-opponent-design.md` for the
+opponents.
 
 ### Requirements
 
@@ -264,6 +366,7 @@ cannot assert — see [Status](#status).
 | `src/game/main.ts`  | Phaser game config (renderer, scale, scene list)                               |
 | `src/game/scenes/`  | `Boot.ts` → `Preloader.ts` → `Court.ts`, plus `beats.ts` for cinematic beats   |
 | `src/game/engine/`  | The rules as pure functions — setup, legality, effects, round flow, redaction  |
+| `src/game/ai/`      | The computer opponents: policies, trained weights, self-play and arena harness |
 | `src/server/`       | The WebSocket transport: rooms, seats, dispatch, persistence, rate limiting    |
 | `src/client/`       | Browser-independent client: `layout/`, `content/`, `store/`, `tokens/`         |
 | `src/client/ui/`    | One factory per DOM surface, each with `mount` / `update` / `destroy`          |
