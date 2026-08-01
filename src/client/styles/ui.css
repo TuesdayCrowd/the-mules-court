@@ -674,9 +674,32 @@ h2,
     color: var(--color-state-waiting);
 }
 
+/*
+ * The ordered lists — the match log here, the discard pile in the dossier.
+ *
+ * `list-style-position` stays at its default `outside`, which is what
+ * right-aligns each marker against the text and lines the entries up on the
+ * decimal point. The marker is painted INSIDE this padding, so the padding is
+ * the marker's whole width budget: at a flat `--space-6` (1.5rem = 24px) a
+ * one-digit "9." fits and a two-digit "10." does not, and the tens digit was
+ * clipped away — the log rendered "L0." from turn ten onward.
+ *
+ * `ch` is the width of a "0", so sizing the budget in `ch` makes it track the
+ * font rather than a pixel guess, and 3.5ch holds three digits and a period.
+ * `max()` keeps the old rhythm wherever it was already the larger of the two.
+ *
+ * `tabular-nums` makes every digit the same width, so the decimal alignment the
+ * markers already had is exact rather than nearly right once the list mixes
+ * 1-wide and 2-wide glyphs.
+ */
+.reference-modal ol,
+.seat-dossier ol {
+    font-variant-numeric: tabular-nums;
+}
+
 .reference-modal ol {
     margin: 0;
-    padding-left: var(--space-6);
+    padding-left: max(var(--space-6), 3.5ch);
     display: grid;
     gap: var(--space-1);
 }
@@ -734,9 +757,11 @@ h2,
     color: var(--color-state-your-turn);
 }
 
+/* The dossier renders the same match log (`seatDossier.ts#logPanel`), so it
+ * carries the same marker budget — see `.reference-modal ol` above. */
 .seat-dossier ol {
     margin: 0 0 var(--space-4);
-    padding-left: var(--space-6);
+    padding-left: max(var(--space-6), 3.5ch);
     display: grid;
     gap: var(--space-1);
 }

@@ -612,3 +612,45 @@ describe('the how-to-play tab', () => {
         expect(second.tabFor('rules')!.getAttribute('aria-selected')).toBe('true');
     });
 });
+
+/**
+ * A two-digit turn number is not clipped.
+ *
+ * The markers are `list-style-position: outside`, which right-aligns them
+ * against the text and lines every entry up on the decimal — the behaviour
+ * worth keeping. But `outside` paints the marker INSIDE the list's left
+ * padding, so that padding is the marker's entire width budget. At a flat
+ * `--space-6` (1.5rem) a one-digit "9." fits and "10." does not, and the tens
+ * digit was clipped: the log rendered "L0." from turn ten onward.
+ *
+ * jsdom resolves no lengths, so this cannot measure the clip. What it can do is
+ * prove the budget is expressed in `ch` — a unit that tracks the font rather
+ * than a pixel guess — and that the rule reaches a real `.reference-modal ol`
+ * through the cascade rather than merely existing in the file.
+ */
+describe('the match log markers', () => {
+    function listIn(className: string): HTMLOListElement {
+        loadRealStyles();
+        const host = document.createElement('div');
+        host.className = className;
+        const list = document.createElement('ol');
+        host.appendChild(list);
+        document.body.appendChild(host);
+        return list;
+    }
+
+    it('budgets the marker in font-relative units, not a fixed pixel gutter', () => {
+        const padding = getComputedStyle(listIn('reference-modal')).paddingLeft;
+
+        expect(padding, 'the marker budget must scale with the font, or two digits clip').toContain('ch');
+        expect(padding, 'the old rhythm should still win wherever it is larger').toContain('max(');
+    });
+
+    it('gives the seat dossier the same budget, since it renders the same log', () => {
+        expect(getComputedStyle(listIn('seat-dossier')).paddingLeft).toContain('ch');
+    });
+
+    it('uses tabular figures, so the decimal alignment is exact across digit widths', () => {
+        expect(getComputedStyle(listIn('reference-modal')).fontVariantNumeric).toBe('tabular-nums');
+    });
+});
