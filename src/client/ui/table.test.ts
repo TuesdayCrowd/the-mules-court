@@ -3,7 +3,7 @@ import { describe, expect, it } from 'vitest';
 import type { CardInstanceId, CardTypeId, CardValue, PlayerId, RedactedView } from '../../game/engine';
 import { makeView } from '../store/__fixtures__/view';
 import type { ViewOverrides } from '../store/__fixtures__/view';
-import { fakeTimers, makeState, makeTable, makeUiRootElement } from './__fixtures__/dom';
+import { fakeTimers, loadRealStyles, makeState, makeTable, makeUiRootElement } from './__fixtures__/dom';
 import type { TableDeps } from './table';
 import { createTable } from './table';
 
@@ -418,5 +418,53 @@ describe('lifecycle', () => {
         h.table.destroy();
 
         expect(h.root.querySelector('[data-role="table-host"]')).toBeNull();
+    });
+});
+
+/**
+ * Art is never left at its natural size.
+ *
+ * An `<img>` with no width or height renders at the pixels the file happens to
+ * be — 512×720 for every portrait here — and `object-fit` cannot help, because
+ * it only describes how pixels fill a box that has already been sized. The hand
+ * portrait shipped exactly that way: it hung off the bottom of the viewport with
+ * the card's own name strip stranded across its middle, and no test noticed,
+ * because jsdom has no layout and every assertion in this file was about
+ * structure.
+ *
+ * This is the narrowest thing that WOULD have noticed, and it runs against the
+ * real stylesheet rather than a stub — the rule under test lives in
+ * `table.css`, so asserting it against a fixture would only prove the fixture.
+ */
+describe('every piece of card art is given a size', () => {
+    it('leaves no img at its intrinsic dimensions', () => {
+        loadRealStyles();
+        const h = harness();
+        // A view rich enough to render every art class at once: a held card
+        // (the back marker), an eliminated seat (the revealed face), devotion
+        // medallions, an own-row discard, and the viewer's own hand.
+        h.driveView(
+            fourPlayerView({}, [
+                seat('p1', 0, { tokens: 2, discardPile: [{ cardId: 'informant', value: 1 }], discardValueTotal: 1 }),
+                seat('p2', 1, { tokens: 3 }),
+                seat('p3', 2),
+                seat('p4', 3, { alive: false, discardPile: [{ cardId: 'mule', value: 8 }], discardValueTotal: 8 })
+            ])
+        );
+
+        const art = [...h.root.querySelectorAll('img.tbl-art')];
+        expect(art.length, 'no art rendered — the query drifted').toBeGreaterThan(0);
+
+        for (const img of art) {
+            const style = getComputedStyle(img);
+            const named = img.className;
+            // Either an explicit rect from `table.ts`, or `100%` from the one
+            // class that means "fill your parent". Never `auto`, which is the
+            // natural-size default this test exists to forbid.
+            expect(style.width, `${named} has no width, so it renders at its natural size`).not.toBe('auto');
+            expect(style.width, `${named} has no width, so it renders at its natural size`).not.toBe('');
+            expect(style.height, `${named} has no height, so it renders at its natural size`).not.toBe('auto');
+            expect(style.height, `${named} has no height, so it renders at its natural size`).not.toBe('');
+        }
     });
 });

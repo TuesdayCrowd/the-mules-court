@@ -59,9 +59,38 @@
  * that five-per-cent gap, which is a worse trade than a sliver of the rect's
  * own background showing at the long edge.
  */
+/*
+ * `object-fit` alone does NOTHING to an unsized <img>.
+ *
+ * It describes how the pixels fill the element's box; with no width or height
+ * the box IS the natural size, so there is nothing to fit and the declaration
+ * is inert. Every other piece of art here is given an explicit rect in
+ * `table.ts` — the medallions, the card-back marker, the chip's revealed card,
+ * the burn panel and its slivers, the own-row faces — and the hand portrait was
+ * the one that was not, so it rendered at its native 512×720 and hung off the
+ * bottom of the viewport with the card's name strip stranded across its middle.
+ *
+ * `.tbl-art` therefore carries no sizing of its own on purpose: the sized ones
+ * would fight it. The fill belongs to the one class that means "fill your
+ * parent", below.
+ */
 .tbl-art {
     object-fit: contain;
     pointer-events: none;
+}
+
+/*
+ * The only art that takes its size from its parent rather than from a rect.
+ *
+ * `contain` rather than `cover`, which settles the aspect question the metrics
+ * hoist opened: portraits are 512×720 (0.711) and `tableLayout` sizes the hand
+ * at 0.75, so something has to give. Containing letterboxes by about five per
+ * cent against a dark table; covering would crop the same five per cent off a
+ * portrait's head. Nothing stretches either way, which was the point.
+ */
+.tbl-hand-portrait {
+    width: 100%;
+    height: 100%;
 }
 
 /* ----------------------------------------------------------------- seats */
@@ -296,6 +325,14 @@
 
 [data-role='hand-card'] {
     box-sizing: border-box;
+    /*
+     * Belt and braces. The card is positioned at a rect the pure layer chose,
+     * and nothing inside it has any business extending past that rect — a
+     * child that does is overlapping whatever the layout put next to it. This
+     * would have contained the unsized-portrait bug instead of letting it run
+     * off the screen.
+     */
+    overflow: hidden;
 }
 
 [data-role='hand-card'].is-playable {
