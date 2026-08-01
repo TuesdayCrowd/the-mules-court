@@ -163,7 +163,16 @@
     color: var(--color-text-primary);
     font-family: var(--font-display);
     font-size: 15px;
-    transform: translate(100%, 100%);
+    /*
+     * NO transform. It carried `translate(100%, 100%)`, which was Phaser's
+     * `.setOrigin(1, 1)` translated literally — and `right`/`bottom` already
+     * anchor an absolutely positioned element by its bottom-right corner, so
+     * the offset applied twice and pushed the numeral right by its own width
+     * and DOWN by its own height, straight through the chip's bottom border.
+     * An origin is a property of a canvas draw call; in DOM it is the choice
+     * of which edges you anchor from.
+     */
+    line-height: 1;
     white-space: nowrap;
     pointer-events: none;
 }
@@ -178,6 +187,17 @@
     font-family: var(--font-ui);
     white-space: nowrap;
     pointer-events: none;
+    /*
+     * One pip occupies exactly one budgeted row.
+     *
+     * `pipBlockHeight` reserves `pip.size` per row, and the default
+     * `line-height: normal` makes a span about 1.2 × its font size — so the
+     * block overran its budget by a fifth of a pip and the last row sat on the
+     * chip's bottom border. Digits have no descender, so a line box of exactly
+     * the font size clips nothing. The height itself is set from `pip.size` in
+     * table.ts, beside the offsets it is measured against.
+     */
+    line-height: 1;
 }
 
 .tbl-chip-line {

@@ -6,6 +6,7 @@ import type { ViewOverrides } from '../store/__fixtures__/view';
 import { fakeTimers, loadRealStyles, makeState, makeTable, makeUiRootElement } from './__fixtures__/dom';
 import type { TableDeps } from './table';
 import { createTable } from './table';
+import { pipBlockHeight } from '../layout/tableLayout';
 
 /** A wide desktop viewport — plenty of room, so a chip growing to fit an
  * 8-value pip block (interface rule 7) is never fighting the layout for it. */
@@ -466,5 +467,78 @@ describe('every piece of card art is given a size', () => {
             expect(style.height, `${named} has no height, so it renders at its natural size`).not.toBe('auto');
             expect(style.height, `${named} has no height, so it renders at its natural size`).not.toBe('');
         }
+    });
+});
+
+/**
+ * The discard block stays inside the chip the layout gave it.
+ *
+ * `chipBands` sets `pipTop = chipH - pipBlockHeight(pip) - CHIP_PAD`, so the
+ * block is meant to end exactly `CHIP_PAD` above the chip's bottom edge — six
+ * pixels, and no more. Two things ate that margin at once and put discard
+ * values on top of the border:
+ *
+ *   - a pip span's line box is `font-size × line-height`, about 1.2 ×, while
+ *     `pipBlockHeight` budgets exactly `pip.size` per row;
+ *   - the scrim inflated itself by an invented `-4` top and `+10` height.
+ *
+ * Both are the shape `courtContract.test.ts` was written for — the renderer
+ * disagreeing with the geometry the pure layer already decided — so this
+ * asserts the rendered block against the spec rather than against a literal.
+ * jsdom has no layout, so it cannot see an overflow; it can see the numbers
+ * that cause one.
+ */
+describe('discard pips stay within their chip', () => {
+    function chipFor(nickname: string) {
+        const h = harness();
+        h.driveView(
+            fourPlayerView({}, [
+                seat('p1', 0),
+                seat('p2', 1, {
+                    // Eight is the deepest pile the engine can actually produce
+                    // (discardCapacity.test.ts proves it), so this is the worst
+                    // case the budget has to survive.
+                    discardPile: [1, 2, 3, 4, 5, 6, 7, 8].map(v => ({ cardId: 'informant' as CardTypeId, value: v as CardValue })),
+                    discardValueTotal: 36
+                }),
+                seat('p3', 2),
+                seat('p4', 3)
+            ])
+        );
+        return { h, wrap: seatWrapNamed(h.root, nickname) };
+    }
+
+    it('gives every pip exactly the row height the block budgets', () => {
+        const { h, wrap } = chipFor('Bayta');
+        const spec = h.table.currentLayout();
+        expect(spec, 'no layout was computed').not.toBeNull();
+
+        const pips = [...wrap.querySelectorAll('.tbl-seat-pip')] as HTMLElement[];
+        expect(pips.length, 'interface rule 7: every value, never a truncation').toBe(8);
+
+        for (const pip of pips) {
+            expect(pip.style.height, 'a pip sized by its own line box overruns the block').toBe(
+                `${spec!.pip.size}px`
+            );
+        }
+    });
+
+    it('draws the scrim at exactly the block the spec reserved', () => {
+        const { h, wrap } = chipFor('Bayta');
+        const spec = h.table.currentLayout()!;
+        const scrim = wrap.querySelector('.tbl-seat-pip-scrim') as HTMLElement;
+
+        expect(scrim, 'no pip scrim rendered').not.toBeNull();
+        expect(scrim.style.top, 'the scrim invented a top offset').toBe(`${spec.chip.pipTop}px`);
+        expect(scrim.style.height, 'the scrim invented a height').toBe(`${pipBlockHeight(spec.pip)}px`);
+    });
+
+    it('ends the block clear of the chip, which is what CHIP_PAD is for', () => {
+        const { h, wrap } = chipFor('Bayta');
+        const spec = h.table.currentLayout()!;
+        const chipH = Number.parseFloat((wrap as HTMLElement).style.height);
+
+        const blockBottom = spec.chip.pipTop + pipBlockHeight(spec.pip);
+        expect(blockBottom, 'the discard block reaches the chip border').toBeLessThan(chipH);
     });
 });

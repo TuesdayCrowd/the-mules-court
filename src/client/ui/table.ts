@@ -476,11 +476,19 @@ export function createTable(deps: TableDeps): Table {
         if (pipsAcross > 0) {
             const scrim = document.createElement('div');
             scrim.className = 'tbl-seat-pip-scrim';
+            // EXACTLY the block the spec reserved. It used to be inflated by an
+            // invented `-4` top and `+10` height, which put its bottom edge at
+            // `chipH - CHIP_PAD + 6` — the chip's own border — because
+            // `pipTop` is `chipH - pipBlockHeight - CHIP_PAD` and there are
+            // only those six pixels beneath it. Padding a scrim is exactly the
+            // "re-derive geometry the pure layer already decided" mistake
+            // `courtContract.test.ts` exists to catch; if the block wants room
+            // around it, that belongs in `chipBands`, where it can be tested.
             setRect(scrim, {
                 x: 0,
-                y: pipsTop - 4,
+                y: pipsTop,
                 w: pipsAcross * pipStep + chip.pad * 2,
-                h: pipBlockHeight(pip) + 10
+                h: pipBlockHeight(pip)
             });
             hit.appendChild(scrim);
         }
@@ -492,6 +500,14 @@ export function createTable(deps: TableDeps): Table {
             numeral.style.left = px(chip.pad + (index % pip.perRow) * pipStep);
             numeral.style.top = px(pipsTop + Math.floor(index / pip.perRow) * pipStep);
             numeral.style.fontSize = px(pip.size);
+            // An EXPLICIT row height, for the same reason `nameBandH` is an
+            // explicit band height. `pipBlockHeight` budgets each row at
+            // exactly `pip.size`, but a span's line box is `font-size ×
+            // line-height` — about 1.2 × — so the last row overran the block by
+            // a fifth of a pip and crossed the chip's bottom border, which is
+            // the entire six-pixel pad `pipTop` leaves beneath it. Paired with
+            // `line-height: 1` in table.css.
+            numeral.style.height = px(pip.size);
             hit.appendChild(numeral);
         });
 
