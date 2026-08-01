@@ -9,8 +9,9 @@
  * passing tests.
  *
  * So this is a capture harness, not an oracle. It fails the run on anything a
- * machine can judge — a page error, a missing canvas, a silent WebGL failure,
- * an empty accessibility twin — and writes PNGs for the things only eyes can.
+ * machine can judge — a page error, a table that never mounted, a table that
+ * mounted empty, a hand with no cards in it — and writes PNGs for the things
+ * only eyes can.
  *
  * Run it with `bun run test:visual`. It needs both dev servers up, because it
  * plays actual matches over the actual socket rather than mocking a view.
@@ -140,25 +141,33 @@ async function capture(browser: Browser, viewport: Viewport): Promise<void> {
     await host.screenshot({ path: join(OUT_DIR, `${viewport.name}-match.png`) });
 
     // What a machine can still judge, once the pixels are someone else's problem.
-    if ((await host.locator('#game-container canvas').count()) === 0) {
-        fail(viewport.name, 'no canvas — the table never mounted');
+    if ((await host.locator('[data-role="table-host"]').count()) === 0) {
+        fail(viewport.name, 'no table — it never mounted');
     }
 
-    const renderer = await host.evaluate(() => {
-        const canvas = document.querySelector('#game-container canvas') as HTMLCanvasElement | null;
-        if (canvas === null) return 'none';
-        return canvas.getContext('webgl2') !== null ? 'webgl2' : canvas.getContext('webgl') !== null ? 'webgl' : 'fallback';
-    });
-    if (renderer === 'none' || renderer === 'fallback') {
-        fail(viewport.name, `renderer is ${renderer}, not WebGL`);
-    }
+    // Mounted but empty is the failure a screenshot hides: `table.ts#update`
+    // clears the plan layer and returns early on a state it cannot draw, so the
+    // background still renders and the page looks plausible.
+    const seats = await host.locator('[data-role="seat-chip"]').count();
+    if (seats === 0) fail(viewport.name, 'table mounted but drew no seats');
 
-    // The twin is the whole accessibility story for a canvas table (UIX §11).
-    // Empty means a screen reader is looking at nothing.
-    const twin = (await host.locator('#a11y-twin').innerText()).trim();
-    if (twin.length === 0) fail(viewport.name, 'accessibility twin is empty during a live match');
+    // Every card is a real button, which is the whole accessibility story now
+    // that there is no shadow tree standing in for a canvas. No cards in hand
+    // during a live match means a player has nothing to activate.
+    const hand = await host.locator('[data-role="hand-card"]').count();
+    if (hand === 0) fail(viewport.name, 'no hand cards during a live match');
 
-    console.log(`  ✓ canvas up on ${renderer}, twin carries ${twin.length} chars`);
+    // A control with no accessible name is invisible to a screen reader and to
+    // axe; jsdom can prove the markup, only a browser can prove it survived the
+    // cascade and the live plan.
+    const unnamed = await host.evaluate(() =>
+        [...document.querySelectorAll('[data-role="seat-chip"] button, [data-role="hand-card"]')].filter(
+            el => (el.getAttribute('aria-label') ?? el.textContent ?? '').trim() === ''
+        ).length
+    );
+    if (unnamed > 0) fail(viewport.name, `${unnamed} table controls have no accessible name`);
+
+    console.log(`  ✓ table up: ${seats} seats, ${hand} hand cards, every control named`);
 
     await guest.context().close();
     await host.context().close();
@@ -185,5 +194,5 @@ if (failures.length > 0) {
     process.exit(1);
 }
 
-console.log('No page errors, every table mounted on WebGL, every twin populated.');
+console.log('No page errors, every table mounted with seats, a hand, and named controls.');
 console.log('The screenshots still want eyes — that is what they are for.');

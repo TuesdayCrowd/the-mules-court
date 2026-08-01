@@ -26,6 +26,7 @@ Requires [Bun](https://bun.sh).
 | `bun run compile`                           | Single-file executable → `./mules-court` (see below)                      |
 | `bun run mcp`                               | The MCP seat server on stdio. Needs a game server running                 |
 | `bun run compile:mcp`                       | Single-file MCP executable → `./mules-court-mcp`                          |
+| `bun run test:visual`                       | Screenshot real matches in a real browser. Needs **both** dev servers up   |
 | `bunx tsc --noEmit`                         | Type-check (see gotcha below — this is the only way to catch type errors) |
 
 ### Running in dev takes two processes
@@ -110,6 +111,18 @@ bun run test        # engine/client (Vitest) + server + MCP (bun test)
 bunx tsc --noEmit    # neither vite build nor the dev server type-checks; this is the only type check
 bun run build        # confirm the production bundle still builds
 ```
+
+**None of that can see the table.** jsdom has no layout engine, so every geometry
+assertion in the suite is arithmetic against a `LayoutSpec` — and *anything drawn past
+a rect is not a rect*. `bun run test:visual` (`visual/harness.ts`) closes that gap by
+playing real matches in a real browser and writing a PNG per viewport. It needs both
+dev servers up, because it drives the actual socket rather than mocking a view.
+
+It is a **capture harness, not an oracle.** It fails only on what a machine can judge —
+a page error, a table that never mounted, a table with no seats, a hand with no cards,
+a control with no accessible name — and leaves the rest to eyes. Run it after any
+change to geometry or motion, and actually look at the output. Two layout bugs shipped
+past a fully green suite and were obvious in a screenshot.
 
 ## Architecture
 
@@ -339,44 +352,56 @@ Other asset dirs: `card-back/` (the deck and face-down cards), `shaders/` (`rain
 
 ## Skills
 
-`.agents/skills/` holds nine, in two groups.
+`.agents/skills/` holds nine. They are not summaries of this file — each carries the
+detail a task actually needs at the moment it needs it, and several encode failures
+this repo has genuinely shipped. **Where a skill and this file overlap, the skill is
+the deeper account.**
 
-**Where a change belongs** — these divide along the seams this file already
-describes, not by file type:
+### Where a change belongs
 
-| Skill | Reach for it when |
+| Skill | Covers |
 | --- | --- |
-| `adding-to-the-pure-layer` | Editing `layout/`, `content/`, `store/` or `tokens/`, or when `purity.test.ts` fails |
-| `laying-out-the-table` | Changing table geometry, or adding a field to `LayoutSpec`, `RenderPlan`, `SeatPlan` or `ChipSpec` |
-| `writing-a-dom-surface` | Adding or changing anything in `src/client/ui/` |
-| `changing-the-wire` | Touching `RedactedView`, protocol messages, engine types or room state |
-| `running-the-test-gates` | Before claiming any change is done, or when a failure does not match what you edited |
+| `adding-to-the-pure-layer` | The four guaranteed-loadable directories, exactly what `purity.test.ts` forbids and the regex each ban matches, why a *comment* naming a global fails, `import type` from the server versus a runtime import, and the single argued exception (`content/nickname.ts`) |
+| `laying-out-the-table` | Geometry as data; adding a field to `LayoutSpec`/`RenderPlan`/`SeatPlan`/`ChipSpec` means adding it to `tableContract.test.ts` too; the `fit-content`-needs-a-height trap; why the discard reserve is eight and the design doc's seven is wrong |
+| `writing-a-dom-surface` | The `Surface` contract, why `mount` appends exactly one element, why a surface never reads the store, the jsdom docblock, and registering a new surface in `axe.test.ts` |
+| `changing-the-wire` | `RedactedView` as the security boundary, redacting per seat rather than shipping the union, why `PLAY_CARD` carries no `playerId`, and why an engine change is retroactive across every stored `actionLog` |
+| `running-the-test-gates` | All three gates and why each fails for non-obvious reasons; the two runners and why the split is not stylistic; the visual harness |
 
-The split is not filing. A change that spans two of them is usually a change
-that should have been one: geometry belongs in `layout/`, the renderer obeys it,
-and a surface that computes its own position has taken a decision away from a
-layer that can be tested without a browser.
+The split is not filing. A change that spans two of them is usually a change that
+should have been one: geometry belongs in `layout/`, the renderer obeys it, and a
+surface that computes its own position has taken a decision away from a layer that can
+be tested without a browser.
 
-Two exist because of failures this repo has actually had. `changing-the-wire`
-covers the version skew that presents as anything but — "cards stopped
-responding" and a rule being misreported were one added field, not two bugs.
-`running-the-test-gates` exists because `vitest.config.ts` enumerates globs while
-the `bun test` scripts name directories, so a new top-level directory under
-`src/` is type-checked automatically and **silently untested** until a script
-names it.
+### How it should look and move
 
-**How it should look and move** — the visual half, which has no compiler to
-answer to and therefore needs its judgement written down:
+The visual half has no compiler to answer to, so its judgement is written down:
 
-| Skill | Reach for it when |
+| Skill | Covers |
 | --- | --- |
-| `designing-an-effect` | Deciding whether an effect belongs at all, or when the table starts to feel noisy |
-| `easing-and-choreography` | Motion feels cheap, linear, floaty or simultaneous |
-| `svg-filters-and-gradients` | Building glow, bloom, warp, shimmer or grain — or tempted to add a graphics library to get them |
+| `designing-an-effect` | The four questions an effect must pass, spending boldness in exactly one place, taking direction from Asimov rather than from the casino-app default, and the floor that always applies |
+| `easing-and-choreography` | Named `cubic-bezier` curves instead of `ease`, stagger as the whole trick, exit-move-enter sequencing, `color-mix` in oklch, and animating only the compositor-cheap properties |
+| `svg-filters-and-gradients` | SVG filters applied to ordinary HTML through `filter: url(#…)`, the primitives worth knowing, why the filter region must be set explicitly, and additive blending against a near-black table |
 
-That last one is the standing answer to a recurring question. This client has no
-runtime dependencies, and the visual budget it spends is spent through the
-platform: CSS, SVG filters and the Web Animations API.
+`svg-filters-and-gradients` is the standing answer to a recurring question: **this
+project has zero runtime dependencies**, so d3, three.js, GSAP and pixi are off the
+table unless the owner decides otherwise. Say so and let them choose rather than
+quietly adding the first one. The client currently uses no gradients, filters or blend
+modes at all, which makes this headroom rather than a crowded field.
+
+Two skills carry a **do not undo this** that is easy to trip over. `animating-with-waapi`
+and `svg-filters-and-gradients` both say the Mule's ripple is deliberately not a
+displacement filter — a DOM table grants no surface to warp, the alternatives were
+rejected in writing, and `shaders/distortion_map.png` stays unused by design.
+
+### Two rules from those skills that bind everywhere
+
+**Beats own their own transient layer; never animate a live table element.**
+`table.ts#draw()` calls `planLayer.replaceChildren()` on every state update, so an
+animation targeting a table element has its target ripped out mid-flight — and because
+a WAAPI promise never rejects, the beat hangs or vanishes with no error anywhere.
+
+**Nothing animates forever.** `iterations: Infinity` never resolves, so anything
+awaiting it waits forever — and a permanent loop is a battery cost on a still table.
 
 ## Agent configuration files
 
