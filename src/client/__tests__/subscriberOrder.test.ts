@@ -67,6 +67,36 @@ describe('the single subscriber', () => {
         expect(update, 'a beat would measure the layout from the previous push').toBeLessThan(enqueue);
     });
 
+    it('stops the deal it started when the table it belongs to goes away', () => {
+        // Fire-and-forget timeouts kept swishing after a fatal, after a walk
+        // back to the menu, and after the round ended — card sounds over a
+        // screen with no cards on it. The cancel has to be in the subscriber,
+        // and early: every surface below it is already reacting to the loss.
+        const cancel = positionOf('cancelDealCues()');
+        const uiRoot = positionOf('uiRoot.update(state)');
+
+        expect(cancel, 'nothing cancels the deal cues any more').toBeGreaterThan(-1);
+        expect(cancel).toBeLessThan(uiRoot);
+    });
+
+    it('takes the deal stagger from the pure layer rather than recomputing it', () => {
+        // `dealDelayMs` caps; `index * DEAL_STAGGER_MS` does not, so from the
+        // eighth card the swish drifted from the card it belonged to and kept
+        // drifting. The offsets are `store/motion.ts`'s to decide and
+        // `ui/dealCues.ts`'s to read — this file's job is to say how many cards.
+        expect(MAIN, 'the composition root re-derives the deal stagger').not.toMatch(/\bDEAL_STAGGER_MS\b/);
+        expect(MAIN, 'the deal cues are scheduled somewhere else again').toMatch(/playDealCues\(/);
+    });
+
+    it('does not couple the deal cue to the presence of a beat', () => {
+        // The guard above it already establishes that line, beat and cue are
+        // independent and exhaustive separately, and every other event honours
+        // that. Nested inside `beat !== null`, a deal that ever lost its flight
+        // would silently lose its sound with it.
+        expect(MAIN, 'the deal sound is nested inside its beat again').not.toMatch(/!dealQueued && beat !== null/);
+        expect(MAIN).toMatch(/!dealQueued && \(beat !== null \|\| cue !== null\)/);
+    });
+
     it('closes the socket on a fatal before anything else reacts to it', () => {
         // Reconnecting into SEAT_TAKEN makes two tabs evict each other forever
         // — 22 evictions in three seconds against the real server. Every other

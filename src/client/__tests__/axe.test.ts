@@ -16,6 +16,7 @@ import { createCardHint } from '../ui/cardHint';
 import { createEliminationNotice } from '../ui/eliminationNotice';
 import { createReferenceDock } from '../ui/referenceDock';
 import { createSeatDossier } from '../ui/seatDossier';
+import { createSoundToggle } from '../ui/soundToggle';
 import type { Surface } from '../ui/surface';
 import { createTable } from '../ui/table';
 import { createToasts } from '../ui/toasts';
@@ -344,6 +345,21 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
         }
     ],
     [
+        // Both states, because the two differ in name, in `aria-pressed` and in
+        // glyph — and a control whose name only makes sense in one of them is
+        // exactly what this gate exists to catch.
+        'mute — sound on',
+        root => {
+            drive(createSoundToggle({ sound: { muted: () => false, setMuted: noop } }), root, makeState({ screen: 'table' }));
+        }
+    ],
+    [
+        'mute — sound off',
+        root => {
+            drive(createSoundToggle({ sound: { muted: () => true, setMuted: noop } }), root, makeState({ screen: 'table' }));
+        }
+    ],
+    [
         'chrome — dot and toasts together',
         root => {
             const dot = createConnectionDot();
@@ -387,11 +403,12 @@ describe('the gate itself', () => {
         // A surface added to the DOM layer but not to this list would ship
         // unchecked, and nothing else in the suite would notice.
         //
-        // Seventeen cases across sixteen surfaces: the reference dock appears
+        // Nineteen cases across seventeen surfaces: the reference dock appears
         // twice, because its two tabs render entirely different markup and
         // checking only the one it happens to open on would leave the other
-        // unchecked.
-        expect(SURFACES).toHaveLength(17);
+        // unchecked, and the mute control appears twice because its name and
+        // its pressed state both change with it.
+        expect(SURFACES).toHaveLength(19);
     });
 
     it('detects a violation rather than passing over it', async () => {

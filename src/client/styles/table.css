@@ -490,6 +490,78 @@
     cursor: default;
 }
 
+/* ------------------------------------------------------ the hover lift
+ *
+ * UIX §7.1's raised card, and the one piece of this table that is purely for
+ * the hand at the other end of the mouse: a card you are about to play rises
+ * off the felt a little and catches the light.
+ *
+ * **`(hover: hover) and (pointer: fine)` is load-bearing, not tidiness.** A
+ * touch browser matches `:hover` on tap and then *keeps* matching it until the
+ * player touches something else — so without this query a phone would leave one
+ * card stuck 8px in the air for the rest of the turn, and the lift would read as
+ * a selection state the game does not have.
+ *
+ * Playable lifts further than dimmed. A card a rule forbids must not look like
+ * an invitation, and the difference between 8px and 3px is the whole of that
+ * sentence — the dimmed card still acknowledges the pointer, because reading a
+ * card you cannot play is a thing this table deliberately allows
+ * (`table.ts#buildHandCard` keeps its hit target for exactly that reason).
+ *
+ * `transform` and `opacity` only. Both stay on the compositor, so the lift costs
+ * no layout and no repaint of the portrait underneath — which is why the
+ * brightening is an overlay fading in rather than a `filter`.
+ */
+@media (hover: hover) and (pointer: fine) {
+    /*
+     * The light the card catches: a wash over the whole face, faded in rather
+     * than switched on. Generated content, so it needs no extra node in
+     * `table.ts` and cannot survive the `replaceChildren` that rebuilds the
+     * plan layer.
+     */
+    [data-role='hand-card']::after {
+        content: '';
+        position: absolute;
+        inset: 0;
+        background: rgb(255 255 255 / 0.14);
+        opacity: 0;
+        pointer-events: none;
+    }
+
+    [data-role='hand-card']:hover::after {
+        opacity: 0.4;
+    }
+
+    [data-role='hand-card'].is-playable:hover::after {
+        opacity: 1;
+    }
+}
+
+/*
+ * The motion half, collapsed under `prefers-reduced-motion: reduce`.
+ *
+ * Only the movement goes: the wash above still marks the card under the
+ * pointer, because that is information about where the pointer is rather than
+ * decoration, and a reduced-motion player loses nothing by keeping it.
+ */
+@media (hover: hover) and (pointer: fine) and (prefers-reduced-motion: no-preference) {
+    [data-role='hand-card'] {
+        transition: transform 140ms ease-out;
+    }
+
+    [data-role='hand-card']::after {
+        transition: opacity 140ms ease-out;
+    }
+
+    [data-role='hand-card']:hover {
+        transform: translateY(-3px);
+    }
+
+    [data-role='hand-card'].is-playable:hover {
+        transform: translateY(-8px);
+    }
+}
+
 /* ---------------------------------------------------- shared card face */
 
 .tbl-card-parts {

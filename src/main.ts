@@ -28,6 +28,7 @@ import { cardLabel } from './client/content/cardCopy';
 import { failureCopy } from './client/content/failureCopy';
 import { diffSnapshots } from './client/store/diff';
 import { beatForEvent } from './client/store/motion';
+import { soundForEvent, soundForNotice, soundForTurnStart } from './client/store/sound';
 import { createPresentationQueue } from './client/store/presentationQueue';
 import { browserIdMinter } from './client/store/ids';
 import { createRoomApi } from './client/store/roomApi';
@@ -51,6 +52,9 @@ import { createMenuScreen } from './client/ui/menuScreen';
 import { createOverlays } from './client/ui/overlays';
 import { createReferenceDock } from './client/ui/referenceDock';
 import { createSeatDossier } from './client/ui/seatDossier';
+import { playDealCues } from './client/ui/dealCues';
+import { createSoundPlayer } from './client/ui/sound';
+import { createSoundToggle } from './client/ui/soundToggle';
 import { REAL_TIMERS } from './client/ui/surface';
 import { createToasts } from './client/ui/toasts';
 import { createUiRoot } from './client/ui/uiRoot';
@@ -172,7 +176,29 @@ function boot(): void {
     const cardHint = createCardHint({ viewport: () => ({ w: window.innerWidth, h: window.innerHeight }) });
     const eliminationNotice = createEliminationNotice();
 
+    /**
+     * The table's voice.
+     *
+     * `createContext` is a factory and is called at most once — a bare
+     * `new AudioContext()` here would run at page load, which browsers answer
+     * with a console warning and a context that is suspended forever. If the
+     * constructor does not exist at all (an old browser, a locked-down webview)
+     * the throw is caught inside the player and the game simply stays silent.
+     *
+     * `gestures` is the document, and it is what makes the game audible on iOS:
+     * every `sound.play` below runs from a socket frame or a queued microtask,
+     * never inside a tap, and WebKit resumes a context only from within a
+     * gesture. The player registers its own one-shot unlock listener there.
+     */
+    const sound = createSoundPlayer({
+        createContext: () => new AudioContext(),
+        gestures: document,
+        storage: window.localStorage,
+        random: () => Math.random()
+    });
+
     uiRoot.add(createConnectionDot());
+    uiRoot.add(createSoundToggle({ sound }));
     uiRoot.add(
         createMenuScreen({
             roomApi: createRoomApi({ fetch: (url, init) => fetch(url, init), timers, random: () => Math.random() }),
@@ -517,12 +543,35 @@ function boot(): void {
     const queue = createPresentationQueue({ announce: line => toasts.show(line) });
     let previous: ClientState = store.getState();
 
+    /**
+     * The staggered deal's remaining swishes, cancellable.
+     *
+     * Held here rather than dropped, because the deal outlives the push that
+     * started it: a fatal, a walk back to the menu or the round ending mid-deal
+     * used to leave timeouts firing card sounds over a screen with no table.
+     */
+    let stopDealCues: (() => void) | null = null;
+    function cancelDealCues(): void {
+        stopDealCues?.();
+        stopDealCues = null;
+    }
+
     store.subscribe(state => {
         // A FATAL means stop retrying. The server closed the socket on purpose,
         // and reconnecting into SEAT_TAKEN makes two tabs evict each other
         // forever — verified against the real server at 22 evictions in three
         // seconds. Only "Take over here" reopens it.
         if (state.fatal !== null && previous.fatal === null) socket?.close();
+
+        /**
+         * A deal in flight belongs to a table that is still there.
+         *
+         * The wall, the walk back to the menu and the end of a round all leave
+         * the remaining swishes describing cards nobody can see any more.
+         */
+        const roundJustEnded =
+            (state.table?.view.roundResult ?? null) !== null && (previous.table?.view.roundResult ?? null) === null;
+        if (state.fatal !== null || state.table === null || roundJustEnded) cancelDealCues();
 
         uiRoot.update(state);
 
@@ -543,6 +592,21 @@ function boot(): void {
         // the screen. This adds the half uiRoot cannot: the sheet's request is
         // assembled here, so only here can it be reassembled.
         resyncOpenSheet(state);
+
+        /**
+         * A refusal answers the player's own input, so it is the one sound that
+         * is NOT queued behind the beats.
+         *
+         * Everything else in this subscriber describes something that happened
+         * at the table and can afford to wait its turn. "That did not happen"
+         * is feedback about a tap, and feedback that arrives after a second of
+         * choreography has stopped being feedback. `minIntervalMs` is what keeps
+         * a burst of refusals to one chirp — see `store/sound.ts`.
+         */
+        const heard = new Set(previous.notices.map(notice => notice.id));
+        for (const notice of state.notices) {
+            if (!heard.has(notice.id)) sound.play(soundForNotice(notice.code));
+        }
 
         // Animation derives from diffing (UIX §2.1). Each beat is queued so its
         // announcement waits for it — interface rule 8.
@@ -565,22 +629,47 @@ function boot(): void {
             let dealQueued = false;
 
             for (const event of events) {
-                // Both halves are exhaustive by construction — announce.ts and
-                // beatForEvent. Silence is allowed, but it has to be chosen.
+                // All three halves are exhaustive by construction — announce.ts,
+                // beatForEvent and soundForEvent. Silence is allowed, but it has
+                // to be chosen.
                 const line = announcementFor(event, nameOf);
                 const beat = beatForEvent(event);
-                if (line === null && beat === null) continue;
+                const cue = soundForEvent(event);
+                if (line === null && beat === null && cue === null) continue;
 
                 if (event.kind === 'card-drawn') {
-                    if (!dealQueued && beat !== null) {
+                    // Beat and cue are independent, as the guard above just
+                    // established — so the deal's sound is not nested inside the
+                    // existence of its beat. A vocabulary that kept its swish
+                    // after losing its flight would otherwise go silent.
+                    if (!dealQueued && (beat !== null || cue !== null)) {
                         dealQueued = true;
                         queue.enqueue({
-                            animate: () =>
-                                Promise.all(
+                            animate: () => {
+                                // One swish per card, on the SAME offsets the
+                                // cards fly on — `playDealCues` reads them from
+                                // `dealDelayMs` rather than recomputing them,
+                                // cap included. Fired in a synchronous loop
+                                // instead they would share one context timestamp
+                                // and `deal`'s minimum interval would collapse
+                                // the whole deal to a single swish.
+                                cancelDealCues();
+                                if (cue !== null) {
+                                    stopDealCues = playDealCues({
+                                        count: dealt.length,
+                                        cue,
+                                        play: name => sound.play(name),
+                                        timers
+                                    });
+                                }
+
+                                if (beat === null) return undefined;
+                                return Promise.all(
                                     dealt.map((card, index) =>
                                         beats.run(beat, { ...beatContext(card), staggerIndex: index })
                                     )
-                                ).then(() => undefined)
+                                ).then(() => undefined);
+                            }
                         });
                     }
 
@@ -600,10 +689,35 @@ function boot(): void {
                     // finishes, by which time the layout may have moved under a
                     // resize, and a rect measured at queue time would place it
                     // where the seat used to be.
-                    ...(beat === null ? {} : { animate: () => beats.run(beat, beatContext(event)) }),
+                    //
+                    // The sound rides the same step rather than a step of its
+                    // own, and starts with it: a sound belongs WITH its beat,
+                    // and one queued ahead of the beat would describe something
+                    // the table has not drawn yet.
+                    ...(beat === null && cue === null
+                        ? {}
+                        : {
+                              animate: () => {
+                                  if (cue !== null) sound.play(cue);
+                                  return beat === null ? undefined : beats.run(beat, beatContext(event));
+                              }
+                          }),
                     ...(line === null ? {} : { announce: line })
                 });
             }
+
+            /**
+             * "It is your turn", last.
+             *
+             * Not a `PresentationEvent` — `soundForTurnStart` explains why — and
+             * queued behind the beats rather than played from here, so a player
+             * hears what just happened to the table before being told it is on
+             * them. It has no beat and no announcement: the table's own current-
+             * seat ring is the visible half, and the `aria-live` channel already
+             * carries the play that ended the last turn.
+             */
+            const turnCue = soundForTurnStart(before, after);
+            if (turnCue !== null) queue.enqueue({ animate: () => sound.play(turnCue) });
         }
 
         previous = state;

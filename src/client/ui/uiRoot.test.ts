@@ -146,6 +146,82 @@ describe('the ui root', () => {
 });
 
 /**
+ * The persistent chrome has to survive the screens being mounted over it.
+ *
+ * Mute and the connection dot are added to `#ui-root` before every `.screen`,
+ * and the order is deliberate — so the only thing keeping them visible and
+ * tappable on the menu, the join screen and the lobby is their stacking order.
+ * A `.screen` is `position: absolute; inset: 0` with a backdrop once it has
+ * anything in it, so without this it painted over the corner and swallowed every
+ * tap meant for Mute: unreachable exactly where a player first wants it.
+ *
+ * Asserted against the real `ui.css` through `loadRealStyles`, like the
+ * pointer-events discipline above. jsdom performs no painting, so what is
+ * assertable is the number that decides it — a stub sheet would prove only that
+ * the stub is right.
+ */
+describe('the persistent chrome, under a screen', () => {
+    function mounted(className: string): HTMLElement {
+        const root = createUiRoot(makeUiRootElement());
+        const element = document.createElement(className === 'sound-toggle' ? 'button' : 'div');
+        element.className = className;
+        root.element.appendChild(element);
+
+        const screen = document.createElement('div');
+        screen.className = 'screen';
+        screen.appendChild(document.createElement('h1')); // `:not(:empty)` — the backdrop is on
+        root.element.appendChild(screen);
+
+        return element;
+    }
+
+    function stackingOrder(element: Element): number {
+        const raw = getComputedStyle(element).zIndex;
+        // `auto` is what a `.screen` has, and it participates as if it were 0.
+        return raw === '' || raw === 'auto' ? 0 : Number(raw);
+    }
+
+    it('keeps the mute toggle above a screen that covers the whole viewport', () => {
+        const toggle = mounted('sound-toggle');
+        const screen = document.querySelector('.screen') as HTMLElement;
+
+        expect(stackingOrder(toggle)).toBeGreaterThan(stackingOrder(screen));
+    });
+
+    it('keeps the connection dot above one too', () => {
+        const dot = mounted('connection-dot');
+        const screen = document.querySelector('.screen') as HTMLElement;
+
+        expect(stackingOrder(dot)).toBeGreaterThan(stackingOrder(screen));
+    });
+
+    it('still lets the fatal wall cover both, because that match really is over', () => {
+        // The corner chrome outranks a screen and nothing else. A live mute
+        // button poking through the wall would be a control over a table that
+        // no longer exists.
+        const toggle = mounted('sound-toggle');
+        const wall = document.createElement('div');
+        wall.className = 'fatal-dialog';
+        const holder = document.createElement('div');
+        holder.dataset.role = 'fatal';
+        holder.appendChild(wall);
+        document.body.appendChild(holder);
+
+        expect(stackingOrder(wall)).toBeGreaterThan(stackingOrder(toggle));
+    });
+
+    it('leaves the toggle tappable while the dot stays out of the way', () => {
+        // The dot is decoration and opts out; the toggle is the one control that
+        // has to work from every screen.
+        const toggle = mounted('sound-toggle');
+        expect(getComputedStyle(toggle).pointerEvents).toBe('auto');
+
+        const dot = mounted('connection-dot');
+        expect(getComputedStyle(dot).pointerEvents).toBe('none');
+    });
+});
+
+/**
  * A screen taller than the viewport must still be usable.
  *
  * `.screen` is a centred grid, and a plain `place-content: center` overflows in
