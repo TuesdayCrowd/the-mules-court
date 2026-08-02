@@ -6,6 +6,23 @@ import { FOUR_SEATS, seeds, takeStates } from './__fixtures__/decisionStates';
 import { makeRng } from './rng';
 
 /**
+ * A simulation budget, for the same reason `discardCapacity.test.ts` carries one.
+ *
+ * These tests play thousands of real matches through the engine. That is under a
+ * second alone on a fast machine and several on a busy one — and the suite runs
+ * its files in parallel, so the default 5s timeout measures how loaded the runner
+ * is rather than whether the claim holds. It tripped for real: the v1.2.1 release
+ * build failed here, on hardware slower than a laptop, with two timeouts and no
+ * assertion failures.
+ *
+ * An explicit budget keeps a real result from depending on the machine. It is
+ * generous on purpose — this is a ceiling that catches a hang, not a performance
+ * assertion.
+ */
+const SIM_TIMEOUT_MS = 60_000;
+
+
+/**
  * A search budget small enough to run inside a test suite.
  *
  * Bounded by iterations rather than by the clock, so the result is reproducible
@@ -54,7 +71,7 @@ describe('the difficulty ladder', () => {
 
         expect(up.low).toBeGreaterThan(0.25);
         expect(down.high).toBeLessThan(0.25);
-    });
+    }, SIM_TIMEOUT_MS);
 
     /**
      * The master rung is NOT asserted here, deliberately.
@@ -103,5 +120,5 @@ describe('the difficulty ladder', () => {
 
         expect(compared).toBeGreaterThan(0);
         expect(agreements).toBe(compared);
-    });
+    }, SIM_TIMEOUT_MS);
 });

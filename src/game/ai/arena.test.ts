@@ -4,6 +4,23 @@ import { randomPolicy } from './randomPolicy';
 import { heuristicPolicy } from './heuristic';
 import { rotatingWinRate, runArena, wilsonInterval } from './arena';
 
+/**
+ * A simulation budget, for the same reason `discardCapacity.test.ts` carries one.
+ *
+ * These tests play thousands of real matches through the engine. That is under a
+ * second alone on a fast machine and several on a busy one — and the suite runs
+ * its files in parallel, so the default 5s timeout measures how loaded the runner
+ * is rather than whether the claim holds. It tripped for real: the v1.2.1 release
+ * build failed here, on hardware slower than a laptop, with two timeouts and no
+ * assertion failures.
+ *
+ * An explicit budget keeps a real result from depending on the machine. It is
+ * generous on purpose — this is a ceiling that catches a hang, not a performance
+ * assertion.
+ */
+const SIM_TIMEOUT_MS = 60_000;
+
+
 const SEATS = ['p1', 'p2', 'p3', 'p4'];
 
 function allRandom(): Record<string, Policy> {
@@ -99,7 +116,7 @@ describe('rotatingWinRate', () => {
 
         expect(report.low).toBeLessThan(0.25);
         expect(report.high).toBeGreaterThan(0.25);
-    });
+    }, SIM_TIMEOUT_MS);
 
     test('separates a stronger candidate from the baseline', () => {
         const report = rotatingWinRate({
@@ -110,5 +127,5 @@ describe('rotatingWinRate', () => {
         });
 
         expect(report.low).toBeGreaterThan(0.25);
-    });
+    }, SIM_TIMEOUT_MS);
 });
