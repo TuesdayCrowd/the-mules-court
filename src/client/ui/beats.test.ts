@@ -23,13 +23,27 @@ import { createBeatRunner } from './beats';
 let animateCalls = 0;
 let rejectOnCall: number | null = null;
 
+/**
+ * Every `animate()` call, with what it was asked to play.
+ *
+ * jsdom runs no animation, so the keyframes ARE the observable behaviour: a
+ * deal driven by `offset-distance` and a deal faked with `translate()` are
+ * indistinguishable from the DOM afterwards, and only one of them arcs.
+ */
+const animateArgs: Array<{
+    readonly target: Element;
+    readonly keyframes: Keyframe[] | PropertyIndexedKeyframes | null;
+    readonly options: number | KeyframeAnimationOptions | undefined;
+}> = [];
+
 function installAnimateStub(): void {
     Element.prototype.animate = function (
         this: Element,
-        _keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
-        _options?: number | KeyframeAnimationOptions
+        keyframes: Keyframe[] | PropertyIndexedKeyframes | null,
+        options?: number | KeyframeAnimationOptions
     ): Animation {
         animateCalls++;
+        animateArgs.push({ target: this, keyframes, options });
         const callIndex = animateCalls;
         let settle: (() => void) | null = null;
 
@@ -52,6 +66,7 @@ installAnimateStub();
 
 beforeEach(() => {
     animateCalls = 0;
+    animateArgs.length = 0;
     rejectOnCall = null;
 });
 
@@ -109,6 +124,145 @@ describe('every beat resolves its promise', () => {
         // resolved, which is what keeps a finished beat from leaking a stray
         // node onto a table that has since redrawn.
         expect(h.layer.children).toHaveLength(0);
+    });
+});
+
+describe('the deal arcs rather than sliding', () => {
+    const DECK = { x: 480, y: 320, w: 64, h: 86 } as const;
+    const SLOT = { x: 700, y: 620, w: 96, h: 128 } as const;
+
+    /** The one `<div>` a deal creates — the motion-path wrapper. */
+    function wrapperIn(layer: HTMLElement): HTMLElement {
+        const wrapper = layer.querySelector('div');
+        expect(wrapper).not.toBeNull();
+        return wrapper as HTMLElement;
+    }
+
+    it('settles rather than hanging', async () => {
+        const h = harness();
+        await expect(
+            h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' })
+        ).resolves.toBeUndefined();
+    });
+
+    it('drives the card along a generated motion path, not a translate', async () => {
+        const h = harness();
+        const pending = h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+
+        const wrapper = wrapperIn(h.layer);
+        // `path()`, never `shape()` — Firefox does not support the latter.
+        expect(wrapper.style.getPropertyValue('offset-path')).toMatch(/^path\('M .*Q .*'\)$/);
+        expect(wrapper.style.getPropertyValue('offset-rotate')).toBe('auto');
+
+        await pending;
+    });
+
+    it('generates the path for the rects it was handed, so a resized table still deals correctly', async () => {
+        const h = harness();
+        const pending = h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+
+        // The end point is the slot centre, expressed from the deck box origin.
+        const expected = `${SLOT.x + SLOT.w / 2 - DECK.x},${SLOT.y + SLOT.h / 2 - DECK.y}`;
+        expect(wrapperIn(h.layer).style.getPropertyValue('offset-path')).toContain(expected);
+
+        await pending;
+    });
+
+    it('animates offset-distance from one end of the path to the other', async () => {
+        const h = harness();
+        await h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+
+        const travelled = animateArgs.find(call => JSON.stringify(call.keyframes).includes('offsetDistance'));
+        expect(travelled).not.toBeUndefined();
+        expect(travelled!.keyframes).toEqual([{ offsetDistance: '0%' }, { offsetDistance: '100%' }]);
+    });
+
+    it('keeps the arc and the scale on different elements, so neither clobbers the other', async () => {
+        // Motion path occupies the transform slot. The wrapper travels; the
+        // card inside it scales.
+        const h = harness();
+        const pending = h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+        await pending;
+
+        const onWrapper = animateArgs.find(call => (call.target as HTMLElement).tagName === 'DIV');
+        const onCard = animateArgs.find(call => (call.target as HTMLElement).tagName === 'IMG');
+
+        expect(JSON.stringify(onWrapper!.keyframes)).toContain('offsetDistance');
+        expect(JSON.stringify(onWrapper!.keyframes)).not.toContain('transform');
+        expect(JSON.stringify(onCard!.keyframes)).toContain('transform');
+        expect(JSON.stringify(onCard!.keyframes)).not.toContain('offsetDistance');
+    });
+
+    it('eases the arrival with the Decelerate curve', async () => {
+        const h = harness();
+        await h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+
+        for (const call of animateArgs) {
+            expect((call.options as KeyframeAnimationOptions).easing).toBe('cubic-bezier(0, 0, 0, 1)');
+        }
+    });
+
+    it('animates only transform and opacity on the card, so the deal stays on the compositor', async () => {
+        const h = harness();
+        await h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+
+        const onCard = animateArgs.find(call => (call.target as HTMLElement).tagName === 'IMG');
+        for (const frame of onCard!.keyframes as Keyframe[]) {
+            expect(Object.keys(frame).sort()).toEqual(['opacity', 'transform']);
+        }
+    });
+
+    it('staggers the nth card of a simultaneous deal', async () => {
+        const h = harness();
+        await h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png', staggerIndex: 3 });
+
+        for (const call of animateArgs) {
+            expect((call.options as KeyframeAnimationOptions).delay).toBe(120);
+        }
+    });
+
+    it('treats a lone draw as the first card', async () => {
+        const h = harness();
+        await h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+
+        for (const call of animateArgs) {
+            expect((call.options as KeyframeAnimationOptions).delay).toBe(0);
+        }
+    });
+
+    it('removes both elements once the card has landed', async () => {
+        const h = harness();
+        await h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+        expect(h.layer.children).toHaveLength(0);
+    });
+
+    it('removes them even when the travel animation fails', async () => {
+        rejectOnCall = 1;
+        const h = harness();
+
+        await h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+        expect(h.layer.children).toHaveLength(0);
+    });
+
+    it('draws nothing at all without art, rather than flying an empty box', async () => {
+        const h = harness();
+        await expect(h.runner.run('deal', { fromRect: DECK, rect: SLOT })).resolves.toBeUndefined();
+        expect(animateCalls).toBe(0);
+        expect(h.layer.children).toHaveLength(0);
+    });
+
+    it('falls back to landing in place when only one rect is known', async () => {
+        const h = harness();
+        await expect(h.runner.run('deal', { rect: SLOT, portraitKey: 'informant.png' })).resolves.toBeUndefined();
+        expect(h.layer.children).toHaveLength(0);
+    });
+
+    it('collapses to the shared fade under reduced motion', async () => {
+        const h = harness({ reducedMotion: () => true });
+        await h.runner.run('deal', { fromRect: DECK, rect: SLOT, portraitKey: 'informant.png' });
+
+        expect(animateCalls).toBe(1);
+        expect(JSON.stringify(animateArgs[0].keyframes)).not.toContain('offsetDistance');
     });
 });
 

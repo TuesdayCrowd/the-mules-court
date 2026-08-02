@@ -9,6 +9,7 @@ const EVERY_KIND: PresentationEvent[] = [
     { kind: 'log', entry: { kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'mayor-indbur' } },
     { kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' },
     { kind: 'peek-lost', subjectId: 'p2' },
+    { kind: 'card-drawn', seatId: 'p1', cardTypeId: 'mule' },
     { kind: 'round-over', result: { reason: 'deck-out', winnerIds: ['p1'] } }
 ];
 
@@ -25,8 +26,12 @@ describe('announcementFor', () => {
         expect(announcementFor(EVERY_KIND[2], nameOf)).toContain('Bayta');
     });
 
-    it('stays deliberately silent for round-over, which the overlay already renders', () => {
+    it('stays deliberately silent for a drawn card, which happens every single turn', () => {
         expect(announcementFor(EVERY_KIND[3], nameOf)).toBeNull();
+    });
+
+    it('stays deliberately silent for round-over, which the overlay already renders', () => {
+        expect(announcementFor(EVERY_KIND[4], nameOf)).toBeNull();
     });
 
     it('handles every kind the diff can emit', () => {
@@ -36,7 +41,7 @@ describe('announcementFor', () => {
         for (const event of EVERY_KIND) {
             expect(() => announcementFor(event, nameOf), event.kind).not.toThrow();
         }
-        expect(new Set(EVERY_KIND.map(e => e.kind)).size).toBe(4);
+        expect(new Set(EVERY_KIND.map(e => e.kind)).size).toBe(5);
     });
 
     it('resolves seats through the supplied names, never raw ids', () => {

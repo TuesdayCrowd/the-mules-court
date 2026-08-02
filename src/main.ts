@@ -57,7 +57,7 @@ import { createUiRoot } from './client/ui/uiRoot';
 import { assetUrl, createTable } from './client/ui/table';
 import { createBeatRunner } from './client/ui/beats';
 import type { BeatContext } from './client/ui/beats';
-import { portraitPath } from './client/content/portraits';
+import { CARD_BACK_ASSET, portraitPath } from './client/content/portraits';
 import { RESIZE_DEBOUNCE_MS } from './client/layout/tableMetrics';
 
 /**
@@ -360,6 +360,28 @@ function boot(): void {
             return index >= 0 ? { rect: spec.opponents[index] } : {};
         }
 
+        // A card leaving the deck for a hand (UIX §8). Two rects, not one:
+        // where from and where to. The deck is where every dealt card starts;
+        // the destination is the viewer own hand slot or the opponent seat chip.
+        if (event.kind === 'card-drawn' && snapshot !== null && spec !== null) {
+            const isOwn = event.seatId === snapshot.view.own.playerId;
+
+            // The face for your own draw, the card BACK for anyone else
+            // (interface rule 4) — which is also why `card-drawn` carries no
+            // `cardTypeId` for an opponent for this to reach for.
+            const portraitKey =
+                event.cardTypeId === undefined ? assetUrl(CARD_BACK_ASSET) : assetUrl(portraitPath(event.cardTypeId));
+
+            // The drawn card is the one that joins the hand, so it lands in the
+            // last slot the layout reserved.
+            const opponents = snapshot.view.players.filter(p => p.id !== snapshot.view.own.playerId);
+            const index = opponents.findIndex(p => p.id === event.seatId);
+            const destination = isOwn ? spec.hand[spec.hand.length - 1] : spec.opponents[index];
+            if (destination === undefined) return {};
+
+            return { fromRect: spec.deck, rect: destination, portraitKey };
+        }
+
         if (event.kind === 'log' && snapshot !== null && spec !== null) {
             // Bound to a local: narrowing `event.entry.kind` inside a compound
             // condition does not survive repeated access to a union member.
@@ -528,12 +550,46 @@ function boot(): void {
         const after = state.table?.view ?? null;
         if (after !== null && before !== after) {
             const nameOf = (id: PlayerId) => state.table?.nicknames[id] ?? id;
-            for (const event of diffSnapshots(before, after)) {
+            const events = diffSnapshots(before, after);
+
+            // Every card dealt in the same push is ONE queued step, flown
+            // together on a stagger, rather than one step each.
+            //
+            // The queue serialises what it holds — that is its whole job
+            // (interface rule 8) — so four separate deals at the start of a
+            // round would be four consecutive flights and over a second of
+            // choreography before anybody can act. Staggered instead, the
+            // whole deal lands inside `dealSequenceMs`: five cards read as
+            // dealing, and the player waits half a second, not a second.
+            const dealt = events.filter(event => event.kind === 'card-drawn');
+            let dealQueued = false;
+
+            for (const event of events) {
                 // Both halves are exhaustive by construction — announce.ts and
                 // beatForEvent. Silence is allowed, but it has to be chosen.
                 const line = announcementFor(event, nameOf);
                 const beat = beatForEvent(event);
                 if (line === null && beat === null) continue;
+
+                if (event.kind === 'card-drawn') {
+                    if (!dealQueued && beat !== null) {
+                        dealQueued = true;
+                        queue.enqueue({
+                            animate: () =>
+                                Promise.all(
+                                    dealt.map((card, index) =>
+                                        beats.run(beat, { ...beatContext(card), staggerIndex: index })
+                                    )
+                                ).then(() => undefined)
+                        });
+                    }
+
+                    // A dealt card is deliberately silent (announce.ts says
+                    // why). If that judgement ever changes, the line still gets
+                    // out rather than being swallowed by the grouping above.
+                    if (line !== null) queue.enqueue({ announce: line });
+                    continue;
+                }
 
                 // The animation is the promise the queue awaits, which is what
                 // makes interface rule 8 real: the announcement is released

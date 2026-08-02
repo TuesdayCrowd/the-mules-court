@@ -13,9 +13,20 @@
 
 import type { PresentationEvent } from './diff';
 
-export type BeatName = 'mule' | 'elimination' | 'peek' | 'play' | 'countdown-tick' | 'token-award' | 'victory';
+export type BeatName = 'mule' | 'elimination' | 'peek' | 'play' | 'deal' | 'countdown-tick' | 'token-award' | 'victory';
 
-export type StepKind = 'fade' | 'banner' | 'desaturate' | 'flip' | 'ripple' | 'loom' | 'reveal' | 'shimmer' | 'burst' | 'tick';
+export type StepKind =
+    | 'fade'
+    | 'banner'
+    | 'desaturate'
+    | 'flip'
+    | 'deal'
+    | 'ripple'
+    | 'loom'
+    | 'reveal'
+    | 'shimmer'
+    | 'burst'
+    | 'tick';
 
 export interface MotionStep {
     readonly kind: StepKind;
@@ -43,6 +54,51 @@ const QUICK_MS = 300;
 const FADE: MotionStep = { kind: 'fade', durationMs: 150 };
 
 /**
+ * One card travelling from the deck into a hand.
+ *
+ * Inside the ≤ 300 ms budget UIX §8 gives everything but the two flagships, and
+ * deliberately short of it: several cards are dealt at once at the start of a
+ * round, and the whole choreographed sequence — this duration plus the largest
+ * stagger below — has to stay under ~500 ms. A player waiting on a flourish
+ * before they can act resents it by round three.
+ */
+const DEAL_MS = 260;
+
+/**
+ * The gap between one dealt card leaving the deck and the next.
+ *
+ * Five cards animating together read as one block moving; the same five at
+ * 40 ms apart read as *dealing*. That is the entire trick, and it costs one
+ * multiplication.
+ */
+export const DEAL_STAGGER_MS = 40;
+
+/**
+ * How many cards the stagger keeps growing for.
+ *
+ * Stagger × count grows fast and the count is not bounded by anything the
+ * client controls — a round deals one card per seat, and a Darell redraw can
+ * land alongside. Capping keeps the worst case a fixed 240 ms rather than a
+ * number that gets worse as the table gets fuller.
+ */
+export const DEAL_STAGGER_CAP = 6;
+
+/**
+ * How long the `index`-th card of a simultaneous deal waits before it flies.
+ *
+ * Here rather than in the drawing layer for this module whole reason: a
+ * duration hardcoded beside an `animate()` call is a duration no test can read.
+ */
+export function dealDelayMs(index: number): number {
+    return Math.min(Math.max(Math.trunc(index), 0), DEAL_STAGGER_CAP) * DEAL_STAGGER_MS;
+}
+
+/** Wall time for a whole simultaneous deal: the last card starts latest and still has to fly. */
+export function dealSequenceMs(cardCount: number): number {
+    return cardCount <= 0 ? 0 : dealDelayMs(cardCount - 1) + DEAL_MS;
+}
+
+/**
  * Beats that reduced motion must NOT touch.
  *
  * A countdown and a pip are information, not decoration. Collapsing them would
@@ -68,6 +124,11 @@ const FULL: Readonly<Record<BeatName, readonly MotionStep[]>> = {
     ],
     peek: [{ kind: 'reveal', durationMs: QUICK_MS }],
     play: [{ kind: 'flip', durationMs: QUICK_MS }],
+    // One step, not a travel followed by a settle. The arc already carries the
+    // arrival — the card decelerates into its slot on a Decelerate curve and
+    // banks along the tangent as it goes — and a second step would spend the
+    // stagger budget restating what the first one just said.
+    deal: [{ kind: 'deal', durationMs: DEAL_MS }],
     'token-award': [{ kind: 'shimmer', durationMs: QUICK_MS }],
     victory: [{ kind: 'burst', durationMs: QUICK_MS }],
     'countdown-tick': [{ kind: 'tick', durationMs: 0 }]
@@ -111,6 +172,12 @@ export function beatForEvent(event: PresentationEvent): BeatName | null {
 
         case 'peek-gained':
             return 'peek';
+
+        // A card leaving the deck for a hand. Decoration, not information — the
+        // hand itself is redrawn by the ordinary state push either way — so
+        // reduced motion collapses it like the rest.
+        case 'card-drawn':
+            return 'deal';
 
         // Losing a peek is information going stale, not an event with a moment.
         case 'peek-lost':
