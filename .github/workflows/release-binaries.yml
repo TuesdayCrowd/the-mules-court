@@ -80,6 +80,20 @@ jobs:
         # only thing that catches a type error.
         run: bunx tsc --noEmit
 
+      - name: Build the client
+        # Before the tests, and that ordering is load-bearing. The committed
+        # manifest `src/server/embeddedAssets.generated.ts` imports every asset
+        # out of `dist/` with `type: 'file'`, and `standalone.test.ts` loads it
+        # for real — so on a fresh checkout with no `dist/`, `bun test src/server`
+        # dies with "Cannot find module '../../dist/assets/…'" before a single
+        # assertion runs. It passes on a developer's machine only because there
+        # is always a `dist/` lying around from a previous build.
+        #
+        # This also regenerates the manifest, so the tests run against the
+        # client they are about to be compiled beside rather than against
+        # whatever hashes happened to be committed.
+        run: bun run build
+
       - name: Test
         # Engine and client under Vitest, then server and MCP under `bun test`.
         # `test:visual` is deliberately not here: it drives a real browser
