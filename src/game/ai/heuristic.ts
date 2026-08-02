@@ -111,8 +111,12 @@ const pAbove = (beliefs: Beliefs, playerId: PlayerId, mine: number): number =>
  *
  * Holding the Mule dominates it, because that seat has no defensive play at all
  * and every card it draws must be spent. A `COMPARE` naming this seat is the
- * other big term: it is the one public log entry that proves another player
- * knows this hand, since the Priest never announces whom it read.
+ * other big term: it proves another player knows something about this hand.
+ *
+ * `PEEKED` names a reader too, and proves strictly more — the exact card, not a
+ * comparison — so it is a term this function could take and deliberately does
+ * not yet, because weighting it is a change to how hard the opponents play
+ * rather than to what the log records.
  */
 function threatLevel(seat: RedactedView, holdingMule: boolean): number {
     const me = seat.own.playerId;

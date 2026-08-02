@@ -153,6 +153,16 @@ export type PublicLogEntry =
           readonly targetId: PlayerId;
           readonly result: 'tie' | 'actor-eliminated' | 'target-eliminated';
       }
+    /**
+     * A Priest read a hand. Names the reader and the read, never the card.
+     *
+     * The card belongs to `PeekRecord`, which reaches exactly one viewer through
+     * the per-seat `revealed` field. Whom the Priest was pointed at is a
+     * different fact and a public one — at a physical table everyone watches it
+     * happen — and the entry is safe for the same reason `GUESS` is: `PLAY`
+     * already announced the value-2 card, so this adds targeting and nothing else.
+     */
+    | { readonly kind: 'PEEKED'; readonly turn: number; readonly actorId: PlayerId; readonly targetId: PlayerId }
     | { readonly kind: 'PROTECTED'; readonly turn: number; readonly actorId: PlayerId }
     | { readonly kind: 'TRADED'; readonly turn: number; readonly actorId: PlayerId; readonly targetId: PlayerId }
     | {

@@ -44,6 +44,30 @@ describe('resolvePriest', () => {
         expect(JSON.stringify(draft.publicLog)).not.toContain('mule');
     });
 
+    it('announces publicly whose hand was read', () => {
+        const draft = round();
+        resolvePriest({ round: draft, actorId: 'p0', targetId: 'p1', playedCardId: 'han-pritcher' });
+        expect(draft.publicLog).toContainEqual({
+            kind: 'PEEKED',
+            turn: draft.turnNumber,
+            actorId: 'p0',
+            targetId: 'p1'
+        });
+    });
+
+    it('announces the target even when they hold no card', () => {
+        const draft = makeDraft({
+            players: makePlayers({ p0: { hand: ['magnifico#0'] }, p1: { hand: [] } })
+        });
+        resolvePriest({ round: draft, actorId: 'p0', targetId: 'p1', playedCardId: 'han-pritcher' });
+        expect(draft.publicLog).toContainEqual({
+            kind: 'PEEKED',
+            turn: draft.turnNumber,
+            actorId: 'p0',
+            targetId: 'p1'
+        });
+    });
+
     it('behaves identically for Bail Channis', () => {
         const draft = round();
         resolvePriest({ round: draft, actorId: 'p0', targetId: 'p1', playedCardId: 'bail-channis' });
@@ -54,6 +78,7 @@ describe('resolvePriest', () => {
         const draft = round();
         resolvePriest({ round: draft, actorId: 'p0', playedCardId: 'han-pritcher' });
         expect(draft.privateKnowledge).toEqual([]);
+        expect(draft.publicLog.some(entry => entry.kind === 'PEEKED')).toBe(false);
         expect(draft.publicLog).toContainEqual({
             kind: 'FIZZLE',
             turn: draft.turnNumber,

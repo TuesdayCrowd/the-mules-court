@@ -41,6 +41,12 @@ describe('narrate', () => {
         );
     });
 
+    // The table sees whom a Priest was pointed at; only the card stays private.
+    it('names whose hand was read without naming the card', () => {
+        const e: PublicLogEntry = { kind: 'PEEKED', turn: 4, actorId: 'p1', targetId: 'p2' };
+        expect(narrate(e, nameOf)).toBe("Ana looked at Bayta's hand.");
+    });
+
     it.each([
         ['deck', 'Bayta discarded their hand and drew from the deck.'],
         ['set-aside', 'Bayta discarded their hand and drew the set-aside card.'],

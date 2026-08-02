@@ -50,6 +50,11 @@ export function narrate(entry: PublicLogEntry, nameOf: NameOf): string {
             }
         }
 
+        case 'PEEKED':
+            // Deliberately card-free. `narratePeek` below is the only line in
+            // the game that names a living player's card, and it is private.
+            return `${nameOf(entry.actorId)} looked at ${nameOf(entry.targetId)}'s hand.`;
+
         case 'PROTECTED':
             return `${nameOf(entry.actorId)} is protected until their next turn.`;
 
