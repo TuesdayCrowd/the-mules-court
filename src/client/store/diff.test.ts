@@ -10,6 +10,19 @@ const ROUND_END: PublicLogEntry = { kind: 'ROUND_END', turn: 3, reason: 'last-su
 
 const RESULT: RoundResult = { reason: 'last-survivor', winnerIds: ['p1'] };
 
+/** One living seat, in the shape `RedactedView.players` takes. */
+function seat(id: string, index: number) {
+    return {
+        id,
+        seat: index,
+        tokens: 0,
+        alive: true,
+        protected: false,
+        discardPile: [],
+        discardValueTotal: 0
+    };
+}
+
 describe('diffSnapshots with no previous snapshot', () => {
     it('yields nothing at all — a reconnecting client rebuilds from server truth, it does not replay', () => {
         // UIX §2.1: reconnect, rotation, and window drag are one code path that
@@ -221,6 +234,91 @@ describe('diffSnapshots on the match result', () => {
 
     it('yields nothing while a match is still running', () => {
         expect(diffSnapshots(makeView({ matchWinnerId: null }), makeView({ matchWinnerId: null }))).toEqual([]);
+    });
+});
+
+describe('diffSnapshots on cards being drawn', () => {
+    it('yields card-drawn when the viewer own hand gains a card', () => {
+        const prev = makeView({ own: { hand: ['informant#1'] } });
+        const next = makeView({ own: { hand: ['informant#1', 'mule#1'] } });
+
+        expect(diffSnapshots(prev, next)).toEqual([{ kind: 'card-drawn', seatId: 'p1', cardTypeId: 'mule' }]);
+    });
+
+    it('yields nothing when the viewer plays a card and the hand shrinks', () => {
+        const prev = makeView({ own: { hand: ['informant#1', 'mule#1'] } });
+        const next = makeView({ own: { hand: ['mule#1'] } });
+
+        expect(diffSnapshots(prev, next)).toEqual([]);
+    });
+
+    it('yields nothing when a hand of the same size merely changes contents', () => {
+        // Mayor Indbur trades hands. Every instance id changes and no card is
+        // drawn; a set comparison alone would call that a deal.
+        const prev = makeView({ own: { hand: ['informant#1'] } });
+        const next = makeView({ own: { hand: ['bayta-darell#1'] } });
+
+        expect(diffSnapshots(prev, next)).toEqual([]);
+    });
+
+    it('names the card for the viewer own draw', () => {
+        const prev = makeView({ own: { hand: [] } });
+        const next = makeView({ own: { hand: ['first-speaker#1'] } });
+
+        expect(diffSnapshots(prev, next)).toEqual([{ kind: 'card-drawn', seatId: 'p1', cardTypeId: 'first-speaker' }]);
+    });
+
+    it('never names the card for an opponent — the beat deals a card back', () => {
+        // Interface rule 4. A field that is never populated cannot leak, and a
+        // field that is populated "just in case" leaks the day something renders it.
+        const prev = makeView({ players: [seat('p1', 0), { ...seat('p2', 1), alive: false }] });
+        const next = makeView({ players: [seat('p1', 0), seat('p2', 1)] });
+
+        const events = diffSnapshots(prev, next);
+        expect(events).toEqual([{ kind: 'card-drawn', seatId: 'p2' }]);
+        expect(events.every(event => event.kind !== 'card-drawn' || event.cardTypeId === undefined)).toBe(true);
+    });
+
+    it('yields one event per seat when a round is dealt into an empty table', () => {
+        const empty = [
+            { ...seat('p1', 0), alive: false },
+            { ...seat('p2', 1), alive: false },
+            { ...seat('p3', 2), alive: false },
+            { ...seat('p4', 3), alive: false }
+        ];
+        const dealt = [seat('p1', 0), seat('p2', 1), seat('p3', 2), seat('p4', 3)];
+
+        const prev = makeView({ players: empty, own: { hand: [] } });
+        const next = makeView({ players: dealt, own: { hand: ['informant#1'] } });
+
+        const drawn = diffSnapshots(prev, next).filter(event => event.kind === 'card-drawn');
+        expect(drawn).toHaveLength(4);
+        expect(drawn.map(event => (event as { seatId: string }).seatId)).toEqual(['p1', 'p2', 'p3', 'p4']);
+    });
+
+    it('yields nothing for a seat that goes out — a card leaving is not a card arriving', () => {
+        const prev = makeView({ players: [seat('p1', 0), seat('p2', 1)] });
+        const next = makeView({ players: [seat('p1', 0), { ...seat('p2', 1), alive: false }] });
+
+        expect(diffSnapshots(prev, next)).toEqual([]);
+    });
+
+    it('stays silent while an opponent takes an ordinary turn', () => {
+        // Their `alive` does not move across a turn-start draw, and the wire
+        // carries no hand size for them — so this derives nothing rather than
+        // inferring a seat from a deck count that a Darell redraw also moves.
+        const prev = makeView({ deckCount: 10, currentPlayerId: 'p1' });
+        const next = makeView({ deckCount: 9, currentPlayerId: 'p2' });
+
+        expect(diffSnapshots(prev, next)).toEqual([]);
+    });
+
+    it('places the arriving card after the play that preceded it', () => {
+        // Exit first, enter last.
+        const prev = makeView({ publicLog: [], own: { hand: ['informant#1'] } });
+        const next = makeView({ publicLog: [PLAY], own: { hand: ['informant#1', 'mule#1'] } });
+
+        expect(diffSnapshots(prev, next).map(event => event.kind)).toEqual(['log', 'card-drawn']);
     });
 });
 

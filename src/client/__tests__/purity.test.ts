@@ -78,6 +78,35 @@ describe('pure client layer', () => {
         }
     });
 
+    it('never reaches the browser audio or device globals', () => {
+        // Added when the sound vocabulary landed. `store/sound.ts` holds every
+        // frequency, envelope and gain in the game and must stay readable from a
+        // plain Node process — but the checks above ban only the two globals
+        // that existed when they were written, so the whole Web Audio surface
+        // and everything hanging off the device object passed through freely.
+        //
+        // The pure layer decides what a thing sounds like; `ui/sound.ts` is the
+        // only file allowed to know how to make a sound. The same goes for the
+        // device object: vibration, media capabilities and the platform string
+        // are all reasons a decision would silently stop being testable.
+        const BANNED: ReadonlyArray<readonly [RegExp, string]> = [
+            [/\bAudioContext\b/, 'builds an audio context'],
+            [/\bwebkitAudioContext\b/, 'builds a prefixed audio context'],
+            [/\bOfflineAudioContext\b/, 'builds an offline audio context'],
+            [/\bnavigator\.[A-Za-z_$]/, 'reaches the device object']
+        ];
+
+        for (const dir of PURE_DIRS) {
+            for (const file of sourceFiles(dir)) {
+                if (file.endsWith('.test.ts')) continue;
+                const src = readFileSync(file, 'utf8');
+                for (const [pattern, complaint] of BANNED) {
+                    expect(src, `${file} ${complaint}`).not.toMatch(pattern);
+                }
+            }
+        }
+    });
+
     it('never reaches a global through globalThis', () => {
         // The checks above ban `window.` and `document.` as member access, so
         // `globalThis.window.x` still trips them — but `globalThis.localStorage`

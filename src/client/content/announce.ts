@@ -26,6 +26,14 @@ export function announcementFor(event: PresentationEvent, nameOf: NameOf): strin
         case 'peek-lost':
             return narratePeekLost(nameOf(event.subjectId));
 
+        // Chosen silence, and the easiest of the three to argue: a card is
+        // drawn at the start of every single turn. Narrating it would put a
+        // line nobody needs between a screen-reader player and the play that
+        // actually happened, several times a round. The hand itself is already
+        // read from the table.
+        case 'card-drawn':
+            return null;
+
         // Chosen silence, not an oversight: the round-over overlay renders the
         // result from state, with the revealed hands and the countdown together.
         // Announcing it here would say it twice.

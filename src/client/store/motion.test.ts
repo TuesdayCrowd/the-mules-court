@@ -1,8 +1,8 @@
 import { describe, expect, it } from 'vitest';
 import type { BeatName } from './motion';
-import { beatDurationMs, beatForEvent, motionPlan } from './motion';
+import { DEAL_STAGGER_CAP, DEAL_STAGGER_MS, beatDurationMs, beatForEvent, dealDelayMs, dealSequenceMs, motionPlan } from './motion';
 
-const ALL: BeatName[] = ['mule', 'elimination', 'peek', 'play', 'countdown-tick', 'token-award', 'victory'];
+const ALL: BeatName[] = ['mule', 'elimination', 'peek', 'play', 'deal', 'countdown-tick', 'token-award', 'victory'];
 
 describe('reduced motion', () => {
     it('collapses every beat to a fade under prefers-reduced-motion', () => {
@@ -65,6 +65,46 @@ describe('the staged beats', () => {
     });
 });
 
+describe('the deal', () => {
+    it('is one travelling step, so the arc carries the whole arrival', () => {
+        expect(motionPlan({ beat: 'deal', reducedMotion: false }).steps.map(s => s.kind)).toEqual(['deal']);
+    });
+
+    it('collapses to the shared fade under reduced motion — a deal is decoration, not information', () => {
+        expect(motionPlan({ beat: 'deal', reducedMotion: true }).steps.map(s => s.kind)).toEqual(['fade']);
+    });
+
+    it('staggers 40ms per card', () => {
+        expect(dealDelayMs(0)).toBe(0);
+        expect(dealDelayMs(1)).toBe(DEAL_STAGGER_MS);
+        expect(dealDelayMs(3)).toBe(3 * DEAL_STAGGER_MS);
+    });
+
+    it('caps the stagger, so a fuller table does not deal more slowly per card', () => {
+        expect(dealDelayMs(DEAL_STAGGER_CAP)).toBe(DEAL_STAGGER_CAP * DEAL_STAGGER_MS);
+        expect(dealDelayMs(DEAL_STAGGER_CAP + 1)).toBe(dealDelayMs(DEAL_STAGGER_CAP));
+        expect(dealDelayMs(500)).toBe(dealDelayMs(DEAL_STAGGER_CAP));
+    });
+
+    it('treats a nonsensical index as the first card rather than a negative delay', () => {
+        expect(dealDelayMs(-1)).toBe(0);
+        expect(dealDelayMs(1.9)).toBe(DEAL_STAGGER_MS);
+    });
+
+    it('keeps a whole simultaneous deal under 500ms, however many cards land', () => {
+        // Stagger × count grows fast; the player next decision outranks the flourish.
+        expect(dealSequenceMs(0)).toBe(0);
+        for (const count of [1, 2, 4, 8, 64]) {
+            expect(dealSequenceMs(count), `${count} cards`).toBeLessThanOrEqual(500);
+        }
+    });
+
+    it('gets slower with more cards only up to the cap', () => {
+        expect(dealSequenceMs(4)).toBeGreaterThan(dealSequenceMs(1));
+        expect(dealSequenceMs(64)).toBe(dealSequenceMs(DEAL_STAGGER_CAP + 1));
+    });
+});
+
 describe('the cinematic budget', () => {
     it('resolves every beat but the two flagships within 300ms', () => {
         // UIX §8: the budget is spent exactly where the tone decision put it.
@@ -113,6 +153,14 @@ describe('beatForEvent', () => {
         expect(beatForEvent({ kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause } })).toBe('mule');
     });
 
+    it('deals a card that arrived in the viewer own hand', () => {
+        expect(beatForEvent({ kind: 'card-drawn', seatId: 'p1', cardTypeId: 'mule' })).toBe('deal');
+    });
+
+    it('deals a card that arrived in an opponent hand, which carries no identity', () => {
+        expect(beatForEvent({ kind: 'card-drawn', seatId: 'p2' })).toBe('deal');
+    });
+
     it('reveals a peek', () => {
         expect(beatForEvent({ kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' })).toBe('peek');
     });
@@ -145,6 +193,7 @@ describe('beatForEvent', () => {
                     { kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause: 'guard' } },
                     { kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause: 'mule-forced' } },
                     { kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' },
+                    { kind: 'card-drawn', seatId: 'p1', cardTypeId: 'informant' },
                     { kind: 'round-over', result: { reason: 'deck-out', winnerIds: ['p1'] } },
                     { kind: 'match-over', winnerId: 'p1' }
                 ] as const
@@ -166,6 +215,7 @@ describe('beatForEvent', () => {
             { kind: 'log', entry: { kind: 'PLAY', turn: 1, actorId: 'p1', cardId: 'informant' } },
             { kind: 'log', entry: { kind: 'ELIMINATED', turn: 1, playerId: 'p2', cause: 'mule-forced' } },
             { kind: 'peek-gained', subjectId: 'p2', cardTypeId: 'mule' },
+            { kind: 'card-drawn', seatId: 'p2' },
             { kind: 'round-over', result: { reason: 'deck-out', winnerIds: ['p1'] } },
             { kind: 'match-over', winnerId: 'p1' }
         ] as const;

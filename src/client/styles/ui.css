@@ -103,6 +103,27 @@ h2,
 }
 
 /**
+ * The persistent chrome layer: the connection dot and the mute toggle.
+ *
+ * **`z-index: 1` is load-bearing, and it is a bug fix.** Both are mounted before
+ * the screens — deliberately, so the mount order can stay the reading order —
+ * and both are `position: absolute` with no stacking order of their own. A
+ * `.screen` is `position: absolute; inset: 0` with a 72% black backdrop once it
+ * has anything in it, so on the menu, the join screen and the lobby it painted
+ * straight over the top-right corner: the dot invisible, and every tap on Mute
+ * landing on the screen instead. Mute was unreachable at exactly the moment a
+ * player first reaches for it.
+ *
+ * One, not more. It has to outrank a `.screen` (which has no `z-index` at all)
+ * and must stay under everything from the fatal wall at 2 upwards — a wall that
+ * says the match is over should not have a live mute button poking through it.
+ */
+#ui-root > .connection-dot,
+#ui-root > .sound-toggle {
+    z-index: 1;
+}
+
+/**
  * The connection dot (UIX §5). A corner of every surface.
  *
  * State is never colour alone: the accessible name carries it in words, and
@@ -128,6 +149,55 @@ h2,
 
 .connection-dot[data-status='closed'] {
     background: var(--color-nebula-red);
+}
+
+/**
+ * Mute, beside the dot (`ui/soundToggle.ts`).
+ *
+ * The same corner as the connection dot, because that is the persistent chrome
+ * a player already knows how to find, and because muting is something they need
+ * *now* rather than after a menu. Left of the dot rather than under it: the dot
+ * is 12px wide at `--space-3` from the edge, so the toggle clears it at twice
+ * that plus a gap.
+ *
+ * A full `--tap-min` box even though the glyph is small. It is the one control
+ * reachable during play that is not a card, and a corner button that misses on
+ * a moving train is worse than no button.
+ */
+.sound-toggle {
+    position: absolute;
+    top: var(--space-3);
+    right: calc(var(--space-3) * 2 + var(--space-2));
+    width: var(--tap-min);
+    height: var(--tap-min);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
+    border: 1px solid var(--color-seat-other);
+    border-radius: 50%;
+    background: rgb(0 0 0 / 0.45);
+    color: var(--color-text-primary);
+    font-size: 1.15rem;
+    cursor: pointer;
+}
+
+/* Muted is never colour alone — the glyph changes and so does the accessible
+   name; this only reinforces both. */
+.sound-toggle[data-muted='true'] {
+    color: var(--color-state-waiting);
+    border-color: var(--color-seat-eliminated);
+}
+
+.sound-toggle:focus-visible {
+    outline: 2px solid var(--color-text-primary);
+    outline-offset: 2px;
+}
+
+@media (hover: hover) and (pointer: fine) {
+    .sound-toggle:hover {
+        border-color: var(--color-text-primary);
+    }
 }
 
 /**
