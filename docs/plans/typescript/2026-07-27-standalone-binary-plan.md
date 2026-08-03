@@ -791,7 +791,7 @@ binary into an empty directory and run it there:
 
 - `AGENTS.md` — `compile` in the setup table, and a **The single-file binary** section covering the three load-bearing facts (one policy over two lookups; the manifest is generated-but-committed and why `@ts-nocheck`; a `type: 'file'` import is a path, not bytes).
 - `README.md` — the four environment variables as a table, an **As a single binary** subsection, and a corrected Status block.
-- `docs/plans/2026-07-24-uix-implementation-plan.md` — **D3 marked closed**, with the reason it became urgent: the default is baked into a binary handed to someone who did not compile it.
+- `docs/plans/typescript/2026-07-24-uix-implementation-plan.md` — **D3 marked closed**, with the reason it became urgent: the default is baked into a binary handed to someone who did not compile it.
 
 ---
 

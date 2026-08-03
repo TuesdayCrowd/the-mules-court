@@ -92,7 +92,7 @@ Consequences:
 ## Do not restore the ripple filter
 
 The Mule's `ripple` beat deliberately does **not** distort the live table, and
-`docs/plans/2026-07-30-renderer-architecture-research.md` §8 records why. If you reach
+`docs/plans/typescript/2026-07-30-renderer-architecture-research.md` §8 records why. If you reach
 for `feDisplacementMap` on the table root, read that first — the decision was argued,
 not overlooked. Warping the Mule's portrait, which is already an image, is the design.
 

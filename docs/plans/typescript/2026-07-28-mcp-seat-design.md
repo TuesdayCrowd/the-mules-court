@@ -3,7 +3,7 @@
 **Date:** 2026-07-28
 **Status:** Decided. §7 settled in favour of the continuous loop.
 **Scope:** An MCP server that lets a language model occupy seats at a live table.
-**Depends on:** `docs/plans/2026-07-22-transport-design.md`
+**Depends on:** `docs/plans/typescript/2026-07-22-transport-design.md`
 
 ---
 

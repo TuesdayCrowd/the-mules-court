@@ -3,7 +3,7 @@
 **Date:** 2026-07-30
 **Status:** Research complete. §12 records the decision; §13 lists what is still open.
 **Scope:** Should the client stay a Phaser/DOM hybrid, become all-Phaser, or drop Phaser entirely?
-**Depends on:** `docs/plans/2026-07-23-uix-design.md` — the design this questions
+**Depends on:** `docs/plans/typescript/2026-07-23-uix-design.md` — the design this questions
 **Corrects:** UIX §6.3 and §8.5 (see §11)
 
 ---

@@ -1,10 +1,10 @@
 # The Mule's Court — Visual Showcase
 
-> **[`docs/plans/2026-07-23-uix-design.md`](docs/plans/2026-07-23-uix-design.md) is authoritative where the two disagree.** This document is the interface reference — seat states, the action panel, the quick reference, the palette, the interface rules. It carries no layout metrics, because there are none to carry: geometry is computed from the live viewport.
+> **[`docs/plans/typescript/2026-07-23-uix-design.md`](docs/plans/typescript/2026-07-23-uix-design.md) is authoritative where the two disagree.** This document is the interface reference — seat states, the action panel, the quick reference, the palette, the interface rules. It carries no layout metrics, because there are none to carry: geometry is computed from the live viewport.
 
 Design reference for the game's interface, and all of it is implemented. Every surface is DOM, one factory each in `src/client/ui/`: the chrome, and the table itself in `table.ts`, laid out from a `LayoutSpec` computed by `src/client/layout/` and animated by `beats.ts` on the Web Animations API.
 
-This document describes appearance and interaction only. The rules live in `README.md`, the state model in `docs/plans/2026-07-22-engine-architecture-design.md`, and the client-server protocol in `docs/plans/2026-07-22-transport-design.md`.
+This document describes appearance and interaction only. The rules live in `README.md`, the state model in `docs/plans/typescript/2026-07-22-engine-architecture-design.md`, and the client-server protocol in `docs/plans/typescript/2026-07-22-transport-design.md`.
 
 **Two constraints govern everything below.**
 

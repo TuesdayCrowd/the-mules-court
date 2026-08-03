@@ -3,8 +3,8 @@
 **Date:** 2026-07-30
 **Status:** Built. All five stages complete; §11 lists what is still open.
 **Scope:** A built-in, non-LLM opponent so one person can play a whole match alone.
-**Depends on:** `docs/plans/2026-07-22-engine-architecture-design.md`, `docs/plans/2026-07-22-transport-design.md`
-**Adjacent:** `docs/plans/2026-07-28-mcp-seat-design.md` — the LLM answer to the same problem
+**Depends on:** `docs/plans/typescript/2026-07-22-engine-architecture-design.md`, `docs/plans/typescript/2026-07-22-transport-design.md`
+**Adjacent:** `docs/plans/typescript/2026-07-28-mcp-seat-design.md` — the LLM answer to the same problem
 
 ---
 

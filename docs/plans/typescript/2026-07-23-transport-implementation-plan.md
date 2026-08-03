@@ -3,13 +3,13 @@
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 > Every task follows red → green → commit. Never write implementation before its failing test.
 
-**Goal:** Build the WebSocket server that wraps the finished game engine, matching `docs/plans/2026-07-22-transport-design.md`.
+**Goal:** Build the WebSocket server that wraps the finished game engine, matching `docs/plans/typescript/2026-07-22-transport-design.md`.
 
 **Architecture:** One Bun process. `Bun.serve` handles one HTTP route (`POST /api/rooms`) and upgrades everything else to WebSockets. A `Room` owns a `MatchState`, a four-slot seat table, and a promise-chain serialization queue; a registry maps `matchId → Room` and runs the reaper. Every gameplay push is a per-seat unicast built from `view()`. Persistence is `{seed, actionLog}` in `bun:sqlite`, replayed through `reduce()` on recovery.
 
 **Tech Stack:** Bun 1.3 (`Bun.serve`, `bun:sqlite`, `bun test`), TypeScript 5.7 strict. No new runtime dependencies.
 
-**Design reference:** `docs/plans/2026-07-22-transport-design.md`, cited below as *Design §N*. Read a section before implementing against it. The engine surface is `src/game/engine/index.ts` — import **only** from that barrel.
+**Design reference:** `docs/plans/typescript/2026-07-22-transport-design.md`, cited below as *Design §N*. Read a section before implementing against it. The engine surface is `src/game/engine/index.ts` — import **only** from that barrel.
 
 ---
 

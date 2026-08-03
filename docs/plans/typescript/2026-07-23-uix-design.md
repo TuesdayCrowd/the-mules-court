@@ -2,7 +2,7 @@
 
 **Date:** 2026-07-23
 **Status:** Approved design. This is a design plan, not an implementation plan.
-**Reads with:** `README.md` (rules), `docs/plans/2026-07-22-transport-design.md` (protocol), `VISUAL_SHOWCASE.md` (the interaction baseline this document absorbs and extends).
+**Reads with:** `README.md` (rules), `docs/plans/typescript/2026-07-22-transport-design.md` (protocol), `VISUAL_SHOWCASE.md` (the interaction baseline this document absorbs and extends).
 
 This document defines the complete client experience: menu, hosting and joining, lobby, the match table, card play, reveals, round and match end, pause and reconnection, and every error a player can meet. It supersedes `VISUAL_SHOWCASE.md`'s fixed 1024×768 layout system while keeping its interaction design — the labelled-button action panel, the show-ineligible-with-reason principle, value-first card labels, the quick reference, and its palette.
 
