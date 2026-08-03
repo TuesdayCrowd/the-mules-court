@@ -5,6 +5,131 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [1.2.4] - 2026-08-02
+
+Four things a real match kept catching on, and a set of proper names for the
+opponents.
+
+The lobby was a one-way door: seating a computer opponent could not be undone,
+so a host who filled the table while waiting had nothing to do when a friend
+actually arrived. The match log threw the reader back to the top of the match
+every time anybody played. An ineligible target's reason was a loose word
+floating in the target grid, belonging to none of the three names beside it. And
+the action sheet ran its headings and its controls together into one paragraph.
+
+### Added
+
+- **A host can remove a computer opponent** before the match starts. `REMOVE_BOT`
+  is the inverse of `ADD_BOT` and gated identically — host only, lobby only —
+  with one check flipped: the seat must hold a bot rather than be free. That test
+  is `seat.bot`, not `seat.tokenHash`, because every occupied seat holds a token,
+  and asking about the token alone would let the host unseat a *person* — starting
+  with their own seat, which is the first thing a stray click reaches. Lobby only
+  is the load-bearing half: a seat that vanished mid-round would take a player out
+  of a rotation the engine has already dealt to, and the action log has no way to
+  express it.
+- **Fifty-six names for the computer opponents, drawn from all three series.**
+  Asimov stitched the Robot novels, the Empire novels and the Foundation novels
+  into a single future history, and Daneel Olivaw is present at both ends of it —
+  so a table can seat Susan Calvin against Golan Trevize without it being a
+  crossover. The pool was four Foundation names bound to seat index, which made
+  every solo table the same four opponents in the same four chairs. Names are
+  drawn per match from a stream seeded on the match id, separate from the one the
+  opponents think with: naming a seat must not change how it plays.
+- **The match log records whom a Priest read.** Playing a value-2 card wrote
+  nothing public beyond the `PLAY` entry, so the log could not say whom Han
+  Pritcher or Bail Channis was pointed at — the only targeted play whose resolver
+  recorded no target, where `GUESS`, `COMPARE`, `TRADED` and `REDREW` all carry
+  one. The card seen stays private: it lives in `PeekRecord` and reaches exactly
+  one viewer through the per-seat `revealed` field, so the new entry carries both
+  seats and no card.
+
+### Fixed
+
+- **The match log follows like a terminal.** It rebuilds its whole body on every
+  state push, and replacing the scroll container discards its `scrollTop`. Now:
+  resting at the bottom means follow, scrolled up means stay put, and opening
+  shows the newest line. Only the log follows — the card reference, the rules and
+  the seat panel are fixed documents, and opening one part-way down would hide its
+  first rows for a reason the player could not account for. The bottom test
+  carries a 4px tolerance rather than comparing exactly, because a fractional
+  device pixel ratio leaves `scrollTop` a hair under the arithmetic bottom and
+  following would otherwise stop the moment someone zoomed.
+- **An opponent's status is on their nametag.** The reason a target could not be
+  chosen was a bare `<span>` appended as the button's *sibling* into a `flex-wrap`
+  section, so it laid out as one more item and drifted — a loose "eliminated" with
+  nothing tying it to the name it was about. It also printed the raw enum value,
+  so a player read `eliminated` on the sheet and "Out of the round" on the seat
+  chip for the same fact about the same seat at the same moment. The status is now
+  a second line inside the button, which puts it in the accessible *name* too —
+  what a disabled button needs, since it is not focusable and `aria-describedby`
+  on it is reached far less reliably. `content/seatStatus.ts` is the single
+  definition of the two words.
+- **Each heading, name and value row gets its own line.** "Choose a target" sat
+  inline with the first name, "Guess a value" beside the 2, and "Tap a value to
+  see its cards" beside the 8. Sections are a grid now; names take one row each;
+  the seven values wrap among themselves, three to a row at most. The ceiling is a
+  `max-width` of exactly three columns over `repeat(auto-fit, …)`, so a fourth
+  cannot lay out while it still drops to two and then one as the sheet narrows.
+  Two CSS traps are recorded where they were hit: `justify-items: start` sizes a
+  row to its content, and a row sized to its content cannot reflow; and a grid
+  item's `min-width` defaults to min-content, which `auto-fit` resolves against
+  the definite `max-width` — so the grid refused to shrink and sat at a fixed
+  208px inside a 126px section rather than wrapping.
+
+### Docs
+
+- `docs/plans/` splits into `typescript/` and `godot/`. Every plan sat in one
+  directory, which was fine while there was one implementation; there are now two.
+  Ten new plans cover the proposed Godot rewrite — engine and AI ports,
+  determinism and RNG, server and networking, client UI, project structure and
+  gates, asset reuse, and a conformance corpus. No existing plan's content
+  changed; the only edits inside the moved files are the path updates that keep
+  their cross-references pointing at files that exist.
+
+## [1.2.3] - 2026-08-02
+
+- **The release workflow built its binaries before building the client.** The
+  compiled executable embeds `dist/`, so the assets it embedded were whatever the
+  previous run had left behind.
+
+## [1.2.2] - 2026-08-02
+
+- **The simulation tests were given an explicit budget.** They play thousands of
+  real matches and had no wall-clock bound, so on a loaded runner they ran until
+  the suite's default timeout killed them, which reads as a failure in the AI
+  rather than in the harness.
+
+## [1.2.1] - 2026-08-02
+
+Quality-of-life polish, aimed at making the table feel like a table.
+
+### Added
+
+- **Cards are dealt.** They fly out of the deck along an arc, banking into the
+  curve rather than sliding flat — a straight interpolation reads as a box moving,
+  and `offset-rotate: auto` reads as *dealt*. An opponent's deal flies a card
+  **back**: that they drew is public, what they drew is not.
+- **Nine synthesised sounds, and no audio files.** Everything is an oscillator or
+  a noise buffer through a filter and an envelope, so there are no new bytes and
+  nothing to license. The trick is not fidelity but **variation** — a real deck
+  never sounds the same twice — so every play jitters in pitch, duration and gain.
+  Card sounds vary widely and tuned ones barely at all, because an out-of-tune
+  reward reads as a bug while an identical card reads as a machine. The Mule is
+  the loudest and longest, and the beating between its two semitone-apart tones is
+  the mentalic interference. Mute sits beside the connection dot — the control you
+  want when someone walks into the room, not one buried in a menu.
+- **The hand answers the pointer.** An 8px lift on hover, stronger for a playable
+  card than for one a rule forbids. Touch is unaffected and reduced motion
+  collapses it.
+
+### Fixed
+
+- **The game was completely silent on iOS.** WebKit honours `resume()` only from
+  inside a user gesture, and every play call ran from a socket push.
+- **Mute was unclickable** on the menu, join and lobby, where a full-screen
+  surface painted over it.
+
 ## [1.2.0] - 2026-08-01
 
 **You can play alone now.** Any seat left open in the lobby can be filled with a
@@ -443,6 +568,10 @@ a browser: host a room, share a link, play a hand, win Devotion Tokens.
   the transport layer, and the client UI, kept as the historical record of
   each stage's decisions.
 
+[1.2.4]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.3...v1.2.4
+[1.2.3]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.2...v1.2.3
+[1.2.2]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.1...v1.2.2
+[1.2.1]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.0...v1.2.1
 [1.2.0]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.1.0...v1.2.0
 [1.1.0]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.0.0...v1.1.0
 [1.0.0]: https://github.com/TuesdayCrowd/the-mules-court/releases/tag/v1.0.0
