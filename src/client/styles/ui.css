@@ -468,6 +468,51 @@ h2,
     cursor: not-allowed;
 }
 
+/**
+ * A target that cannot be chosen says why on its own nametag.
+ *
+ * The section is `flex-wrap`, and the reason used to be a bare `<span>` beside
+ * the button — so it laid out as one more flex item and drifted, a loose
+ * "eliminated" with nothing tying it to a name. Two stacked lines inside the
+ * button cannot come apart.
+ *
+ * `grid` rather than adding a line break, so the name keeps its own line box
+ * and the status sits under it at whatever width the sheet has.
+ */
+.action-sheet button[data-state] {
+    display: grid;
+    justify-items: start;
+    gap: 1px;
+    padding-block: var(--space-2);
+    text-align: left;
+}
+
+.action-sheet button[data-state] [data-role='target-state'] {
+    font-size: var(--font-size-sm, 0.8125rem);
+    text-transform: uppercase;
+    letter-spacing: 0.05em;
+}
+
+/**
+ * Colour tells the two states apart at a glance; the word is what carries the
+ * meaning. Never colour alone — the same rule the Mule's danger button follows.
+ *
+ * `:disabled` is repeated in each selector so these outrank the rule above by
+ * specificity rather than by source order, which is a far easier thing to
+ * preserve through an edit.
+ */
+.action-sheet button[data-state='protected']:disabled {
+    border-color: var(--color-seat-protected);
+}
+
+.action-sheet button[data-state='protected']:disabled [data-role='target-state'] {
+    color: var(--color-seat-protected);
+}
+
+.action-sheet button[data-state='eliminated']:disabled [data-role='target-state'] {
+    color: var(--color-seat-eliminated);
+}
+
 .action-sheet button:focus-visible {
     outline: 2px solid var(--color-text-primary);
     outline-offset: 2px;

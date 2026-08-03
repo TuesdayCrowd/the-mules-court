@@ -14,6 +14,7 @@
 import { cardTypeOf } from '../../game/engine';
 import type { CardInstanceId, CardTypeId, PlayerId, RedactedView } from '../../game/engine';
 import { forcedPlayCaption } from '../content/playability';
+import { SEAT_STATUS_COPY } from '../content/seatStatus';
 import { TOKENS } from '../tokens/tokens';
 import type { LayoutSpec, Rect } from './types';
 
@@ -232,8 +233,12 @@ function seatState(
  */
 const SEAT_CAPTIONS: Readonly<Record<SeatState, string | null>> = {
     current: null, // the banner already names them
-    protected: 'Protected',
-    eliminated: 'Out of the round',
+    // From `content/seatStatus.ts`, not restated here: the action sheet labels
+    // the same two states about the same seat at the same moment, and a second
+    // copy of the words is how the two come to disagree. `current`, `idle` and
+    // `disconnected` stay local — no other surface has them.
+    protected: SEAT_STATUS_COPY.protected,
+    eliminated: SEAT_STATUS_COPY.eliminated,
     disconnected: 'Reconnecting…',
     idle: null
 };
