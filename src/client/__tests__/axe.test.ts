@@ -98,10 +98,47 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
                 onStart: noop,
                 onDissolve: noop,
                 onAddBot: () => {},
+                onRemoveBot: () => {},
                 clipboard: { writeText: noopAsync },
                 joinUrlFor: id => `https://court.example.com/join/${id}`
             });
             drive(screen, root, makeState({ screen: 'lobby', matchId: 'K7QX2', lobby: LOBBY, seat: { seat: 0, playerId: 'p1' } }));
+        }
+    ],
+    [
+        // Its own case because the host-only controls differ by seat status,
+        // and this is the state that puts three same-worded buttons on one
+        // screen — the arrangement most likely to leave duplicate accessible
+        // names behind.
+        'lobby with computer opponents seated',
+        root => {
+            const screen = createLobbyScreen({
+                onStart: noop,
+                onDissolve: noop,
+                onAddBot: () => {},
+                onRemoveBot: () => {},
+                clipboard: { writeText: noopAsync },
+                joinUrlFor: id => `https://court.example.com/join/${id}`
+            });
+            drive(
+                screen,
+                root,
+                makeState({
+                    screen: 'lobby',
+                    matchId: 'K7QX2',
+                    lobby: {
+                        ...LOBBY,
+                        canStart: true,
+                        seats: [
+                            LOBBY.seats[0],
+                            { seat: 1, playerId: 'p2', nickname: 'Arkady Darell', status: 'computer', difficulty: 'adept' },
+                            { seat: 2, playerId: 'p3', nickname: 'Lathan Devers', status: 'computer', difficulty: 'adept' },
+                            { seat: 3, playerId: 'p4', nickname: 'Ducem Barr', status: 'computer', difficulty: 'master' }
+                        ]
+                    },
+                    seat: { seat: 0, playerId: 'p1' }
+                })
+            );
         }
     ],
     [
@@ -111,6 +148,7 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
                 onStart: noop,
                 onDissolve: noop,
                 onAddBot: () => {},
+                onRemoveBot: () => {},
                 clipboard: { writeText: noopAsync },
                 joinUrlFor: id => `https://court.example.com/join/${id}`
             });
@@ -403,12 +441,15 @@ describe('the gate itself', () => {
         // A surface added to the DOM layer but not to this list would ship
         // unchecked, and nothing else in the suite would notice.
         //
-        // Nineteen cases across seventeen surfaces: the reference dock appears
+        // Twenty cases across seventeen surfaces: the reference dock appears
         // twice, because its two tabs render entirely different markup and
         // checking only the one it happens to open on would leave the other
-        // unchecked, and the mute control appears twice because its name and
-        // its pressed state both change with it.
-        expect(SURFACES).toHaveLength(19);
+        // unchecked; the mute control appears twice because its name and its
+        // pressed state both change with it; and the lobby appears three times,
+        // because the host-only controls it renders differ by seat status and
+        // the computer-seated case is the one that puts three identically
+        // worded buttons on a single screen.
+        expect(SURFACES).toHaveLength(20);
     });
 
     it('detects a violation rather than passing over it', async () => {

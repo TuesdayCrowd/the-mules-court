@@ -39,11 +39,13 @@ function mounted(overrides: { clipboard?: { writeText(text: string): Promise<voi
     const dissolved: number[] = [];
     const copied: string[] = [];
     const botted: Array<{ seat: number; difficulty: string }> = [];
+    const unbotted: number[] = [];
 
     const screen = createLobbyScreen({
         onStart: () => started.push(1),
         onDissolve: () => dissolved.push(1),
         onAddBot: (seat, difficulty) => botted.push({ seat, difficulty }),
+        onRemoveBot: seat => unbotted.push(seat),
         clipboard: overrides.clipboard ?? { writeText: text => (copied.push(text), Promise.resolve()) },
         joinUrlFor: matchId => `https://court.example.com/join/${matchId}`
     });
@@ -58,8 +60,11 @@ function mounted(overrides: { clipboard?: { writeText(text: string): Promise<voi
         dissolved,
         copied,
         botted,
+        unbotted,
         addBotButtons: () =>
             [...root.querySelectorAll('[data-action="add-bot"]')] as HTMLButtonElement[],
+        removeBotButtons: () =>
+            [...root.querySelectorAll('[data-action="remove-bot"]')] as HTMLButtonElement[],
         difficultyGroup: () => root.querySelector('[data-role="difficulty"]') as HTMLElement | null,
         difficultyOptions: () =>
             [...root.querySelectorAll('[data-role="difficulty"] input')] as HTMLInputElement[],
@@ -376,6 +381,73 @@ describe('seating a computer opponent', () => {
         const button = ui.addBotButtons()[0];
         expect(button.querySelector('svg')!.getAttribute('aria-hidden')).toBe('true');
         expect(button.textContent).toMatch(/computer/i);
+    });
+});
+
+/**
+ * Seating a computer is reversible (the whole point: a host who filled the
+ * table before a friend arrived must be able to make room again).
+ *
+ * Offered per seat for the same reason `addBotButton` is: the host may want to
+ * free exactly one chair, not clear the table.
+ */
+describe('removing a computer opponent', () => {
+    const withBots = () =>
+        lobby({
+            seats: [
+                seat(0, 'Cornelius'),
+                seat(1, 'Arkady Darell', 'computer'),
+                seat(2, 'Lathan Devers', 'computer'),
+                openSeat(3)
+            ]
+        });
+
+    it('offers the host a button on every computer seat', () => {
+        const ui = mounted();
+        ui.show(withBots());
+
+        expect(ui.removeBotButtons()).toHaveLength(2);
+    });
+
+    it('names the seat it will empty', () => {
+        const ui = mounted();
+        ui.show(withBots());
+
+        ui.removeBotButtons()[1].click();
+
+        expect(ui.unbotted).toEqual([2]);
+    });
+
+    it('offers nothing on a seat a person is sitting in', () => {
+        const ui = mounted();
+        ui.show(lobby({ seats: [seat(0, 'Cornelius'), seat(1, 'Ana'), openSeat(2), openSeat(3)] }));
+
+        expect(ui.removeBotButtons()).toHaveLength(0);
+    });
+
+    it('offers nothing on an open seat', () => {
+        const ui = mounted();
+        ui.show();
+
+        expect(ui.removeBotButtons()).toHaveLength(0);
+    });
+
+    it('offers nothing to a player who is not the host', () => {
+        const ui = mounted();
+        ui.show(withBots(), { seat: 3, playerId: 'p4' });
+
+        expect(ui.removeBotButtons()).toHaveLength(0);
+    });
+
+    it('names the opponent it removes, so the control is not a bare glyph', () => {
+        const ui = mounted();
+        ui.show(withBots());
+
+        const button = ui.removeBotButtons()[0];
+        expect(button.textContent).toMatch(/remove/i);
+        // The row says which seat; the button must too, or a screen reader hears
+        // "Remove" twice with nothing to tell the two apart.
+        expect(button.getAttribute('aria-label')).toMatch(/Arkady Darell/);
     });
 });
 

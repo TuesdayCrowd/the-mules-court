@@ -213,6 +213,7 @@ function boot(): void {
             onDissolve: () => socket?.send({ type: 'END_MATCH', matchId: matchId as string }),
             onAddBot: (seat, difficulty) =>
                 socket?.send({ type: 'ADD_BOT', matchId: matchId as string, seat, difficulty }),
+            onRemoveBot: seat => socket?.send({ type: 'REMOVE_BOT', matchId: matchId as string, seat }),
             // `navigator.clipboard` is secure-context only and absent over
             // http on a LAN address — which is exactly where the invite link
             // most needs copying, since that is when there is a second device

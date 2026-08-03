@@ -41,7 +41,12 @@ beforeAll(() => {
             // cannot approach that rate, so this is a fixture concession to the
             // fast clock, not a limit the feature needs raised.
             messageBurst: 1000,
-            messageRefillPerSec: 1000
+            messageRefillPerSec: 1000,
+            // Same concession, one layer out: every case here mints a room and
+            // opens one or two sockets, and the whole file runs inside a few
+            // seconds. The shipped 30/minute is not what this file targets —
+            // `abuse.test.ts` owns that limit and tests it deliberately.
+            ipConnectionsPerMinute: 1000
         })
     );
     httpBase = `http://localhost:${server.server.port}`;
@@ -223,6 +228,140 @@ describe('a host filling seats with computer opponents', () => {
         const error = await host.nextOfType('ERROR');
 
         expect(error.code).toBe('CANNOT_START');
+
+        host.close();
+    });
+});
+
+describe('a host removing a computer opponent', () => {
+    it('reopens the seat, so a person can take it instead', async () => {
+        const { room, host } = await hostALobby();
+        await fillWithBots(host, room.matchId, [1]);
+        expect(lastLobby(host).seats[1].status).toBe('computer');
+
+        host.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 1 });
+        await host.nextOfType('LOBBY_UPDATE');
+
+        const seat = lastLobby(host).seats[1];
+        expect(seat.status).toBe('open');
+        expect(seat.playerId).toBeNull();
+        expect(seat.nickname).toBeNull();
+        expect(seat.difficulty).toBeNull();
+
+        host.close();
+    });
+
+    it('lets a person actually claim the seat afterwards', async () => {
+        const { room, host } = await hostALobby();
+        await fillWithBots(host, room.matchId, [1]);
+
+        host.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 1 });
+        await host.nextOfType('LOBBY_UPDATE');
+
+        const guest = await TestClient.connect(`${wsBase}/ws`);
+        guest.send({ type: 'CLAIM_SEAT', matchId: room.matchId, nickname: 'Toran' });
+        const claimed = await guest.nextOfType('SEAT_CLAIMED');
+
+        expect(claimed.playerId).toBe('p2');
+
+        host.close();
+        guest.close();
+    });
+
+    it('withdraws a table that could start', async () => {
+        const { room, host } = await hostALobby();
+        await fillWithBots(host, room.matchId, [1, 2, 3]);
+        expect(lastLobby(host).canStart).toBe(true);
+
+        host.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 3 });
+        await host.nextOfType('LOBBY_UPDATE');
+
+        // Three seats is still a legal table, so this stays true — the point is
+        // that the gate is recomputed rather than left stale at four.
+        expect(lastLobby(host).canStart).toBe(true);
+
+        host.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 2 });
+        await host.nextOfType('LOBBY_UPDATE');
+        host.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 1 });
+        await host.nextOfType('LOBBY_UPDATE');
+
+        expect(lastLobby(host).canStart).toBe(false);
+
+        host.close();
+    });
+
+    it('refuses to empty a seat a person is sitting in', async () => {
+        const { room, host } = await hostALobby();
+
+        const guest = await TestClient.connect(`${wsBase}/ws`);
+        guest.send({ type: 'CLAIM_SEAT', matchId: room.matchId, nickname: 'Toran' });
+        await guest.nextOfType('SEAT_CLAIMED');
+
+        host.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 1 });
+        const error = await host.nextOfType('ERROR');
+
+        expect(error.code).toBe('NOT_A_BOT');
+        expect(lastLobby(host).seats[1].status).toBe('occupied');
+
+        host.close();
+        guest.close();
+    });
+
+    it('refuses an already-open seat', async () => {
+        const { room, host } = await hostALobby();
+
+        host.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 2 });
+        const error = await host.nextOfType('ERROR');
+
+        expect(error.code).toBe('NOT_A_BOT');
+
+        host.close();
+    });
+
+    it('refuses a player who is not the host', async () => {
+        const { room, host } = await hostALobby();
+        await fillWithBots(host, room.matchId, [2]);
+
+        const guest = await TestClient.connect(`${wsBase}/ws`);
+        guest.send({ type: 'CLAIM_SEAT', matchId: room.matchId, nickname: 'Toran' });
+        await guest.nextOfType('SEAT_CLAIMED');
+
+        guest.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 2 });
+        const error = await guest.nextOfType('ERROR');
+
+        expect(error.code).toBe('NOT_HOST');
+        expect(lastLobby(host).seats[2].status).toBe('computer');
+
+        host.close();
+        guest.close();
+    });
+
+    it('refuses once the match is under way, so a seat cannot vanish mid-round', async () => {
+        const { room, host } = await hostALobby();
+        await fillWithBots(host, room.matchId, [1, 2]);
+
+        host.send({ type: 'START_MATCH', matchId: room.matchId });
+        await host.nextOfType('MATCH_STARTED');
+
+        host.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 2 });
+        const error = await host.nextOfType('ERROR');
+
+        expect(error.code).toBe('CANNOT_START');
+
+        host.close();
+    });
+
+    it('leaves the other computer opponents seated', async () => {
+        const { room, host } = await hostALobby();
+        await fillWithBots(host, room.matchId, [1, 2, 3]);
+
+        host.send({ type: 'REMOVE_BOT', matchId: room.matchId, seat: 2 });
+        await host.nextOfType('LOBBY_UPDATE');
+
+        const seats = lastLobby(host).seats;
+        expect(seats[1].status).toBe('computer');
+        expect(seats[2].status).toBe('open');
+        expect(seats[3].status).toBe('computer');
 
         host.close();
     });
