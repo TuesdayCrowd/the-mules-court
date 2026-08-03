@@ -49,6 +49,7 @@ function mounted(store: KeyValueStore = memoryStore()) {
         dock,
         launcher: () => q<HTMLButtonElement>('[data-action="reference-dock"]'),
         panel: () => q<HTMLElement>('[data-role="reference-dock"]'),
+        body: () => q<HTMLElement>('[data-role="dock-body"]'),
         tabFor: (key: string) => q<HTMLButtonElement>(`[data-dock-tab="${key}"]`),
         rows: () => [...root.querySelectorAll('[data-role="reference-row"]')],
         logSections: () => [...root.querySelectorAll('[data-role="log-section"]')],
@@ -412,6 +413,64 @@ describe('the two tabs', () => {
 
         expect(ui.tabFor('log')!.getAttribute('aria-selected')).toBe('true');
         expect(ui.tabFor('reference')!.getAttribute('aria-selected')).toBe('false');
+    });
+});
+
+/**
+ * jsdom has no layout, so these test the WIRING — that a position is carried
+ * across the rebuild at all, and that it is not carried where it does not
+ * belong. The arithmetic of following lives in `scrollFollow.test.ts`, and the
+ * behaviour itself was checked in a real browser.
+ */
+describe('the match log’s scroll position', () => {
+    /** jsdom reports every box as zero-sized; a scroll container needs stating. */
+    function scrollable(element: HTMLElement, clientHeight: number, scrollHeight: number): void {
+        Object.defineProperty(element, 'clientHeight', { value: clientHeight, configurable: true });
+        Object.defineProperty(element, 'scrollHeight', { value: scrollHeight, configurable: true });
+    }
+
+    function readingHistory() {
+        const ui = mounted();
+        ui.show({ roundHistory: [FINISHED_ROUND], publicLog: LIVE_LOG });
+        click(ui.launcher());
+        click(ui.tabFor('log'));
+
+        const body = ui.body()!;
+        scrollable(body, 100, 500);
+        body.scrollTop = 120;
+        return ui;
+    }
+
+    it('holds a reader in place when a new line arrives', () => {
+        const ui = readingHistory();
+
+        ui.show({
+            roundHistory: [FINISHED_ROUND],
+            publicLog: [...LIVE_LOG, { kind: 'PROTECTED', turn: 3, actorId: 'p1' }]
+        });
+
+        expect(ui.body()!.scrollTop).toBe(120);
+    });
+
+    it('does not carry that position into another tab', () => {
+        const ui = readingHistory();
+
+        click(ui.tabFor('reference'));
+
+        // The card reference is not the log, and starting it 120px down would
+        // hide its first rows for no reason the player could account for.
+        expect(ui.body()!.scrollTop).toBe(0);
+    });
+
+    it('forgets the position once the dock is closed and reopened', () => {
+        const ui = readingHistory();
+
+        click(ui.panel()!.querySelector('[data-action="close-dock"]'));
+        click(ui.launcher());
+
+        // Reopening is a fresh look at the match, which a terminal answers with
+        // its newest line — `FOLLOWING`, not the abandoned position.
+        expect(ui.body()!.scrollTop).toBe(0);
     });
 });
 

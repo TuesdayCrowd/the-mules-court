@@ -22,6 +22,8 @@
  */
 
 import { matchLogSections, matchLogIsEmpty, EMPTY_MATCH_LOG } from '../content/matchLog';
+import type { ScrollAnchor } from './scrollFollow';
+import { FOLLOWING, anchorOf, applyAnchor } from './scrollFollow';
 import { QUICK_REFERENCE } from '../content/quickReference';
 import { rulesFor } from '../content/rules';
 import type { PlayerId } from '../../game/engine';
@@ -111,6 +113,21 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
     let focusRound: number | null = null;
     let table: TableSnapshot | null = null;
     let onTable = false;
+
+    /**
+     * Where the reader had the match log, carried across the rebuild.
+     *
+     * The log is the only tab that follows. The card reference and the rules
+     * are fixed documents — starting either part-way down would hide its first
+     * rows for a reason the player could not account for — whereas the log
+     * grows from the bottom while it is being read.
+     *
+     * `renderedTab` is what the DOM currently shows, which is not `tab` once a
+     * tab button has been pressed: the capture below has to know whether the
+     * body about to be discarded was the log's.
+     */
+    let logAnchor: ScrollAnchor | null = null;
+    let renderedTab: DockTab | null = null;
 
     const launcher = document.createElement('button');
     launcher.type = 'button';
@@ -258,8 +275,18 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
         if (!open) {
             panel.remove();
             launcher.setAttribute('aria-expanded', 'false');
+            // A closed dock keeps no reading position. Reopening is a fresh
+            // look at the match, and `panel.remove()` only detaches — the old
+            // body is still hanging off it, so without this the next open would
+            // find and restore a position from minutes ago.
+            logAnchor = null;
+            renderedTab = null;
             return;
         }
+
+        // Read before `replaceChildren` discards the body it belongs to.
+        const priorBody = panel.querySelector<HTMLElement>('[data-role="dock-body"]');
+        if (renderedTab === 'log' && priorBody !== null) logAnchor = anchorOf(priorBody);
 
         const title = document.createElement('h2');
         title.id = TITLE_ID;
@@ -315,6 +342,11 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
         panel.replaceChildren(header, tablist, body);
         if (panel.parentElement === null) container.appendChild(panel);
         launcher.setAttribute('aria-expanded', 'true');
+
+        // Before the `focusRound` scroll below, deliberately: an explicit
+        // request to see one round outranks wherever the reader happened to be.
+        if (tab === 'log') applyAnchor(body, logAnchor ?? FOLLOWING);
+        renderedTab = tab;
 
         if (focusRound !== null) {
             const target = panel.querySelector<HTMLElement>('[data-focus="true"]');

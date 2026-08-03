@@ -14,6 +14,8 @@
 import type { PlayerId, RedactedView } from '../../game/engine';
 import { cardCopyFor } from '../content/cardCopy';
 import { EMPTY_MATCH_LOG, matchLogIsEmpty, matchLogSections } from '../content/matchLog';
+import type { ScrollAnchor } from './scrollFollow';
+import { FOLLOWING, anchorOf, applyAnchor } from './scrollFollow';
 import type { ClientState, TableSnapshot } from '../store/types';
 import type { Surface } from './surface';
 
@@ -38,6 +40,16 @@ export function createSeatDossier(): SeatDossier {
     let table: TableSnapshot | null = null;
     let openFor: PlayerId | null = null;
     let tab: 'seat' | 'log' = 'seat';
+
+    /**
+     * Where the reader had the match log — the dock's rule, in the dialog that
+     * shows the same list. `scrollFollow.ts` states it once.
+     *
+     * `renderedTab` is what the DOM currently shows, which is not `tab` once a
+     * tab button has been pressed.
+     */
+    let logAnchor: ScrollAnchor | null = null;
+    let renderedTab: 'seat' | 'log' | null = null;
 
     function close(): void {
         openFor = null;
@@ -129,14 +141,26 @@ export function createSeatDossier(): SeatDossier {
     function render(): void {
         if (table === null || openFor === null) {
             container.replaceChildren();
+            // A dismissed dossier keeps no reading position: reopening it is a
+            // fresh look, which terminal semantics answer with the newest line.
+            logAnchor = null;
+            renderedTab = null;
             return;
         }
 
         const seat = table.view.players.find(entry => entry.id === openFor);
         if (seat === undefined) {
             container.replaceChildren();
+            // A dismissed dossier keeps no reading position: reopening it is a
+            // fresh look, which terminal semantics answer with the newest line.
+            logAnchor = null;
+            renderedTab = null;
             return;
         }
+
+        // Read before `replaceChildren` discards the body it belongs to.
+        const priorBody = container.querySelector<HTMLElement>('[data-role="dossier-body"]');
+        if (renderedTab === 'log' && priorBody !== null) logAnchor = anchorOf(priorBody);
 
         const dialog = document.createElement('div');
         dialog.dataset.role = 'seat-dossier';
@@ -189,6 +213,11 @@ export function createSeatDossier(): SeatDossier {
 
         dialog.append(header, tablist, body);
         container.replaceChildren(dialog);
+
+        // Only the log follows. The seat panel is a fixed document, and opening
+        // it part-way down would hide the discards it exists to show.
+        if (tab === 'log') applyAnchor(body, logAnchor ?? FOLLOWING);
+        renderedTab = tab;
     }
 
     const onKeyDown = (event: KeyboardEvent): void => {
