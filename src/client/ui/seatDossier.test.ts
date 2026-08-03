@@ -66,6 +66,7 @@ function mounted(view: RedactedView = viewWithDiscards()) {
         panel: () => q<HTMLElement>('[data-role="seat-dossier"]'),
         text: () => q<HTMLElement>('[data-role="seat-dossier"]')?.textContent ?? '',
         tabs: () => [...root.querySelectorAll('[role="tab"]')] as HTMLButtonElement[],
+        body: () => q<HTMLElement>('[data-role="dossier-body"]'),
         discards: () => [...root.querySelectorAll('[data-role="discard-entry"]')].map(n => n.textContent ?? ''),
         logLines: () => [...root.querySelectorAll('[data-role="log-line"]')].map(n => n.textContent ?? '')
     };
@@ -164,6 +165,46 @@ describe('never showing a living player’s hand', () => {
         ui.dossier.open('p2');
 
         expect(ui.text()).not.toContain('Bayta Darell');
+    });
+});
+
+/** The dock's rule, in the dialog that shows the same log. See `scrollFollow.ts`. */
+describe('the match log’s scroll position', () => {
+    function readingHistory() {
+        const ui = mounted(viewWithDiscards({ publicLog: LOG }));
+        ui.dossier.open('p1');
+        ui.tabs()[1].click();
+
+        const body = ui.body()!;
+        Object.defineProperty(body, 'clientHeight', { value: 100, configurable: true });
+        Object.defineProperty(body, 'scrollHeight', { value: 500, configurable: true });
+        body.scrollTop = 120;
+        return ui;
+    }
+
+    it('holds a reader in place when a new line arrives', () => {
+        const ui = readingHistory();
+
+        ui.dossier.update(
+            makeState({
+                screen: 'table',
+                table: makeTable({
+                    view: viewWithDiscards({
+                        publicLog: [...LOG, { kind: 'PROTECTED', turn: 3, actorId: 'p1' }]
+                    })
+                })
+            })
+        );
+
+        expect(ui.body()!.scrollTop).toBe(120);
+    });
+
+    it('does not carry that position into the seat tab', () => {
+        const ui = readingHistory();
+
+        ui.tabs()[0].click();
+
+        expect(ui.body()!.scrollTop).toBe(0);
     });
 });
 
