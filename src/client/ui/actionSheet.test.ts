@@ -71,8 +71,7 @@ describe('targets', () => {
 
         const toran = sheet.querySelector('[data-target="p3"]') as HTMLButtonElement;
         expect(toran.disabled).toBe(true);
-        const describedBy = toran.getAttribute('aria-describedby')!;
-        expect(document.getElementById(describedBy)!.textContent).toContain('protected');
+        expect(toran.textContent).toContain('Protected');
     });
 
     it('gives each ineligible target its own reason', () => {
@@ -80,8 +79,57 @@ describe('targets', () => {
         const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
 
         const bayta = sheet.querySelector('[data-target="p4"]') as HTMLButtonElement;
-        const describedBy = bayta.getAttribute('aria-describedby')!;
-        expect(document.getElementById(describedBy)!.textContent).toContain('eliminated');
+        expect(bayta.textContent).toContain('Out of the round');
+    });
+
+    /**
+     * The status belongs to the nametag, not beside it.
+     *
+     * It used to be a `<span>` appended to the section as the button's SIBLING,
+     * which laid out as a loose word adrift in the target grid — nothing tied
+     * "eliminated" to the name it described, and with three targets a reader
+     * could not tell which one it belonged to.
+     */
+    it('puts the status inside the button it describes', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+
+        const toran = sheet.querySelector('[data-target="p3"]') as HTMLButtonElement;
+        const state = toran.querySelector('[data-role="target-state"]');
+        expect(state).not.toBeNull();
+        expect(state!.textContent).toBe('Protected');
+
+        // Nothing left loose in the section for a reader to misattribute.
+        const targets = sheet.querySelector('[data-role="targets"]')!;
+        for (const node of targets.querySelectorAll('[data-role="target-state"]')) {
+            expect(node.closest('[data-target]')).not.toBeNull();
+        }
+    });
+
+    it('names the state as data, so the two read differently at a glance', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+
+        expect((sheet.querySelector('[data-target="p3"]') as HTMLElement).dataset.state).toBe('protected');
+        expect((sheet.querySelector('[data-target="p4"]') as HTMLElement).dataset.state).toBe('eliminated');
+    });
+
+    it('says what the table says, so one state is not two words', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+
+        // The raw enum used to reach the screen: a player read "eliminated"
+        // here and "Out of the round" on the seat chip for the same fact.
+        expect(sheet.querySelector('[data-target="p4"]')!.textContent).not.toContain('eliminated');
+    });
+
+    it('reaches a screen reader by name, since a disabled button is not focusable', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+
+        const bayta = sheet.querySelector('[data-target="p4"]') as HTMLButtonElement;
+        expect(bayta.textContent).toContain('Bayta');
+        expect(bayta.textContent).toContain('Out of the round');
     });
 
     it('leaves an eligible target enabled and unexplained', () => {

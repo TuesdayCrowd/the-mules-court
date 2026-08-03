@@ -18,6 +18,8 @@ import type { CardInstanceId, CardTypeId, GuessValue, PlayerId } from '../../gam
 import { cardCopyFor, cardLabel } from '../content/cardCopy';
 import { NO_LEGAL_TARGET, NOT_YOUR_TURN, forcedPlaySentence } from '../content/playability';
 import { QUICK_REFERENCE } from '../content/quickReference';
+import type { TargetableSeatStatus } from '../content/seatStatus';
+import { seatStatusCopy } from '../content/seatStatus';
 import { classifyTopology } from '../layout/topology';
 import type { UnplayableReason } from '../store/targets';
 import type { ClientState } from '../store/types';
@@ -28,7 +30,7 @@ export interface SheetTarget {
     readonly nickname: string;
     readonly eligible: boolean;
     /** Shown to explain a disabled button. Hiding the target would hide the rule. */
-    readonly reason?: 'protected' | 'eliminated';
+    readonly reason?: TargetableSeatStatus;
 }
 
 export interface SheetRequest {
@@ -266,6 +268,22 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         heading.textContent = 'Choose a target';
         section.appendChild(heading);
 
+        /** textContent: another player's free text. */
+        function nameLine(nickname: string): HTMLElement {
+            const line = document.createElement('span');
+            line.dataset.role = 'target-name';
+            line.textContent = nickname;
+            return line;
+        }
+
+        /** The designed word for the state, shared with the table's seat chip. */
+        function stateLine(status: TargetableSeatStatus): HTMLElement {
+            const line = document.createElement('span');
+            line.dataset.role = 'target-state';
+            line.textContent = seatStatusCopy(status);
+            return line;
+        }
+
         for (const entry of request!.targets) {
             const button = document.createElement('button');
             button.type = 'button';
@@ -278,15 +296,19 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
             if (!entry.eligible) {
                 // Rendered and disabled, never hidden: hiding it would hide the
                 // rule that made it ineligible.
-                section.appendChild(button);
+                //
+                // The reason goes INSIDE the button. It was a sibling `<span>`
+                // appended to the section, which laid out as a loose word adrift
+                // in the target grid — with three targets, nothing tied
+                // "eliminated" to the name it was about. Inside, it is part of
+                // the button's accessible name too, which a disabled button
+                // needs: it is not focusable, so `aria-describedby` on it is
+                // reached far less reliably than the name is.
                 if (entry.reason !== undefined) {
-                    const reasonId = `target-reason-${entry.playerId}`;
-                    const reason = document.createElement('span');
-                    reason.id = reasonId;
-                    reason.textContent = entry.reason;
-                    button.setAttribute('aria-describedby', reasonId);
-                    section.appendChild(reason);
+                    button.dataset.state = entry.reason;
+                    button.replaceChildren(nameLine(entry.nickname), stateLine(entry.reason));
                 }
+                section.appendChild(button);
                 continue;
             }
 
