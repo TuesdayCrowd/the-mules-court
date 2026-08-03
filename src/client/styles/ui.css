@@ -438,11 +438,71 @@ h2,
     margin: 0;
 }
 
+/**
+ * A section is a heading, then its controls, then any note — each on its own
+ * line.
+ *
+ * It was `display: flex; flex-wrap: wrap`, which made the heading one more item
+ * in the flow: "Choose a target" sat inline with the first name and the rest
+ * wrapped around it, and "Guess a value" sat beside the 2 while "Tap a value to
+ * see its cards" ended up beside the 8. Nothing was wrong with any single
+ * element — they were simply all in one paragraph together.
+ *
+ * Rows stretch, which is the grid default and is load-bearing. `justify-items:
+ * start` reads as the tidier choice — headings hugging the left — but it sizes
+ * every row to its CONTENT, and a row sized to its content cannot reflow: the
+ * guess grid below held its full three-column width and overflowed the sheet on
+ * a narrow screen instead of dropping to two. A stretched row knows how much
+ * space it actually has. Text still sits left; only the boxes stretch.
+ */
 .action-sheet section {
-    display: flex;
-    flex-wrap: wrap;
+    display: grid;
     gap: var(--space-2);
-    align-items: center;
+}
+
+/** One name per line: a list of choices, not a paragraph of them. */
+.action-sheet [data-role='target-list'] {
+    display: grid;
+    gap: var(--space-2);
+}
+
+/**
+ * Names read from the left, all of them.
+ *
+ * A button centres its text by default, but the two-line ineligible ones cannot
+ * — a centred name above a centred status looks like a caption, not a label —
+ * so they align left. Left everything, or the list has some names centred and
+ * others not, which reads as a bug in the rows rather than a difference in
+ * their state.
+ */
+.action-sheet [data-role='target-list'] button {
+    text-align: left;
+}
+
+/**
+ * The values, three to a row at most.
+ *
+ * `auto-fit` alone would fit as many as the sheet allows — seven across on a
+ * wide layout, which reads as a number line rather than a keypad. The
+ * `max-width` is exactly three columns, so three is the ceiling; below that the
+ * same `auto-fit` drops to two and then to one as the sheet narrows, which is
+ * the behaviour a phone in portrait needs.
+ *
+ * `min(100%, …)` in the track guards a container narrower than one column,
+ * where a bare `minmax` floor would overflow the sheet instead of shrinking.
+ */
+.action-sheet [data-role='guesses'] {
+    display: grid;
+    grid-template-columns: repeat(auto-fit, minmax(min(100%, var(--guess-col)), 1fr));
+    gap: var(--space-2);
+    max-width: calc(var(--guess-col) * 3 + var(--space-2) * 2);
+    --guess-col: 4rem;
+    /* A grid item's `min-width` defaults to `auto`, i.e. its min-content — and
+       `auto-fit` resolves its repetition against the definite `max-width` above,
+       so min-content here is all three columns. The item then refuses to shrink
+       and overflows a narrow sheet at a fixed 208px rather than dropping to two.
+       Measured: at a 160px viewport the section was 126px and this was 208. */
+    min-width: 0;
 }
 
 .action-sheet button {
