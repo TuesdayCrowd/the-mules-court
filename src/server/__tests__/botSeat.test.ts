@@ -8,6 +8,7 @@
  * and the reveal timer. A unit test of `addBot` would prove none of that.
  */
 import { afterAll, beforeAll, describe, expect, it } from 'bun:test';
+import { BOT_NAMES } from '../botNames';
 import { makeConfig } from '../config';
 import { startServer } from '../index';
 import type { RunningServer } from '../index';
@@ -100,6 +101,18 @@ describe('a host filling seats with computer opponents', () => {
         expect(seat.status).toBe('computer');
         expect(seat.playerId).toBe('p2');
         expect(seat.nickname).toBeTruthy();
+
+        host.close();
+    });
+
+    it('names each opponent from the Asimov pool', async () => {
+        const { room, host } = await hostALobby();
+
+        await fillWithBots(host, room.matchId, [1, 2, 3]);
+
+        for (const seat of lastLobby(host).seats.slice(1)) {
+            expect(BOT_NAMES).toContain(seat.nickname as string);
+        }
 
         host.close();
     });
