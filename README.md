@@ -379,7 +379,7 @@ The slug does not always match the card's display name: Magnifico Giganticus is
 - `VISUAL_SHOWCASE.md` (repo root) is the interface reference: seat states, the
   action panel, the quick reference, the palette. It carries no layout metrics —
   geometry is computed from the live viewport by `src/client/layout/` — and
-  `docs/plans/2026-07-23-uix-design.md` is authoritative where the two disagree.
+  `docs/plans/typescript/2026-07-23-uix-design.md` is authoritative where the two disagree.
 
 ## Self-hosting
 
@@ -497,7 +497,7 @@ checkout or from a single-file binary you compile yourself.
 
 Known limitations:
 
-- **The real-device QA pass has not been run.** `docs/plans/2026-07-24-uix-qa-checklist.md`
+- **The real-device QA pass has not been run.** `docs/plans/typescript/2026-07-24-uix-qa-checklist.md`
   covers iOS Safari viewport behaviour and VoiceOver/TalkBack gesture navigation, neither
   of which an emulator or a test suite reproduces. The client is ready for the pass; it
   needs hardware and a person.

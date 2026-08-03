@@ -3,13 +3,13 @@
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 > Every task follows red → green → commit. Never write implementation before its failing test.
 
-**Goal:** Build the headless, server-authoritative game engine for The Mule's Court, matching `docs/plans/2026-07-22-engine-architecture-design.md`.
+**Goal:** Build the headless, server-authoritative game engine for The Mule's Court, matching `docs/plans/typescript/2026-07-22-engine-architecture-design.md`.
 
 **Architecture:** A pure reducer. `reduce(state, action)` returns the next state; `view(state, playerId)` returns a redacted per-player projection. State is plain JSON — card identities only, never behavior. Behavior lives in two static tables: eleven card identities mapping onto eight effect types. No Phaser, no I/O, no ambient randomness.
 
 **Tech Stack:** TypeScript 5.7 (strict), Vitest, Bun. No Phaser in this layer.
 
-**Design reference:** `docs/plans/2026-07-22-engine-architecture-design.md`. Cited below as *Design §N*. Read a section before implementing against it rather than copying types from memory.
+**Design reference:** `docs/plans/typescript/2026-07-22-engine-architecture-design.md`. Cited below as *Design §N*. Read a section before implementing against it rather than copying types from memory.
 
 ---
 

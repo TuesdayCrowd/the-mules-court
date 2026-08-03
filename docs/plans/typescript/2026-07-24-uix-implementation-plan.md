@@ -3,13 +3,13 @@
 > **For Claude:** REQUIRED SUB-SKILL: Use superpowers:executing-plans to implement this plan task-by-task.
 > Every task follows red → green → commit. Never write implementation before its failing test.
 
-**Goal:** Build the complete Phaser + DOM client described in `docs/plans/2026-07-23-uix-design.md`, replacing the untouched "template-bun" starter scenes with a real, responsive, accessible client that speaks the finished transport protocol.
+**Goal:** Build the complete Phaser + DOM client described in `docs/plans/typescript/2026-07-23-uix-design.md`, replacing the untouched "template-bun" starter scenes with a real, responsive, accessible client that speaks the finished transport protocol.
 
 **Architecture:** One Phaser canvas renders the living table; one sibling DOM overlay (`#ui-root`) renders everything made of words. Both are projections of a single plain-TypeScript client store that owns the WebSocket, the seat token, and the latest `STATE_UPDATE`. Table geometry is computed by pure `(playerCount, w, h) → LayoutSpec` functions that import nothing from Phaser, so Vitest tests the layout without a Scene — the same discipline that made the engine testable. One reconciler, `renderView(view)`, runs on every state update *and* every resize.
 
 **Tech Stack:** Phaser 4.2.1, Vite 6, TypeScript 5.7 strict, Bun. New devDependencies: `jsdom` and `axe-core` (test-only). No new runtime dependencies — no framework, no router library, no CSS library.
 
-**Design reference:** `docs/plans/2026-07-23-uix-design.md`, cited below as *UIX §N*. Read a section before implementing against it. Rules live in `README.md`; the wire protocol is `src/server/protocol.ts`; the engine surface is `src/game/engine/index.ts` — import **only** from that barrel.
+**Design reference:** `docs/plans/typescript/2026-07-23-uix-design.md`, cited below as *UIX §N*. Read a section before implementing against it. Rules live in `README.md`; the wire protocol is `src/server/protocol.ts`; the engine surface is `src/game/engine/index.ts` — import **only** from that barrel.
 
 ---
 
@@ -2021,7 +2021,7 @@ but commit uix-client -m "feat(client): the Court scene, its reconciler, and the
 > have been worse than describing the starter ones that did. Both halves are in.
 >
 > **Task 34 needs hardware and a person.** The checklist at
-> `docs/plans/2026-07-24-uix-qa-checklist.md` is written in full and every box is
+> `docs/plans/typescript/2026-07-24-uix-qa-checklist.md` is written in full and every box is
 > unchecked. It cannot be run from here: devtools emulation does not reproduce
 > Safari's viewport behaviour, and nothing emulates VoiceOver or TalkBack
 > gestures. *UIX §13.2* and §13.3 name both as sign-off conditions precisely
@@ -2142,7 +2142,7 @@ Default every entry to `portrait_0` with this comment, so implementation is neve
 **Files:**
 - Modify: `AGENTS.md`
 - Modify: `VISUAL_SHOWCASE.md`
-- Modify: `docs/plans/2026-07-23-uix-design.md`
+- Modify: `docs/plans/typescript/2026-07-23-uix-design.md`
 
 **Step 1: Update `AGENTS.md`.** Two statements are now false:
 - The status paragraph ("everything under `src/game/scenes/` is still the unmodified Phaser starter") — rewrite it to describe the built client.
@@ -2161,7 +2161,7 @@ Add `src/client/` to the architecture section, with its four pure directories an
 ### Task 34: Real-device and screen-reader pass
 
 **Files:**
-- Create: `docs/plans/2026-07-24-uix-qa-checklist.md`
+- Create: `docs/plans/typescript/2026-07-24-uix-qa-checklist.md`
 
 The design names these as sign-off conditions (*UIX §13.2*, §13.3), and neither is something a test suite can assert. Write the checklist, then run it.
 
@@ -2331,7 +2331,7 @@ straight to the lobby — which is exactly the `screen: 'joining'` with a non-nu
 ### D3: `publicBaseUrl` in dev
 
 **Status:** Closed 2026-07-27, in `envOverrides`
-(`docs/plans/2026-07-27-standalone-binary-plan.md`, Task 1).
+(`docs/plans/typescript/2026-07-27-standalone-binary-plan.md`, Task 1).
 
 `publicBaseUrl` defaulted to `http://localhost:3000`, so a host running
 `bun run dev` on :8080 copied an invite link pointing at :3000 — which serves the

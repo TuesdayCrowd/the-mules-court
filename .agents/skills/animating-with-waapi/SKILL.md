@@ -52,7 +52,7 @@ announcement still has to surface. Do not "clean up" that try/catch.
 The Mule's `ripple` is deliberately not a literal port of the old Phaser version, which
 warped the rendered table with a camera filter. A DOM table grants no such surface, and
 the alternatives were all rejected in writing
-(`docs/plans/2026-07-30-renderer-architecture-research.md` §8). The substitute — warp
+(`docs/plans/typescript/2026-07-30-renderer-architecture-research.md` §8). The substitute — warp
 the Mule's portrait, which is already an image, over a full-viewport wash and a
 compositor-safe shudder on the table root — is the design, not a shortfall.
 `shaders/distortion_map.png` stays unused by design; only `rainbow_gradient.png` and

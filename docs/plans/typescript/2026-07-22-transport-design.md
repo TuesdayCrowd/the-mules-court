@@ -3,7 +3,7 @@
 **Date:** 2026-07-22
 **Status:** Approved. Ready for implementation planning.
 **Scope:** The WebSocket server that wraps the game engine.
-**Depends on:** `docs/plans/2026-07-22-engine-architecture-design.md`
+**Depends on:** `docs/plans/typescript/2026-07-22-engine-architecture-design.md`
 
 ---
 

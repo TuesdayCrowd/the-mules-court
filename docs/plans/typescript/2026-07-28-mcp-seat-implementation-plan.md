@@ -2,13 +2,13 @@
 
 > **For Claude:** Every task follows red → green → commit. Never write implementation before its failing test.
 
-**Goal:** Build the MCP server that seats a model at a live table, matching `docs/plans/2026-07-28-mcp-seat-design.md`.
+**Goal:** Build the MCP server that seats a model at a live table, matching `docs/plans/typescript/2026-07-28-mcp-seat-design.md`.
 
 **Architecture:** One long-lived Bun process speaking MCP over stdio. It holds three WebSocket connections to the running game server, one per seat, and exposes seven tools — three public, four requiring an opaque per-seat handle. The referee routes turns on public information alone; each seat agent reads and plays through its own handle.
 
 **Tech stack:** Bun, TypeScript 5.7 strict, `bun test`. One new runtime dependency, discussed below.
 
-**Design reference:** `docs/plans/2026-07-28-mcp-seat-design.md`, cited as *Design §N*. The wire contract is `src/server/protocol.ts` — import it, never restate it.
+**Design reference:** `docs/plans/typescript/2026-07-28-mcp-seat-design.md`, cited as *Design §N*. The wire contract is `src/server/protocol.ts` — import it, never restate it.
 
 ---
 

@@ -108,7 +108,7 @@ landed.
   same `LayoutSpec` and `RenderPlan` the pure layer already produced, and
   `src/client/ui/beats.ts` runs the beats on `element.animate().finished`. The
   research behind the decision is in
-  `docs/plans/2026-07-30-renderer-architecture-research.md`: `Court.ts` was ~900
+  `docs/plans/typescript/2026-07-30-renderer-architecture-research.md`: `Court.ts` was ~900
   lines of draw glue over rects already computed, and zero lines that needed a
   canvas. Of the four GPU effects the design catalogued, one was real.
 - **The between-round reveal is ten seconds, not five.**
@@ -181,7 +181,7 @@ landed.
 
 ### Docs
 
-- `docs/plans/2026-07-28-mcp-seat-design.md`,
+- `docs/plans/typescript/2026-07-28-mcp-seat-design.md`,
   `2026-07-30-computer-opponent-design.md`, and
   `2026-07-30-renderer-architecture-research.md`, each written before the code
   and corrected against what shipped.
@@ -324,7 +324,7 @@ could suggest.
 
 ### Docs
 
-- `docs/plans/2026-07-27-standalone-binary-plan.md`, written before
+- `docs/plans/typescript/2026-07-27-standalone-binary-plan.md`, written before
   implementation and then corrected against the code that actually shipped:
   the traversal regression, a `Partial<TransportConfig>` block that did not
   compile, and four tasks whose planned shapes differed from the built ones.

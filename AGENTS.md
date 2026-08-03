@@ -8,7 +8,7 @@ Guidance for coding agents working in this repository. Human contributors are we
 
 **Status:** three of the four layers are **built and tested**. The headless game engine (`src/game/engine/`, Vitest), the WebSocket transport that wraps it (`src/server/`, `bun test`), and now the client's browser-independent half (`src/client/`, Vitest) — its pure layer of geometry, copy, state and palette, plus the whole DOM chrome, all testable under Node and jsdom with no socket.
 
-The table is DOM too: `src/client/ui/table.ts` draws it, `src/client/ui/beats.ts` runs the cinematic beats on the Web Animations API, and `src/main.ts` is the composition root that wires store, socket and surfaces together. **A match is playable in a browser.** Every stage of `docs/plans/2026-07-24-uix-implementation-plan.md` is complete bar the real-device QA pass (Task 34), which needs hardware and a person — see `docs/plans/2026-07-24-uix-qa-checklist.md`.
+The table is DOM too: `src/client/ui/table.ts` draws it, `src/client/ui/beats.ts` runs the cinematic beats on the Web Animations API, and `src/main.ts` is the composition root that wires store, socket and surfaces together. **A match is playable in a browser.** Every stage of `docs/plans/typescript/2026-07-24-uix-implementation-plan.md` is complete bar the real-device QA pass (Task 34), which needs hardware and a person — see `docs/plans/typescript/2026-07-24-uix-qa-checklist.md`.
 
 A fifth layer now sits beside those four: `src/mcp/` supplies the opponents. It is a Model Context Protocol server that seats a model at two or three chairs of a live table, so a person can play a four-player match alone — see [MCP seat server](#mcp-seat-server-srcmcp).
 
@@ -179,7 +179,7 @@ Both use `base: '/'` (absolute asset paths); neither splits chunks, the whole cl
 ### Client (`src/client/`)
 
 Everything the client can decide without a browser, so Vitest can hold it to the
-design in a plain Node process. Full design: `docs/plans/2026-07-23-uix-design.md`.
+design in a plain Node process. Full design: `docs/plans/typescript/2026-07-23-uix-design.md`.
 
 **The pure layer** — no DOM, no ambient globals, enforced by
 `__tests__/purity.test.ts`:
@@ -272,8 +272,8 @@ test that calls `startServer` with its own config can reach it.
 A person cannot play this game alone. `src/mcp/` is a **Model Context Protocol
 server over stdio** that claims two or three seats at a live match, so one human
 can play a four-player game against a model. Design:
-`docs/plans/2026-07-28-mcp-seat-design.md`; the build is
-`docs/plans/2026-07-28-mcp-seat-implementation-plan.md`.
+`docs/plans/typescript/2026-07-28-mcp-seat-design.md`; the build is
+`docs/plans/typescript/2026-07-28-mcp-seat-implementation-plan.md`.
 
 It is a **client of the transport**, not part of it. It connects over WebSocket
 like the browser does, and imports `../server/protocol` and `../game/engine`
@@ -316,7 +316,7 @@ plays a whole match through a spawned server.
 
 ### Server (transport layer)
 
-`src/server/` is a `Bun.serve` WebSocket server that wraps the engine. One process holds rooms (`Map<matchId, Room>`) in memory; each room persists to `bun:sqlite`, storing `{seed, actionLog}` rather than a state snapshot, so recovery replays actions through `reduce()` instead of needing a migration-prone snapshot format. Run it with `bun run serve`. Full design (message protocol, seat identity, reconnection, the validation pipeline) lives in `docs/plans/2026-07-22-transport-design.md`; the code is `index.ts` (Bun.serve entrypoint), `protocol.ts` (message unions + type guards), `room.ts` (Room state machine), `roomRegistry.ts` (room map + reaper sweep), `seatTokens.ts` (minting/hashing/lookup), `dispatch.ts` (the validation pipeline), `persistence.ts` (sqlite store + replay), `rateLimiter.ts` (token buckets), `config.ts` (tunables), and `__tests__/`.
+`src/server/` is a `Bun.serve` WebSocket server that wraps the engine. One process holds rooms (`Map<matchId, Room>`) in memory; each room persists to `bun:sqlite`, storing `{seed, actionLog}` rather than a state snapshot, so recovery replays actions through `reduce()` instead of needing a migration-prone snapshot format. Run it with `bun run serve`. Full design (message protocol, seat identity, reconnection, the validation pipeline) lives in `docs/plans/typescript/2026-07-22-transport-design.md`; the code is `index.ts` (Bun.serve entrypoint), `protocol.ts` (message unions + type guards), `room.ts` (Room state machine), `roomRegistry.ts` (room map + reaper sweep), `seatTokens.ts` (minting/hashing/lookup), `dispatch.ts` (the validation pipeline), `persistence.ts` (sqlite store + replay), `rateLimiter.ts` (token buckets), `config.ts` (tunables), and `__tests__/`.
 
 ## Code style
 
