@@ -57,12 +57,13 @@ import type { RoomRegistry } from './roomRegistry';
  */
 const HOST_PLAYER_ID: PlayerId = 'p1';
 
-/** The four message types whose acting identity is the bound seat, never a payload field (Design §8 step 5). */
+/** The message types whose acting identity is the bound seat, never a payload field (Design §8 step 5). */
 function requiresBoundSeat(type: ClientMessage['type']): boolean {
     return (
         type === 'PLAY_CARD' ||
         type === 'START_MATCH' ||
         type === 'ADD_BOT' ||
+        type === 'REMOVE_BOT' ||
         type === 'END_MATCH' ||
         type === 'REQUEST_RESYNC'
     );
@@ -143,7 +144,10 @@ export async function dispatchMessage(
     }
 
     // Step 9. END_MATCH's richer host/grace rule lives in Room.endMatch.
-    if ((msg.type === 'START_MATCH' || msg.type === 'ADD_BOT') && state.seat !== HOST_PLAYER_ID) {
+    if (
+        (msg.type === 'START_MATCH' || msg.type === 'ADD_BOT' || msg.type === 'REMOVE_BOT') &&
+        state.seat !== HOST_PLAYER_ID
+    ) {
         sendError(state.conn, 'NOT_HOST');
         return;
     }
@@ -173,6 +177,9 @@ export async function dispatchMessage(
                     break;
                 case 'ADD_BOT':
                     room.addBot(state.conn, msg.seat, msg.difficulty);
+                    break;
+                case 'REMOVE_BOT':
+                    room.removeBot(state.conn, msg.seat);
                     break;
                 case 'PLAY_CARD':
                     room.playCard(state.conn, msg);

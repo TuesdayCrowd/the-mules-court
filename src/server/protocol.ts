@@ -24,6 +24,10 @@ export type ErrorCode =
     | 'BAD_TOKEN'
     | 'NOT_YOUR_SEAT'
     | 'NOT_HOST'
+    // REMOVE_BOT aimed at a seat holding a person, or at no one. Distinct from
+    // SEAT_TAKEN, which answers the opposite question (ADD_BOT into a seat that
+    // is not free) and whose copy would be actively misleading here.
+    | 'NOT_A_BOT'
     | 'CANNOT_START'
     | 'PAUSED'
     | 'MATCH_OVER'
@@ -55,6 +59,10 @@ export type ClientMessage =
     // lobby offers it per seat and the host may fill any subset — and names the
     // difficulty per bot, so a table can mix a hard opponent with two soft ones.
     | { type: 'ADD_BOT'; matchId: MatchId; seat: number; difficulty: BotDifficulty }
+    // Host only, lobby only. Empties a seat holding a computer opponent back to
+    // open, so a host who filled the table before a friend arrived can make
+    // room again. Carries no difficulty: there is only one way to be removed.
+    | { type: 'REMOVE_BOT'; matchId: MatchId; seat: number }
     | {
           type: 'PLAY_CARD';
           matchId: MatchId;
@@ -145,6 +153,15 @@ function isBotDifficulty(value: unknown): value is BotDifficulty {
     return typeof value === 'string' && BOT_DIFFICULTIES.includes(value);
 }
 
+/**
+ * The seat pool is fixed at p1..p4, so an index is bounded at parse time rather
+ * than trusted and range-checked later. Shared by the two host-only messages
+ * that name a seat, so they cannot drift into disagreeing about what is a seat.
+ */
+function isSeatIndex(value: unknown): value is number {
+    return typeof value === 'number' && Number.isInteger(value) && value >= 0 && value <= 3;
+}
+
 function isGuessValue(value: unknown): value is GuessValue {
     return typeof value === 'number' && Number.isInteger(value) && value >= 2 && value <= 8;
 }
@@ -233,12 +250,15 @@ export function parseClientMessage(raw: string, maxNickname: number): ParseResul
             if (!hasExactKeys(obj, ['type', 'matchId', 'seat', 'difficulty'])) return { ok: false };
             if (typeof obj.matchId !== 'string') return { ok: false };
             if (!isBotDifficulty(obj.difficulty)) return { ok: false };
-            // The seat pool is fixed at p1..p4, so the index is bounded here
-            // rather than trusted and range-checked later.
-            if (typeof obj.seat !== 'number' || !Number.isInteger(obj.seat) || obj.seat < 0 || obj.seat > 3) {
-                return { ok: false };
-            }
+            if (!isSeatIndex(obj.seat)) return { ok: false };
             return { ok: true, msg: { type: 'ADD_BOT', matchId: obj.matchId, seat: obj.seat, difficulty: obj.difficulty } };
+        }
+
+        case 'REMOVE_BOT': {
+            if (!hasExactKeys(obj, ['type', 'matchId', 'seat'])) return { ok: false };
+            if (typeof obj.matchId !== 'string') return { ok: false };
+            if (!isSeatIndex(obj.seat)) return { ok: false };
+            return { ok: true, msg: { type: 'REMOVE_BOT', matchId: obj.matchId, seat: obj.seat } };
         }
 
         case 'PLAY_CARD': {

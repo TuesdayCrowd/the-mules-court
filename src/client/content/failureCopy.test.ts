@@ -16,6 +16,7 @@ const ALL_CODES: ErrorCode[] = [
     'BAD_TOKEN',
     'NOT_YOUR_SEAT',
     'NOT_HOST',
+    'NOT_A_BOT',
     'CANNOT_START',
     'PAUSED',
     'MATCH_OVER',

@@ -41,6 +41,10 @@ const COPY = {
     BAD_TOKEN: { message: 'That seat is no longer yours. Take another.', action: BACK_TO_MENU },
     NOT_YOUR_SEAT: { message: 'That seat belongs to someone else.', action: BACK_TO_MENU },
     NOT_HOST: { message: 'Only the host can do that.', action: BACK_TO_MENU },
+    // Only reachable by racing the lobby — two host windows emptying the same
+    // seat, or a click landing after a person took it. Says which of the two
+    // things was wrong, rather than SEAT_TAKEN's opposite claim.
+    NOT_A_BOT: { message: 'That seat holds no computer opponent.', action: BACK_TO_MENU },
     CANNOT_START: { message: 'The match needs 2 to 4 players, all connected.', action: BACK_TO_MENU },
     PAUSED: { message: 'The match is paused while a player reconnects.', action: BACK_TO_MENU },
     MATCH_OVER: { message: 'This match has ended.', action: BACK_TO_MENU },

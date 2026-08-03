@@ -633,6 +633,50 @@ export class Room {
     }
 
     /**
+     * Empties a seat holding a computer opponent, back to open.
+     *
+     * The inverse of `addBot` and gated identically — host only, lobby only —
+     * with one check flipped: the seat must be a bot rather than free. Lobby
+     * only is the load-bearing half. A seat that vanished mid-round would take
+     * a player out of the rotation the engine has already dealt to, and the
+     * action log has no way to express it.
+     *
+     * `bot` is the test, not `tokenHash`. Every occupied seat holds a token, so
+     * asking about the token alone would let the host unseat a person — and the
+     * host's own seat, which is the first thing a stray click would reach.
+     */
+    removeBot(conn: SeatConnection, seatIndex: number): void {
+        if (this.phase !== 'lobby') {
+            this.sendError(conn, 'CANNOT_START');
+            return;
+        }
+
+        if (this.seats[HOST_SEAT_INDEX].conn !== conn) {
+            this.sendError(conn, 'NOT_HOST');
+            return;
+        }
+
+        const seat = this.seats[seatIndex];
+        if (seat === undefined || !seat.bot) {
+            this.sendError(conn, 'NOT_A_BOT');
+            return;
+        }
+
+        // Back to exactly the shape `Room.create` leaves an unclaimed seat in.
+        // `toStoredSeats` filters on `tokenHash`, so nulling it is also what
+        // drops the row from the persisted record.
+        seat.tokenHash = null;
+        seat.nickname = null;
+        seat.bot = false;
+        seat.difficulty = null;
+        seat.conn = null;
+        seat.disconnectedAt = null;
+
+        this.persist();
+        this.broadcastLobbyUpdate();
+    }
+
+    /**
      * Design §5 row 9, §8 step 11. The acting identity comes from `conn`
      * alone (Design §3) — the action carries no `playerId` a client could
      * spoof.

@@ -22,6 +22,8 @@ export interface LobbyScreenDeps {
     readonly onDissolve: () => void;
     /** Fills one open seat with a computer opponent. Host only; the server re-checks. */
     readonly onAddBot: (seat: number, difficulty: BotDifficulty) => void;
+    /** Empties one computer seat back to open. Host only; the server re-checks. */
+    readonly onRemoveBot: (seat: number) => void;
     /** `navigator.clipboard` in `main.ts`; a fake in tests. */
     readonly clipboard: { writeText(text: string): Promise<void> };
     /** Built from the live origin, since only the host ever sees the server's own `joinUrl`. */
@@ -90,6 +92,35 @@ export function createLobbyScreen(deps: LobbyScreenDeps): Surface {
         button.appendChild(iconElement('robot'));
         button.appendChild(document.createTextNode(' Add computer'));
         button.addEventListener('click', () => deps.onAddBot(row.seat, difficulty));
+        return button;
+    }
+
+    /**
+     * The undo for the button above.
+     *
+     * Seating a computer is otherwise a one-way door: a host who fills the
+     * table while waiting, then has a friend arrive, has no way back short of
+     * abandoning the lobby and re-sending the invite link.
+     *
+     * Per seat, matching `addBotButton`, and for the same reason — the host
+     * usually wants to free one chair for the person who just turned up, not
+     * clear the table.
+     *
+     * The visible word is bare "Remove" so the row stays readable at four
+     * seats, but three identical buttons need three different accessible names;
+     * the `aria-label` carries the occupant.
+     */
+    function removeBotButton(row: SeatRow): HTMLElement {
+        const button = document.createElement('button');
+        button.type = 'button';
+        button.dataset.action = 'remove-bot';
+        button.dataset.seat = String(row.seat);
+        button.textContent = 'Remove';
+        // The nickname is server-supplied from a fixed table, but it reaches an
+        // attribute the same way a player's free text would, so it is set
+        // rather than interpolated into markup.
+        button.setAttribute('aria-label', `Remove ${row.nickname ?? `the computer in seat ${row.seat + 1}`}`);
+        button.addEventListener('click', () => deps.onRemoveBot(row.seat));
         return button;
     }
 
@@ -182,6 +213,9 @@ export function createLobbyScreen(deps: LobbyScreenDeps): Surface {
         }
         if (row.status === 'open' && viewerIsHost) {
             element.appendChild(addBotButton(row));
+        }
+        if (row.status === 'computer' && viewerIsHost) {
+            element.appendChild(removeBotButton(row));
         }
 
         return element;

@@ -179,6 +179,31 @@ describe('Room.create', () => {
     });
 });
 
+describe('Room.removeBot', () => {
+    /**
+     * The seat must leave the *record*, not just memory.
+     *
+     * Rooms are rebuilt lazily from `{seed, actionLog}` plus the stored seat
+     * rows, so a removal that only touched `this.seats` would be undone by any
+     * process restart — and under `bun --watch` that is every file save. The
+     * host would empty a seat, save a file, and watch the bot sit back down.
+     */
+    it('clears the seat from the persisted record, not only from memory', () => {
+        const store = new MatchStore(':memory:');
+        const { room, hostSeatToken } = Room.create(makeConfig({ dbPath: ':memory:' }), store);
+        const host = new RecordingConn();
+        room.resumeSeat(host, hostSeatToken);
+
+        room.addBot(host, 1, 'adept');
+        expect((store.load(room.matchId) as MatchRecord).seats.some(s => s.index === 1)).toBe(true);
+
+        room.removeBot(host, 1);
+
+        const record = store.load(room.matchId) as MatchRecord;
+        expect(record.seats.some(s => s.index === 1)).toBe(false);
+    });
+});
+
 describe('Room.claimSeat', () => {
     it('lands two successive claims on seats 1 and 2, in order', () => {
         const store = new MatchStore(':memory:');

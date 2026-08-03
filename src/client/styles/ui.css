@@ -981,3 +981,35 @@ h2,
     color: var(--color-text-secondary);
     font-size: var(--font-size-sm, 0.875rem);
 }
+
+/**
+ * Remove sits inside a seat row, beside Start Match.
+ *
+ * `.screen button` gives every button the your-turn purple outline, which is
+ * right for Start Match and wrong for three of these: the loudest control on
+ * the lobby should be the one that begins the game, not the three that undo a
+ * setup step. So the border drops to the muted seat grey and the horizontal
+ * padding to a row-sized amount.
+ *
+ * The LABEL stays at full contrast rather than dimming with the border. This is
+ * a real control a host has to read at four seats, and #6b7280 text on the
+ * near-black table is about 4:1 — under AA. Quieting a control must not mean
+ * making it harder to read.
+ *
+ * Red only on approach: it names what the button does at the moment the host is
+ * about to do it, without three standing red marks on a lobby where nothing has
+ * gone wrong. `min-height` is inherited from `.screen button` and stays there —
+ * Interface rule 2's fingertip floor is not something a secondary control opts
+ * out of.
+ */
+.screen-lobby [data-action='remove-bot'] {
+    padding: 0 var(--space-3);
+    border-color: var(--color-seat-other);
+    color: var(--color-text-primary);
+}
+
+.screen-lobby [data-action='remove-bot']:hover,
+.screen-lobby [data-action='remove-bot']:focus-visible {
+    border-color: var(--color-nebula-red);
+    color: var(--color-nebula-red);
+}
