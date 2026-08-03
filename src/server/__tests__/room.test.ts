@@ -11,6 +11,7 @@ import {
     view as engineView
 } from '../../game/engine';
 import type { GuessValue, MatchState, PlayCardAction, PlayerId, ReduceResult } from '../../game/engine';
+import { BOT_NAMES } from '../botNames';
 import type { TransportConfig } from '../config';
 import { makeConfig } from '../config';
 import type { MatchRecord } from '../persistence';
@@ -176,6 +177,51 @@ describe('Room.create', () => {
         const result = room.resumeSeat(conn, hostSeatToken);
 
         expect(result).toEqual({ seat: 0, playerId: 'p1' });
+    });
+});
+
+describe('Room.addBot naming', () => {
+    /**
+     * The wiring `botNames.test.ts` cannot reach: does `addBot` actually hand
+     * `pickBotName` the names already at the table?
+     *
+     * `drawBotName` is pinned to 0 so every call asks for the FIRST name still
+     * free. With the taken-list wired, that yields three different names in
+     * pool order. With it cut out, all three seats get `BOT_NAMES[0]` and this
+     * fails every single run — which is the point of pinning the draw rather
+     * than seating three bots and hoping a collision shows up.
+     */
+    it('passes the names already in the room, so a pinned draw still varies', () => {
+        const store = new MatchStore(':memory:');
+        const { room, hostSeatToken } = Room.create(makeConfig({ dbPath: ':memory:' }), store, {
+            drawBotName: () => 0
+        });
+        const host = new RecordingConn();
+        room.resumeSeat(host, hostSeatToken);
+
+        room.addBot(host, 1, 'adept');
+        room.addBot(host, 2, 'adept');
+        room.addBot(host, 3, 'adept');
+
+        const names = (store.load(room.matchId) as MatchRecord).seats
+            .filter(s => s.index !== 0)
+            .map(s => s.nickname);
+        expect(names).toEqual([BOT_NAMES[0], BOT_NAMES[1], BOT_NAMES[2]]);
+    });
+
+    /** The host's nickname is in the room too, and a table with two of it is unreadable. */
+    it('skips a name a person at the table is already using', () => {
+        const store = new MatchStore(':memory:');
+        const { room, hostSeatToken } = Room.create(makeConfig({ dbPath: ':memory:' }), store, {
+            drawBotName: () => 0
+        });
+        const host = new RecordingConn();
+        room.resumeSeat(host, hostSeatToken, BOT_NAMES[0]);
+
+        room.addBot(host, 1, 'adept');
+
+        const seated = (store.load(room.matchId) as MatchRecord).seats.find(s => s.index === 1)!;
+        expect(seated.nickname).toBe(BOT_NAMES[1]);
     });
 });
 

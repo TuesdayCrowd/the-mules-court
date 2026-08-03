@@ -50,21 +50,14 @@ import { MatchStore, replayMatch } from './persistence';
 import type { BotDifficulty, ClientMessage, ErrorCode, ServerMessage, SeatStatus } from './protocol';
 import { hashToken, mintMatchId, mintSeed, mintToken, tokenMatches } from './seatTokens';
 import { createOpponent } from '../game/ai/difficulty';
+import type { Rng } from '../game/ai/rng';
 import { makeRng } from '../game/ai/rng';
+import { pickBotName } from './botNames';
 
 /** The fixed seat pool: index 0 is always the host, minted before any join (Design §2, §13). */
 const HOST_SEAT_INDEX = 0;
 const HOST_PLAYER_ID: PlayerId = 'p1';
 
-/**
- * Display names for computer opponents, indexed by seat.
- *
- * Minted here because `nickname` is a `StoredSeat` field and a bot has no
- * client to supply one — the same reason the host seat's nickname is adopted
- * over the wire rather than invented. Every name is a Foundation character who
- * is NOT a card, so a seat label can never be mistaken for a revealed hand.
- */
-const BOT_NICKNAMES: readonly string[] = ['Preem Palver', 'Arkady Darell', 'Lathan Devers', 'Ducem Barr'];
 
 /** index.ts adapts a `ServerWebSocket` to this; RecordingConn in tests implements it directly. */
 export interface SeatConnection {
@@ -121,6 +114,17 @@ export interface RoomDeps {
      * a caller trying to.
      */
     chooseBotPlay?: (view: RedactedView, difficulty: BotDifficulty) => BotPlay | null;
+    /**
+     * The draw a new computer opponent's name is chosen with, in `[0, 1)`.
+     *
+     * Injected for the same reason `chooseBotPlay` is: without it, "does
+     * `addBot` pass the names already at the table to `pickBotName`?" can only
+     * be asked probabilistically. Three draws from a pool of dozens collide
+     * about one time in twenty, so a test that seats three opponents and checks
+     * the names differ would pass ~95% of the time with the wiring cut out —
+     * which is not a test, it is a coin.
+     */
+    drawBotName?: () => number;
 }
 
 /** A bot's move, shaped like `PLAY_CARD`'s payload minus the routing. */
@@ -160,6 +164,26 @@ function defaultBotPlay(
             policies.set(difficulty, policy);
         }
         return policy.decide(view, rng);
+    };
+}
+
+/**
+ * The default source of computer opponents' names.
+ *
+ * Seeded from the match id, so a given room names its opponents the same way
+ * every time it is played out. Deliberately a SEPARATE stream from
+ * `bots:${matchId}` above: sharing one would mean seating a third opponent
+ * shifted the cursor the first two think with, so naming a seat would change
+ * how the table plays.
+ *
+ * Built lazily because most rooms never seat a bot, and every stored room is
+ * rebuilt through this on a cold `get()`.
+ */
+function defaultBotNameDraw(matchId: string): () => number {
+    let rng: Rng | null = null;
+    return () => {
+        rng ??= makeRng(`names:${matchId}`);
+        return rng.next();
     };
 }
 
@@ -299,7 +323,8 @@ export class Room {
             startNextRound: deps.startNextRound ?? engineStartNextRound,
             view: deps.view ?? engineView,
             isMatchOver: deps.isMatchOver ?? engineIsMatchOver,
-            chooseBotPlay: deps.chooseBotPlay ?? defaultBotPlay(matchId)
+            chooseBotPlay: deps.chooseBotPlay ?? defaultBotPlay(matchId),
+            drawBotName: deps.drawBotName ?? defaultBotNameDraw(matchId)
         };
         const createdAt = resolvedDeps.now();
 
@@ -358,7 +383,8 @@ export class Room {
             startNextRound: deps.startNextRound ?? engineStartNextRound,
             view: deps.view ?? engineView,
             isMatchOver: deps.isMatchOver ?? engineIsMatchOver,
-            chooseBotPlay: deps.chooseBotPlay ?? defaultBotPlay(record.matchId)
+            chooseBotPlay: deps.chooseBotPlay ?? defaultBotPlay(record.matchId),
+            drawBotName: deps.drawBotName ?? defaultBotNameDraw(record.matchId)
         };
 
         const seats = restoreSeats(record.seats, resolvedDeps.now());
@@ -622,7 +648,11 @@ export class Room {
         }
 
         seat.tokenHash = hashToken(mintToken());
-        seat.nickname = BOT_NICKNAMES[seat.index] ?? `Computer ${seat.index + 1}`;
+        // Every occupied seat's name, humans included — see `pickBotName`.
+        seat.nickname = pickBotName(
+            this.seats.map(s => s.nickname).filter((name): name is string => name !== null),
+            this.deps.drawBotName
+        );
         seat.bot = true;
         seat.difficulty = difficulty;
         seat.conn = null;
