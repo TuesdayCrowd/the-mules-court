@@ -123,6 +123,35 @@ describe('targets', () => {
         expect(sheet.querySelector('[data-target="p4"]')!.textContent).not.toContain('eliminated');
     });
 
+    /**
+     * The section was one `flex-wrap` row holding the heading AND the buttons,
+     * so "Choose a target" sat inline with the first name and the rest wrapped
+     * around it — a paragraph of controls rather than a list of choices.
+     *
+     * jsdom has no layout, so what is asserted here is the structure the CSS
+     * needs: a heading that is not a sibling of the buttons, and one wrapper
+     * that owns the buttons alone. The result was looked at in a browser.
+     */
+    it('keeps the heading out of the list, so it can hold its own line', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+
+        const list = sheet.querySelector('[data-role="target-list"]')!;
+        expect(list).not.toBeNull();
+        expect(list.querySelector('h3')).toBeNull();
+        expect(sheet.querySelector('[data-role="targets"] > h3')).not.toBeNull();
+    });
+
+    it('gathers every target into the one list, eligible or not', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+
+        const list = sheet.querySelector('[data-role="target-list"]')!;
+        expect(list.querySelectorAll('[data-target]')).toHaveLength(3);
+        // Nothing left outside it for the flex row to reflow around.
+        expect(sheet.querySelectorAll('[data-role="targets"] > [data-target]')).toHaveLength(0);
+    });
+
     it('reaches a screen reader by name, since a disabled button is not focusable', () => {
         const h = harness();
         const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
@@ -257,6 +286,33 @@ describe('the guess grid', () => {
         const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
         click(sheet.querySelector('[data-guess="5"]'));
         expect(sheet.querySelector('[data-guess="5"]')!.getAttribute('aria-pressed')).toBe('true');
+    });
+
+    /**
+     * The values are a grid of their own, so the heading above and the hint
+     * below each get a line and the numbers wrap among themselves. They used to
+     * share one `flex-wrap` row with both, which is how "Guess a value" ended up
+     * beside the 2 and "Tap a value to see its cards" beside the 8.
+     */
+    it('holds the values in a grid of their own, without the heading or the hint', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+
+        const grid = sheet.querySelector('[data-role="guesses"]')!;
+        expect(grid).not.toBeNull();
+        expect(grid.querySelectorAll('[data-guess]')).toHaveLength(7);
+        expect(grid.querySelector('h3')).toBeNull();
+        expect(grid.querySelector('[data-role="guess-hint"]')).toBeNull();
+        expect(grid.children).toHaveLength(7);
+    });
+
+    it('keeps the heading and the hint as siblings of the grid, not items in it', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { targets: THREE_TARGETS });
+
+        const section = sheet.querySelector('[data-role="guess"]')!;
+        expect(section.querySelector(':scope > h3')).not.toBeNull();
+        expect(section.querySelector(':scope > [data-role="guess-hint"]')).not.toBeNull();
     });
 });
 

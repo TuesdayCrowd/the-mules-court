@@ -268,6 +268,19 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         heading.textContent = 'Choose a target';
         section.appendChild(heading);
 
+        /**
+         * The names, and nothing else.
+         *
+         * The section used to be one `flex-wrap` row holding the heading and
+         * every button together, so "Choose a target" sat inline with the first
+         * name and the rest wrapped around it — a paragraph of controls rather
+         * than a list of choices. A wrapper that owns the buttons alone is what
+         * lets the heading keep its own line and the names keep theirs.
+         */
+        const list = document.createElement('div');
+        list.dataset.role = 'target-list';
+        section.appendChild(list);
+
         /** textContent: another player's free text. */
         function nameLine(nickname: string): HTMLElement {
             const line = document.createElement('span');
@@ -308,7 +321,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
                     button.dataset.state = entry.reason;
                     button.replaceChildren(nameLine(entry.nickname), stateLine(entry.reason));
                 }
-                section.appendChild(button);
+                list.appendChild(button);
                 continue;
             }
 
@@ -316,7 +329,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
                 target = entry.playerId;
                 refreshLive();
             });
-            section.appendChild(button);
+            list.appendChild(button);
         }
 
         return section;
@@ -324,10 +337,22 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
 
     function guessSection(guesses: Map<number, HTMLButtonElement>): { section: HTMLElement; hint: HTMLElement } {
         const section = document.createElement('section');
+        section.dataset.role = 'guess';
 
         const heading = document.createElement('h3');
         heading.textContent = 'Guess a value';
         section.appendChild(heading);
+
+        /**
+         * The seven values wrap among THEMSELVES.
+         *
+         * Sharing one `flex-wrap` row with the heading and the hint is how
+         * "Guess a value" ended up beside the 2 and "Tap a value to see its
+         * cards" beside the 8: they were simply two more items in the flow.
+         */
+        const grid = document.createElement('div');
+        grid.dataset.role = 'guesses';
+        section.appendChild(grid);
 
         for (const value of GUESSABLE) {
             const button = document.createElement('button');
@@ -343,7 +368,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
                 refreshLive();
             });
             guesses.set(value, button);
-            section.appendChild(button);
+            grid.appendChild(button);
         }
 
         const hint = document.createElement('p');
