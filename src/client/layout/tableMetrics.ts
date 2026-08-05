@@ -109,3 +109,32 @@ export const SEAT_COLOURS: Record<SeatPlan['state'], number> = {
     disconnected: TOKENS.colorSeatDisconnected,
     idle: TOKENS.colorSeatOther
 };
+
+/**
+ * The largest share of the viewport a right-edge panel may be pushed down by.
+ *
+ * A panel inset to the seat band is trading its own height for the table's
+ * legibility, and past some point that trade stops being worth it — a panel
+ * whose controls start below the fold is a worse failure than a covered seat,
+ * because at least a covered seat can be read by closing the panel.
+ *
+ * Half is deliberately generous: no shipped topology comes near it (a wide
+ * desktop puts the seat band around 29% down), so the clamp is a guard against
+ * an aspect ratio nobody has tried, not a limit the normal case negotiates with.
+ */
+export const MAX_PANEL_INSET_FRACTION = 0.5;
+
+/**
+ * How far down a right-edge panel may start so it clears the seats.
+ *
+ * Shared by the action sheet and the reference dock. Both cover the rightmost
+ * seat when pinned to the full height of a wide viewport, and a player who has
+ * to close a panel to read a seat has had the flow of the game interrupted by
+ * the interface. One function so the two can never disagree about the rule, and
+ * so the clamp has one place to be argued and one place to be tested.
+ *
+ * Clamped at both ends: never negative, never past `MAX_PANEL_INSET_FRACTION`.
+ */
+export function panelSafeTop(opponentsBottom: number, viewportH: number): number {
+    return Math.max(0, Math.min(opponentsBottom, viewportH * MAX_PANEL_INSET_FRACTION));
+}

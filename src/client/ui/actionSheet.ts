@@ -21,6 +21,7 @@ import { QUICK_REFERENCE } from '../content/quickReference';
 import type { TargetableSeatStatus } from '../content/seatStatus';
 import { seatStatusCopy } from '../content/seatStatus';
 import { classifyTopology } from '../layout/topology';
+import { panelSafeTop } from '../layout/tableMetrics';
 import type { UnplayableReason } from '../store/targets';
 import type { ClientState } from '../store/types';
 import type { Surface } from './surface';
@@ -461,7 +462,7 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
          * worse failure than a covered seat.
          */
         if (sheet.dataset.anchor === 'right' && request.safeTop !== undefined) {
-            sheet.style.top = `${Math.max(0, Math.min(request.safeTop, request.available.h / 2))}px`;
+            sheet.style.top = `${panelSafeTop(request.safeTop, request.available.h)}px`;
         }
 
         const title = document.createElement('h2');

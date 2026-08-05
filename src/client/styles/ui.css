@@ -741,7 +741,17 @@ h2,
 /* A side drawer where there is width for one — the table keeps the rest. */
 @media (min-width: 60rem) {
     .reference-modal {
-        top: 0;
+        /* Here and nowhere else: this is the only form of the dock that covers a
+           seat, so it is the only one that reads the clearance. `referenceDock.ts`
+           publishes `--dock-safe-top` from the table's own layout; the fallback
+           keeps the panel full height when there is no table behind it.
+
+           Deliberately a custom property rather than an inline `top`. The choice
+           between this panel and the narrow top sheet is made by this media
+           query, so an inline `top` would mean repeating the 60rem breakpoint in
+           TypeScript — and would still be sitting on the element after a resize
+           into the narrow form, pushing that sheet down the screen. */
+        top: var(--dock-safe-top, 0px);
         right: 0;
         bottom: 0;
         left: auto;
