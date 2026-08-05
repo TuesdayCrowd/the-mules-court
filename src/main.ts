@@ -472,26 +472,39 @@ function boot(): void {
      * `null` means the view could not answer.
      */
     function sheetRequestFor(cardInstanceId: CardInstanceId): SheetRequest | null {
-        const table = store.getState().table;
-        if (table === null) return null;
+        // Named for what it is, and deliberately not `table`: that name belongs
+        // to the table SURFACE in the enclosing scope, and shadowing it here is
+        // what hid `currentLayout()` from this function.
+        const snapshot = store.getState().table;
+        if (snapshot === null) return null;
 
         const targets: SheetTarget[] | null = sheetTargetsFor(
-            table.view,
+            snapshot.view,
             cardInstanceId,
-            id => table.nicknames[id] ?? id
+            id => snapshot.nicknames[id] ?? id
         );
         if (targets === null) return null;
 
         // Spread rather than assigned, because `exactOptionalPropertyTypes` and
         // an absent reason are the same fact: the card plays.
-        const reason = unplayableReason(table.view, cardInstanceId);
+        const reason = unplayableReason(snapshot.view, cardInstanceId);
+        const drawn = table.currentLayout();
 
         return {
             cardId: cardTypeOf(cardInstanceId),
             cardInstanceId,
             targets,
             ...(reason === undefined ? {} : { unplayable: reason }),
-            available: { w: window.innerWidth, h: window.innerHeight }
+            available: { w: window.innerWidth, h: window.innerHeight },
+            /**
+             * Read off the table's own spec rather than recomputed here.
+             *
+             * `currentLayout()` exists for exactly this — asking the table what
+             * it last drew, instead of calling `computeLayout` a second time
+             * with inputs that could drift from the ones the table used and
+             * insetting the sheet to a line the seats are not actually on.
+             */
+            ...(drawn === null ? {} : { safeTop: drawn.opponentsBottom })
         };
     }
 

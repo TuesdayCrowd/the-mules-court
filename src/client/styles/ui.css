@@ -428,6 +428,11 @@ h2,
 }
 
 .action-sheet[data-anchor='right'] {
+    /* `top` here is only the fallback. Over a live table `actionSheet.ts`
+       overrides it inline with `LayoutSpec.opponentsBottom`, so the panel starts
+       below the seat chips and a player can still read the discards of the
+       opponent they are choosing between. The stylesheet cannot compute that
+       line — it depends on seat count and viewport — so it must be inline. */
     inset: 0 0 0 auto;
     width: min(28rem, 40vw);
     border-radius: var(--radius) 0 0 var(--radius);
