@@ -29,7 +29,7 @@ import { cardLabel } from './client/content/cardCopy';
 import { failureCopy } from './client/content/failureCopy';
 import { diffSnapshots } from './client/store/diff';
 import { beatForEvent } from './client/store/motion';
-import { soundForEvent, soundForNotice, soundForTurnStart } from './client/store/sound';
+import { ambienceFor, soundForEvent, soundForNotice, soundForTurnStart } from './client/store/sound';
 import { createPresentationQueue } from './client/store/presentationQueue';
 import { browserIdMinter } from './client/store/ids';
 import { createRoomApi } from './client/store/roomApi';
@@ -208,7 +208,24 @@ function boot(): void {
         createContext: () => new AudioContext(),
         gestures: document,
         storage: window.localStorage,
-        random: () => Math.random()
+        random: () => Math.random(),
+        /**
+         * Where the recordings come from.
+         *
+         * `assetUrl` for the same reason every image on the table uses it: a
+         * relative path resolves against `/join/:matchId` on a real invite link,
+         * which the SPA fallback answers with `index.html` and a 200 — so the
+         * decoder would be handed a page instead of audio and the game would
+         * fall back to synthesis on exactly the URL most players arrive by.
+         *
+         * A non-OK response is turned into a throw rather than passed on, so it
+         * lands in the same catch as a decode failure and gets the same answer.
+         */
+        loadAudio: async path => {
+            const response = await fetch(assetUrl(path));
+            if (!response.ok) throw new Error(`sfx ${path}: ${response.status}`);
+            return response.arrayBuffer();
+        }
     });
 
     uiRoot.add(createConnectionDot());
@@ -626,6 +643,16 @@ function boot(): void {
         const roundJustEnded =
             (state.table?.view.roundResult ?? null) !== null && (previous.table?.view.roundResult ?? null) === null;
         if (state.fatal !== null || state.table === null || roundJustEnded) cancelDealCues();
+
+        /**
+         * The bed under the table, reconciled on every push.
+         *
+         * Safe to call this often because `setAmbience` is idempotent by name —
+         * the alternative, tracking the previous screen here, would put the
+         * decision in two places and let them disagree. `ambienceFor` is the one
+         * that decides; this line only reports where the player is.
+         */
+        sound.setAmbience(ambienceFor(state.screen, state.table?.view ?? null));
 
         uiRoot.update(state);
 

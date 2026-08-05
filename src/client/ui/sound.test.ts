@@ -9,8 +9,8 @@
 
 import { describe, expect, it } from 'vitest';
 import type { KeyValueStore } from '../store/seatTokenStore';
-import type { SoundName } from '../store/sound';
-import { MAX_GAIN, MUTE_FADE_MS, SOUNDS, soundSpec } from '../store/sound';
+import type { AmbienceName, SoundName } from '../store/sound';
+import { AMBIENCE, AMBIENCE_GAIN, MAX_GAIN, MUTE_FADE_MS, SAMPLE_GAIN, SOUNDS, soundSpec } from '../store/sound';
 import type {
     AudioBufferLike,
     AudioBufferSourceNodeLike,
@@ -99,6 +99,7 @@ interface Recording {
     readonly noises: Array<{ readonly node: AudioBufferSourceNodeLike; readonly record: SourceRecord }>;
     readonly filters: Array<{ readonly node: BiquadFilterNodeLike; readonly frequency: Param; readonly q: Param }>;
     readonly buffersCreated: () => number;
+    readonly decodes: () => number;
     readonly resumes: () => number;
     /** What a browser that refuses to resume outside a gesture looks like. */
     refuseToResume(): void;
@@ -122,6 +123,7 @@ function makeContext(options: { state?: string; sampleRate?: number; gestureGate
     let state = options.state ?? 'running';
     let resumes = 0;
     let buffersCreated = 0;
+    let decodes = 0;
     let stubborn = false;
     const gated = options.gestureGated ?? false;
     let inGesture = false;
@@ -188,13 +190,26 @@ function makeContext(options: { state?: string; sampleRate?: number; gestureGate
         },
         createBufferSource(): AudioBufferSourceNodeLike {
             const record = makeSourceRecord();
-            const node: AudioBufferSourceNodeLike = { buffer: null, loop: false, ...scheduledMembers(record) };
+            const playbackRate = makeParam();
+            const node: AudioBufferSourceNodeLike = {
+                buffer: null,
+                loop: false,
+                playbackRate,
+                ...scheduledMembers(record)
+            };
             noises.push({ node, record });
             return node;
         },
         createBuffer(_channels: number, length: number): AudioBufferLike {
             buffersCreated += 1;
             return { length, getChannelData: () => new Float32Array(length) };
+        },
+        // Every decoded buffer gets a distinct `length`, which is what lets a
+        // test tell a decoded recording apart from the one noise buffer the
+        // synthesis path builds for itself.
+        decodeAudioData(data: ArrayBuffer): Promise<AudioBufferLike> {
+            decodes += 1;
+            return Promise.resolve({ length: 10_000 + data.byteLength, getChannelData: () => new Float32Array(0) });
         }
     };
 
@@ -205,6 +220,7 @@ function makeContext(options: { state?: string; sampleRate?: number; gestureGate
         noises,
         filters,
         buffersCreated: () => buffersCreated,
+        decodes: () => decodes,
         resumes: () => resumes,
         refuseToResume() {
             stubborn = true;
@@ -912,5 +928,287 @@ describe('mute', () => {
         const { player } = makePlayer({ storage: hostile });
         expect(() => player.setMuted(true)).not.toThrow();
         expect(player.muted()).toBe(true);
+    });
+});
+
+// ---------------------------------------------------- the recorded voicing
+
+/** `Array.prototype.at(-1)` is ES2022; this project's lib target is older. */
+function last<T>(items: readonly T[]): T | undefined {
+    return items.length === 0 ? undefined : items[items.length - 1];
+}
+
+/** A player that can actually load samples, over a context that can decode them. */
+function makeSamplingPlayer(
+    options: {
+        recording?: Recording;
+        random?: () => number;
+        storage?: KeyValueStore;
+        /** Paths answered with a rejection rather than bytes. */
+        failing?: ReadonlySet<string>;
+    } = {}
+) {
+    const recording = options.recording ?? makeContext();
+    const gestures = makeGestures();
+    const requested: string[] = [];
+
+    const player = createSoundPlayer({
+        createContext: () => recording.context,
+        gestures: gestures.target,
+        storage: options.storage ?? memoryStore(),
+        random: options.random ?? (() => 0.5),
+        loadAudio: path => {
+            requested.push(path);
+            if (options.failing?.has(path) === true) return Promise.reject(new Error('404'));
+            // Distinct byte length per path, so the decoded buffer identifies itself.
+            return Promise.resolve(new ArrayBuffer(path.length));
+        }
+    });
+
+    return {
+        player,
+        recording,
+        requested: () => [...requested],
+        /** Fire the unlock gesture, which is what builds the context and starts loading. */
+        unlock: () => gestures.fire('pointerdown'),
+        /** Buffer sources that are playing a decoded recording rather than the noise buffer. */
+        sampled: () =>
+            recording.noises.filter(entry => !entry.node.loop && (entry.node.buffer?.length ?? 0) >= 10_000),
+        loops: () => recording.noises.filter(entry => entry.node.loop && (entry.node.buffer?.length ?? 0) >= 10_000)
+    };
+}
+
+/** Let the fetch/decode promise chain settle. */
+async function settle(): Promise<void> {
+    for (let i = 0; i < 10; i += 1) await Promise.resolve();
+}
+
+describe('playing a recording instead of the recipe', () => {
+    it('asks for every cue once the context exists, and only once', async () => {
+        const harness = makeSamplingPlayer();
+        harness.unlock();
+        await settle();
+
+        const expected = (Object.keys(SOUNDS) as SoundName[]).map(name => soundSpec(name).samplePath);
+        expect(harness.requested().sort()).toEqual(expected.sort());
+
+        harness.player.play('deal');
+        harness.player.play('mule');
+        expect(harness.requested()).toHaveLength(expected.length);
+    });
+
+    it('reaches for no oscillator at all once the recording has arrived', async () => {
+        const harness = makeSamplingPlayer();
+        harness.unlock();
+        await settle();
+
+        // The Mule is four synthesised voices; as a recording it is one source.
+        harness.player.play('mule');
+
+        expect(harness.recording.oscillators).toHaveLength(0);
+        expect(harness.sampled()).toHaveLength(1);
+    });
+
+    it('still synthesises while the recording is in flight', () => {
+        const harness = makeSamplingPlayer();
+        harness.unlock();
+        // Deliberately no `settle()` — nothing has decoded yet.
+        harness.player.play('mule');
+
+        expect(harness.recording.oscillators.length).toBeGreaterThan(0);
+        expect(harness.sampled()).toHaveLength(0);
+    });
+
+    it('falls back to the recipe forever when the recording cannot be fetched', async () => {
+        const failing = new Set([soundSpec('deal').samplePath]);
+        const harness = makeSamplingPlayer({ failing });
+        harness.unlock();
+        await settle();
+
+        harness.player.play('deal');
+        expect(harness.sampled()).toHaveLength(0);
+        // One noise voice from the recipe, exactly as before recordings existed.
+        expect(harness.recording.noises).toHaveLength(1);
+    });
+
+    it('does not re-request a recording that already failed', async () => {
+        const failing = new Set([soundSpec('deal').samplePath]);
+        const harness = makeSamplingPlayer({ failing });
+        harness.unlock();
+        await settle();
+        const after = harness.requested().length;
+
+        harness.player.play('deal');
+        harness.player.play('deal');
+        await settle();
+
+        expect(harness.requested()).toHaveLength(after);
+    });
+
+    it('plays a recording at the level its spec asks for', async () => {
+        // A centred random means no jitter, so the gain is SAMPLE_GAIN exactly.
+        const harness = makeSamplingPlayer({ random: () => 0.5 });
+        harness.unlock();
+        await settle();
+
+        harness.player.play('mule');
+
+        // The last gain built is the sample's own amp; the master predates it.
+        // The last gain built is the sample's own amp; the master predates it.
+        const amp = last(harness.recording.gains)?.gain;
+        const set = last((amp?.events ?? []).filter((event: ParamEvent) => event.kind === 'set'));
+        expect(set?.value).toBeCloseTo(SAMPLE_GAIN, 10);
+    });
+
+    it('detunes a recording by moving its playback speed, since that is the only knob', async () => {
+        const harness = makeSamplingPlayer({ random: () => 1 });
+        harness.unlock();
+        await settle();
+
+        harness.player.play('deal');
+
+        const rateEvents: ParamEvent[] = (harness.sampled()[0]?.node.playbackRate as Param | undefined)?.events ?? [];
+        const rate = last(rateEvents.filter(event => event.kind === 'set'))?.value ?? 1;
+        // deal jitters 12%, and a random pinned to 1 takes the top of the range.
+        expect(rate).toBeCloseTo(1 + soundSpec('deal').jitter.pitchRatio, 10);
+    });
+
+    it('stays silent when muted, recording or not', async () => {
+        const harness = makeSamplingPlayer({ storage: memoryStore({ [MUTE_KEY]: '1' }) });
+        harness.unlock();
+        await settle();
+
+        harness.player.play('mule');
+        expect(harness.sampled()).toHaveLength(0);
+        expect(harness.recording.oscillators).toHaveLength(0);
+    });
+
+    it('honours the same refusal-to-stutter window a synthesised sound honours', async () => {
+        const harness = makeSamplingPlayer();
+        harness.unlock();
+        await settle();
+
+        harness.player.play('refused');
+        harness.player.play('refused');
+        harness.player.play('refused');
+
+        expect(harness.sampled()).toHaveLength(1);
+    });
+
+    it('counts a recording as the one voice it is', async () => {
+        const harness = makeSamplingPlayer();
+        harness.unlock();
+        await settle();
+
+        // Each play is a single mixdown, so the budget takes MAX_VOICES of them
+        // where the synthesised Mule would have exhausted it in three.
+        for (let i = 0; i < MAX_VOICES + 4; i += 1) {
+            harness.player.play('mule');
+            harness.recording.advance(1);
+        }
+
+        expect(harness.sampled()).toHaveLength(MAX_VOICES);
+    });
+});
+
+describe('the ambience bed', () => {
+    async function bedded(name: AmbienceName = 'table') {
+        const harness = makeSamplingPlayer();
+        harness.unlock();
+        await settle();
+        harness.player.setAmbience(name);
+        await settle();
+        return harness;
+    }
+
+    it('fetches a bed only when one is actually asked for', async () => {
+        const harness = makeSamplingPlayer();
+        harness.unlock();
+        await settle();
+        expect(harness.requested()).not.toContain(AMBIENCE.table);
+
+        harness.player.setAmbience('table');
+        await settle();
+        expect(harness.requested()).toContain(AMBIENCE.table);
+    });
+
+    it('loops, because a bed that stops is a clip', async () => {
+        const harness = await bedded();
+        expect(harness.loops()).toHaveLength(1);
+    });
+
+    it('rises out of silence rather than snapping in', async () => {
+        const harness = await bedded();
+        const events: ParamEvent[] = last(harness.recording.gains)?.gain.events ?? [];
+        expect(events.find(event => event.kind === 'set')?.value).toBe(0);
+        expect(events.find(event => event.kind === 'linear')?.value).toBeCloseTo(AMBIENCE_GAIN, 10);
+    });
+
+    it('does nothing at all when asked for the bed already playing', async () => {
+        const harness = await bedded();
+        harness.player.setAmbience('table');
+        harness.player.setAmbience('table');
+        await settle();
+
+        expect(harness.loops()).toHaveLength(1);
+    });
+
+    it('hands over to a different bed', async () => {
+        const harness = await bedded('lobby');
+        harness.player.setAmbience('table');
+        await settle();
+
+        expect(harness.loops()).toHaveLength(2);
+        expect(harness.requested()).toContain(AMBIENCE.lobby);
+        expect(harness.requested()).toContain(AMBIENCE.table);
+    });
+
+    it('stops on null', async () => {
+        const harness = await bedded();
+        harness.player.setAmbience(null);
+
+        expect(harness.loops()[0]?.record.stops).toHaveLength(1);
+    });
+
+    /**
+     * The bug this exists to prevent: a looping source never fires `ended` on
+     * its own, so counting it against the voice budget would spend a slot per
+     * bed change and eventually silence the table with nothing playing.
+     */
+    it('never spends a slot in the voice budget, however many times it changes', async () => {
+        const harness = await bedded('menu');
+        for (let i = 0; i < MAX_VOICES * 3; i += 1) {
+            harness.player.setAmbience(i % 2 === 0 ? 'table' : 'lobby');
+            await settle();
+        }
+
+        harness.player.play('deal');
+        expect(harness.sampled()).toHaveLength(1);
+    });
+
+    it('is stopped outright by a mute rather than left looping inaudibly', async () => {
+        const harness = await bedded();
+        harness.player.setMuted(true);
+
+        expect(harness.loops()[0]?.record.stops).toHaveLength(1);
+    });
+
+    it('comes back when the player unmutes', async () => {
+        const harness = await bedded();
+        harness.player.setMuted(true);
+        harness.player.setMuted(false);
+        await settle();
+
+        expect(harness.loops()).toHaveLength(2);
+    });
+
+    it('never starts one for a player who was already muted', async () => {
+        const harness = makeSamplingPlayer({ storage: memoryStore({ [MUTE_KEY]: '1' }) });
+        harness.unlock();
+        await settle();
+        harness.player.setAmbience('table');
+        await settle();
+
+        expect(harness.loops()).toHaveLength(0);
     });
 });

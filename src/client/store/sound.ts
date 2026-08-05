@@ -7,9 +7,21 @@
  * frequency no test can read, so every frequency, cutoff, envelope time and
  * gain in the whole vocabulary lives here, in a plain object, under Node.
  *
- * Nothing is loaded. There are no audio files in this repository and none are
- * coming: each spec below is a recipe for synthesis, and the layer that owns
- * the audio graph is handed the recipe rather than a buffer.
+ * Every sound has **two** voicings, and this file names both. Each spec is a
+ * complete recipe for synthesis — oscillators, filters, envelopes, all of it —
+ * and also carries the path of a recorded take under `public/assets/sfx/`. The
+ * layer that owns the audio graph prefers the recording and falls back to the
+ * recipe.
+ *
+ * The fallback is the point. A sample can fail to arrive for reasons that have
+ * nothing to do with this game — a cold cache on a bad connection, a codec a
+ * browser will not decode, a player who opened the tab offline — and a table
+ * that answers any of those with silence has lost something a synthesised
+ * table would not have lost. Synthesis costs zero bytes and cannot 404, so it
+ * stays as the floor rather than being deleted once the files existed.
+ *
+ * The two voicings are matched in level rather than merely coexisting; see
+ * `SAMPLE_GAIN` for the arithmetic that makes them interchangeable.
  *
  * ## The design brief
  *
@@ -36,6 +48,7 @@
 import type { PlayerId, RedactedView } from '../../game/engine';
 import type { ErrorCode } from '../../server/protocol';
 import type { PresentationEvent } from './diff';
+import type { Screen } from './types';
 
 // ------------------------------------------------------------------ vocabulary
 
@@ -148,6 +161,15 @@ export interface Jitter {
 
 export interface SoundSpec {
     readonly name: SoundName;
+    /**
+     * The recorded voicing, as a path under `public/assets/`.
+     *
+     * A path rather than a URL because this layer has no business knowing where
+     * the app is mounted; the layer that fetches it resolves the URL. Required
+     * rather than optional, so a new `SoundName` cannot ship with a recipe and
+     * no recording without the type checker saying so.
+     */
+    readonly samplePath: string;
     readonly voices: readonly SoundVoice[];
     /** Wall time of the whole sound, tail included. Never shorter than its longest voice. */
     readonly durationMs: number;
@@ -177,6 +199,23 @@ export interface SoundSpec {
 export const MAX_GAIN = 0.4;
 
 /**
+ * The level every sampled cue plays at — one number for all nine, by construction.
+ *
+ * The files under `public/assets/sfx/` were mastered by peak-normalising each
+ * one to its own `spec.gain / MAX_GAIN`: `deal.mp3` peaks at 0.4 of full scale,
+ * `mule.mp3` at 0.85. Multiplying any of them by `MAX_GAIN` therefore lands
+ * exactly on that spec's `gain` — 0.4 x 0.4 = 0.16 for the deal, 0.85 x 0.4 =
+ * 0.34 for the Mule. The balance this file spends so many words arguing for is
+ * baked into the audio itself, so the player needs no per-sound table.
+ *
+ * The consequence worth stating plainly: **a sample and its synthesised twin
+ * play at the same level.** Falling back is not a quieter game or a louder one,
+ * which is what makes the fallback safe to take silently. `sound.test.ts`
+ * checks that arithmetic rather than trusting this comment.
+ */
+export const SAMPLE_GAIN = MAX_GAIN;
+
+/**
  * How long the master level takes to reach silence when a player mutes.
  *
  * An envelope time, so it lives here with every other envelope time rather than
@@ -201,6 +240,7 @@ export const MUTE_FADE_MS = 20;
  */
 const DEAL: SoundSpec = {
     name: 'deal',
+    samplePath: 'sfx/deal.mp3',
     voices: [
         {
             source: { kind: 'noise' },
@@ -227,6 +267,7 @@ const DEAL: SoundSpec = {
  */
 const PLAY: SoundSpec = {
     name: 'play',
+    samplePath: 'sfx/play.mp3',
     voices: [
         {
             source: { kind: 'noise' },
@@ -259,6 +300,7 @@ const PLAY: SoundSpec = {
  */
 const REVEAL: SoundSpec = {
     name: 'reveal',
+    samplePath: 'sfx/reveal.mp3',
     voices: [
         {
             source: { kind: 'noise' },
@@ -297,6 +339,7 @@ const REVEAL: SoundSpec = {
  */
 const YOUR_TURN: SoundSpec = {
     name: 'your-turn',
+    samplePath: 'sfx/your-turn.mp3',
     voices: [
         {
             source: { kind: 'tone', wave: 'sine', frequencyHz: 523.25 },
@@ -333,6 +376,7 @@ const YOUR_TURN: SoundSpec = {
  */
 const TOKEN_AWARD: SoundSpec = {
     name: 'token-award',
+    samplePath: 'sfx/token-award.mp3',
     voices: [
         {
             source: { kind: 'tone', wave: 'sine', frequencyHz: 880 },
@@ -373,6 +417,7 @@ const TOKEN_AWARD: SoundSpec = {
  */
 const ELIMINATION: SoundSpec = {
     name: 'elimination',
+    samplePath: 'sfx/elimination.mp3',
     voices: [
         {
             source: { kind: 'tone', wave: 'sine', frequencyHz: 110, glideToHz: 58 },
@@ -412,6 +457,7 @@ const ELIMINATION: SoundSpec = {
  */
 const MULE: SoundSpec = {
     name: 'mule',
+    samplePath: 'sfx/mule.mp3',
     voices: [
         {
             source: { kind: 'noise' },
@@ -462,6 +508,7 @@ const MULE: SoundSpec = {
  */
 const VICTORY: SoundSpec = {
     name: 'victory',
+    samplePath: 'sfx/victory.mp3',
     voices: [
         {
             source: { kind: 'tone', wave: 'sine', frequencyHz: 440 },
@@ -502,6 +549,7 @@ const VICTORY: SoundSpec = {
  */
 const REFUSED: SoundSpec = {
     name: 'refused',
+    samplePath: 'sfx/refused.mp3',
     voices: [
         {
             source: { kind: 'tone', wave: 'triangle', frequencyHz: 196, glideToHz: 155.56 },
@@ -648,6 +696,94 @@ export function soundForNotice(code: ErrorCode): SoundName {
     return 'refused';
 }
 
+// ------------------------------------------------------------------ ambience
+
+/**
+ * The beds that play under a screen, named for the situation rather than the file.
+ *
+ * A bed is the one thing the synthesis vocabulary above genuinely cannot do. An
+ * oscillator can imitate a struck chime convincingly; nothing built from four
+ * oscillators sounds like a *room*, because a room is thousands of uncorrelated
+ * reflections and that is exactly what additive synthesis is worst at. So these
+ * are files with no fallback — if one fails to load the game simply has no bed,
+ * which is what it had before they existed.
+ *
+ * Named for the moment, not the recording, so re-cutting the audio never
+ * reaches a call site.
+ */
+export type AmbienceName = 'menu' | 'lobby' | 'table' | 'eliminated';
+
+/** Each bed's path under `public/assets/`, resolved to a URL by the layer that fetches it. */
+export const AMBIENCE: Readonly<Record<AmbienceName, string>> = {
+    menu: 'sfx/amb-vault.mp3',
+    lobby: 'sfx/amb-lobby.mp3',
+    table: 'sfx/amb-table.mp3',
+    eliminated: 'sfx/amb-mule-presence.mp3'
+};
+
+/**
+ * How loud a bed sits under the table.
+ *
+ * The files are mastered to a peak of 0.125 (−18 dBFS), so this puts them near
+ * 0.06 — well under `deal`, the quietest thing in the cue vocabulary at 0.16.
+ * That ordering is the whole design: a bed a player *notices* has stopped being
+ * a bed, and one that competes with the deal has started hiding information.
+ */
+export const AMBIENCE_GAIN = 0.5;
+
+/**
+ * How long a bed takes to arrive, leave, or hand over to another.
+ *
+ * Far longer than `MUTE_FADE_MS`, and for the opposite reason. Mute is a
+ * player's own instruction and should feel instant; a bed changing is a
+ * consequence of the game moving, and a room tone that snapped in would announce
+ * itself as a sound effect. Nobody should ever catch one starting.
+ */
+export const AMBIENCE_FADE_MS = 800;
+
+/**
+ * Which bed belongs under this screen, if any.
+ *
+ * A pure function of state the server already pushed, deriving no rule — the
+ * same standard `soundForTurnStart` is held to. Four decisions, each argued:
+ *
+ * - **The menu and the join prompt share the vault.** Both are the player
+ *   standing outside the game, and a second bed for the two seconds of
+ *   `joining` would be a change nobody could hear the reason for.
+ * - **A finished match lifts the pressure.** The victory chord is the largest
+ *   reward the game gives; ringing it out over a bed of mentalic dread because
+ *   the listener happened to lose is a worse table than having no bed at all.
+ * - **An eliminated player hears the Mule's room.** They are still watching, and
+ *   the subject of this game is a mind that has been taken over and left in the
+ *   room. It is the one place a bed carries meaning rather than atmosphere.
+ * - **A fatal screen is silent.** Something has gone wrong enough that the
+ *   player is being asked to act; scoring that moment would be grotesque.
+ */
+export function ambienceFor(screen: Screen, view: RedactedView | null): AmbienceName | null {
+    switch (screen) {
+        case 'menu':
+        case 'joining':
+            return 'menu';
+
+        case 'lobby':
+            return 'lobby';
+
+        case 'table': {
+            if (view === null) return 'table';
+            if (view.matchWinnerId !== null) return 'table';
+            return isAlive(view, view.own.playerId) ? 'table' : 'eliminated';
+        }
+
+        case 'fatal':
+            return null;
+
+        default: {
+            const exhaustive: never = screen;
+            return exhaustive;
+        }
+    }
+}
+
 // -------------------------------------------------------------------- jitter
 
 /** `random()` is expected in [0, 1); anything outside is clamped rather than trusted. */
@@ -704,6 +840,37 @@ function varyVoice(voice: SoundVoice, pitch: number, time: number): SoundVoice {
         },
         delayMs: voice.delayMs * time,
         durationMs: voice.durationMs * time
+    };
+}
+
+/** One play's worth of variation for a *recording*, which varies differently. */
+export interface SampleVariation {
+    /**
+     * Playback speed, and therefore pitch.
+     *
+     * On a buffer these are the same knob: playing a recording 5% fast makes it
+     * 5% higher *and* 5% shorter, and prising them apart needs a time-stretcher
+     * this project is not going to grow. So `jitter.durationRatio` — which
+     * `varySpec` honours independently — has no counterpart here, and a sample
+     * breathes on two axes where its synthesised twin breathes on three.
+     */
+    readonly playbackRate: number;
+    /** Absolute gain to play the buffer at, jitter already applied. */
+    readonly gain: number;
+}
+
+/**
+ * One play's worth of a sampled cue.
+ *
+ * Two draws rather than `varySpec`'s three, in the same order it draws its
+ * first two, so a test that fixes the random reads the same pitch factor out of
+ * both paths. The gain starts from `SAMPLE_GAIN` — see that constant for why
+ * one number covers all nine sounds.
+ */
+export function varySample(spec: SoundSpec, random: () => number): SampleVariation {
+    return {
+        playbackRate: factor(spec.jitter.pitchRatio, random),
+        gain: SAMPLE_GAIN * factor(spec.jitter.gainRatio, random)
     };
 }
 
