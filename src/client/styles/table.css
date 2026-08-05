@@ -308,10 +308,36 @@
     opacity: 0.85;
 }
 
+/*
+ * The deck's own card back, under its count.
+ *
+ * Absolute so it fills the deck rect instead of becoming a flex item and
+ * shoving the count aside; its width and height come from `deck.rect` in
+ * `table.ts`, never from the image's natural size.
+ *
+ * `object-fit: cover` rather than the `.tbl-art` default of `contain`: the deck
+ * rect is the table's card aspect and the back art is 768x1024, so `contain`
+ * letterboxes a strip of the flat backing colour along one edge and the deck
+ * reads as a card floating on a rectangle. This is the one place the shared
+ * default is wrong, because this is the one place the art IS the whole box.
+ */
+.tbl-deck-back {
+    position: absolute;
+    left: 0;
+    top: 0;
+    object-fit: cover;
+}
+
 .tbl-deck-count {
     color: var(--color-text-primary);
     font-family: var(--font-display);
     pointer-events: none;
+    /* Above the back, and given its own stacking context so the count is never
+       painted under the art it labels. */
+    position: relative;
+    z-index: 1;
+    /* The back is busy art; the count has to survive whatever is behind it. */
+    text-shadow: 0 2px 6px rgb(0 0 0 / 0.9);
 }
 
 /**

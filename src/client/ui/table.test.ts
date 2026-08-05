@@ -493,6 +493,53 @@ describe('the deck and the banner', () => {
         expect(deck.querySelector('.tbl-deck-count')!.textContent).toBe('12');
     });
 
+    /**
+     * The deck was a flat rectangle of `deck.colour` with a number on it, beside
+     * a table where every other face-down card already wore the real back. Same
+     * asset as the seat chips' held-card marker and every card in flight, so
+     * there is one answer to what the back of a card looks like.
+     */
+    it('wears the same card back as the cards it deals', () => {
+        const h = harness();
+        h.driveView(fourPlayerView({ deckCount: 12 }));
+
+        const back = h.root.querySelector('[data-role="deck"] img') as HTMLImageElement;
+        const inFlight = h.root.querySelector('.tbl-seat-back') as HTMLImageElement | null;
+
+        expect(back).not.toBeNull();
+        expect(back.getAttribute('src')).toContain('card-back/card_back_2.png');
+        if (inFlight !== null) expect(back.getAttribute('src')).toBe(inFlight.getAttribute('src'));
+    });
+
+    /**
+     * The most repeated visual bug this table has shipped: an unsized `<img>`
+     * renders at its natural 768x1024 and blows straight through the rect the
+     * layout reserved for it.
+     */
+    it('sizes that back from the rect the layout gave the deck, never from the art', () => {
+        const h = harness();
+        h.driveView(fourPlayerView({ deckCount: 12 }));
+
+        const deck = h.root.querySelector('[data-role="deck"]') as HTMLElement;
+        const back = deck.querySelector('img') as HTMLImageElement;
+
+        expect(back.style.width).toBe(deck.style.width);
+        expect(back.style.height).toBe(deck.style.height);
+        expect(back.style.width).not.toBe('');
+    });
+
+    it('keeps the count readable over the art rather than behind it', () => {
+        const h = harness();
+        h.driveView(fourPlayerView({ deckCount: 12 }));
+
+        const deck = h.root.querySelector('[data-role="deck"]') as HTMLElement;
+        const children = [...deck.children];
+        const back = deck.querySelector('img')!;
+        const count = deck.querySelector('.tbl-deck-count')!;
+
+        expect(children.indexOf(back)).toBeLessThan(children.indexOf(count));
+    });
+
     it("renders a banner naming whoever's turn it is", () => {
         const h = harness();
         h.driveView(fourPlayerView({ currentPlayerId: 'p2' as PlayerId }));
