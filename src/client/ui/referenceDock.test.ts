@@ -33,9 +33,9 @@ const FINISHED_ROUND: CompletedRound = {
     publicLog: [{ kind: 'PLAY', turn: 1, actorId: 'p2', cardId: 'mule' }]
 };
 
-function mounted(store: KeyValueStore = memoryStore()) {
+function mounted(store: KeyValueStore = memoryStore(), safeTop?: () => number | null) {
     const root = makeUiRootElement();
-    const dock = createReferenceDock({ storage: store });
+    const dock = createReferenceDock({ storage: store, ...(safeTop === undefined ? {} : { safeTop }) });
     dock.mount(root);
 
     const q = <T extends Element>(selector: string) => root.querySelector(selector) as T | null;
@@ -711,5 +711,52 @@ describe('the match log markers', () => {
 
     it('uses tabular figures, so the decimal alignment is exact across digit widths', () => {
         expect(getComputedStyle(listIn('reference-modal')).fontVariantNumeric).toBe('tabular-nums');
+    });
+});
+
+/**
+ * Pinned to the full height of a wide viewport, the dock sits on the rightmost
+ * seat — so a player has to close it to see who discarded what, which is the
+ * flow break these cover.
+ *
+ * The assertions are on the custom property rather than on `top`, because
+ * WHETHER to inset is a media query's decision (only the >=60rem right panel
+ * covers anything) and jsdom has no layout engine to resolve one.
+ */
+describe('clearing the seats', () => {
+    it('publishes the clearance the table computed', () => {
+        const h = mounted(memoryStore(), () => 240);
+        h.dock.update(h.tableState());
+        h.dock.open('log');
+
+        expect(h.panel()?.style.getPropertyValue('--dock-safe-top')).toBe('240px');
+    });
+
+    it('publishes nothing when there is no table behind it', () => {
+        const h = mounted(memoryStore(), () => null);
+        h.dock.update(h.tableState());
+        h.dock.open('log');
+
+        expect(h.panel()?.style.getPropertyValue('--dock-safe-top')).toBe('');
+    });
+
+    it('leaves the panel full height when no clearance is supplied at all', () => {
+        const h = mounted();
+        h.dock.update(h.tableState());
+        h.dock.open('log');
+
+        expect(h.panel()?.style.getPropertyValue('--dock-safe-top')).toBe('');
+    });
+
+    it('re-reads on every render, so a resize moves the panel with the seats', () => {
+        let clearance = 240;
+        const h = mounted(memoryStore(), () => clearance);
+        h.dock.update(h.tableState());
+        h.dock.open('log');
+
+        clearance = 300;
+        h.dock.update(h.tableState());
+
+        expect(h.panel()?.style.getPropertyValue('--dock-safe-top')).toBe('300px');
     });
 });

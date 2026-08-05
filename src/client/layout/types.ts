@@ -135,6 +135,28 @@ export interface LayoutSpec {
     readonly viewport: Rect;
     readonly statusStrip: Rect;
     readonly opponents: readonly Rect[];
+    /**
+     * The y below which no seat chip extends — the floor of the opponent band.
+     *
+     * Derived from the arc's depth rather than read off a chip. Today
+     * `opponents[0]` happens to give the same answer — `arcOffset` is symmetric
+     * and puts the OUTER chips lowest, so the first chip is always at full
+     * depth — but that is a property of the current arc, not of the band. A
+     * shape that raised the ends instead would silently make an
+     * `opponents[0]`-based reading wrong, and this one stays correct.
+     *
+     * Published because **chrome needs to know where the table's information
+     * lives.** The action sheet is a right-edge panel on a wide viewport, and a
+     * panel pinned to the full height of the viewport covers the rightmost seat
+     * — so a player mid-decision cannot see the discards of the very opponent
+     * they are deciding about, and has to close the sheet and reopen it. Insetting
+     * the sheet to this line keeps every chip visible while it is open.
+     *
+     * Here rather than measured in `ui/` because it is a fact about the table's
+     * geometry, and geometry computed beside an element is geometry no test can
+     * read.
+     */
+    readonly opponentsBottom: number;
     readonly deck: Rect;
     readonly removedCard: Rect | null;
     readonly banner: Rect;

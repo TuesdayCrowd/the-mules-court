@@ -75,6 +75,14 @@ function fieldsOf(source: string, interfaceName: string): string[] {
  * allowlist, unchanged, because the reasons are still true of this renderer.
  */
 const NOT_DRAWN: Readonly<Record<string, string>> = {
+    // Nothing on the table is positioned from it: it is the floor of the
+    // opponent band, published for the CHROME above the table rather than for
+    // the table itself. `main.ts` reads it through `table.currentLayout()` and
+    // hands it to the action sheet, which insets its right-edge panel to that
+    // line so opening the sheet never hides the seat a player is deciding
+    // about. `tableLayout.test.ts` holds the value; `actionSheet.test.ts` holds
+    // the use.
+    'LayoutSpec.opponentsBottom': 'consumed by the action sheet as its safe top, not drawn on the table',
     // UIX §6.2 keeps the running total in the seat dossier: the chip carries
     // every discard as a pip, and a total beside them would be a second
     // reading of data already fully shown. `seatDossier.ts` renders it.

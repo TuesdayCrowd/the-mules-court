@@ -45,6 +45,22 @@ export interface ReferenceDock extends Surface {
 
 export interface ReferenceDockDeps {
     readonly storage: KeyValueStore;
+    /**
+     * How far down a right-edge panel must start to clear the seats, in CSS
+     * pixels and **already clamped** — `null` when no table is drawn.
+     *
+     * Final rather than raw because the clamp needs the viewport height, and
+     * reaching for that here would put an ambient global in a surface. `main.ts`
+     * composes it from `LayoutSpec.opponentsBottom` and `panelSafeTop`, which is
+     * that file's whole job.
+     *
+     * A getter rather than a value because the answer changes with the viewport
+     * and this dock outlives a resize: read at render time, never cached.
+     *
+     * Optional, and absent leaves the panel full height. The dock opens over the
+     * menu and the lobby too, where there is no table to clear.
+     */
+    readonly safeTop?: () => number | null;
 }
 
 const TITLE_ID = 'reference-dock-title';
@@ -283,6 +299,25 @@ export function createReferenceDock(deps: ReferenceDockDeps): ReferenceDock {
             renderedTab = null;
             return;
         }
+
+        /**
+         * How far down the panel starts, published as a custom property rather
+         * than written to `style.top`.
+         *
+         * The dock's *shape* is chosen by a media query — a full-width top sheet
+         * on a narrow screen, a full-height right panel from 60rem up — and only
+         * the right panel covers a seat. Writing `top` here would mean repeating
+         * that breakpoint in TypeScript, where it would drift from the
+         * stylesheet, and would also survive a resize into the narrow form and
+         * push the top sheet down the screen for no reason.
+         *
+         * A custom property inverts it: CSS keeps deciding *whether* to inset,
+         * this keeps deciding *by how much*, and the narrow rule simply never
+         * reads the variable.
+         */
+        const clearance = deps.safeTop?.() ?? null;
+        if (clearance === null) panel.style.removeProperty('--dock-safe-top');
+        else panel.style.setProperty('--dock-safe-top', `${clearance}px`);
 
         // Read before `replaceChildren` discards the body it belongs to.
         const priorBody = panel.querySelector<HTMLElement>('[data-role="dock-body"]');

@@ -496,10 +496,12 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
         h: chipH
     }));
 
+    // The band is as deep as the lowest chip in the arc, not just the first.
+    const opponentsBottom = chipTop + (input.opponentCount >= 3 ? arcDepth : 0) + chipH;
+
     const deckH = p.deckH * h;
     const deckW = deckH * CARD_ASPECT;
-    // The band is as deep as the lowest chip in the arc, not just the first.
-    const deckY = chipTop + (input.opponentCount >= 3 ? arcDepth : 0) + chipH + gap;
+    const deckY = opponentsBottom + gap;
 
     const removedH = deckH * REMOVED_CARD_SCALE;
     const removedW = removedH * CARD_ASPECT;
@@ -568,6 +570,7 @@ export function computeLayout(input: LayoutInput): LayoutSpec {
         viewport: { x: 0, y: 0, w, h },
         statusStrip,
         opponents,
+        opponentsBottom,
         deck,
         removedCard,
         banner,

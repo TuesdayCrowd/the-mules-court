@@ -46,12 +46,13 @@ function harness(options: { acceptPlay?: boolean } = {}) {
 
     function openSheetFor(
         cardId: CardTypeId,
-        options: { targets?: SheetTarget[]; available?: { w: number; h: number } } = {}
+        options: { targets?: SheetTarget[]; available?: { w: number; h: number }; safeTop?: number } = {}
     ): HTMLElement {
         sheet.open({
             cardId,
             cardInstanceId: `${cardId}#1`,
             targets: options.targets ?? [],
+            ...(options.safeTop === undefined ? {} : { safeTop: options.safeTop }),
             available: options.available ?? PHONE
         });
         return root.querySelector('[data-role="action-sheet"]') as HTMLElement;
@@ -907,5 +908,42 @@ describe('while the socket is down', () => {
         const sheet = h.openSheetFor('shielded-mind', { targets: [] });
         click(sheet.querySelector('[data-action="play"]'));
         expect(h.played).toEqual([]);
+    });
+});
+
+/**
+ * The failure these cover: a right-edge panel pinned to the full height of the
+ * viewport sits on top of the rightmost seat chip, so a player choosing between
+ * opponents cannot see the discards of one of them without closing the sheet.
+ */
+describe('keeping the seats visible while it is open', () => {
+    it('starts the right-edge panel below the seat band', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { available: DESKTOP, safeTop: 180 });
+        expect(sheet.style.top).toBe('180px');
+    });
+
+    it('leaves a bottom sheet alone, which never covered the seats anyway', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { available: PHONE, safeTop: 180 });
+        expect(sheet.style.top).toBe('');
+    });
+
+    it('stays full height when there is no table to read a line off', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { available: DESKTOP });
+        expect(sheet.style.top).toBe('');
+    });
+
+    it('never insets past half the viewport, however deep the seat band claims to be', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { available: DESKTOP, safeTop: DESKTOP.h * 5 });
+        expect(Number.parseFloat(sheet.style.top)).toBe(DESKTOP.h / 2);
+    });
+
+    it('refuses a negative inset rather than floating the panel off the top', () => {
+        const h = harness();
+        const sheet = h.openSheetFor('informant', { available: DESKTOP, safeTop: -50 });
+        expect(sheet.style.top).toBe('0px');
     });
 });

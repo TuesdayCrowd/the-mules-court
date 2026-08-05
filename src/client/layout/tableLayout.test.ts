@@ -759,3 +759,50 @@ describe('discard pips', () => {
         expectNoOverlaps(spec);
     });
 });
+
+describe('the floor of the opponent band', () => {
+    it('sits below every seat chip, not just the first one', () => {
+        for (const opponentCount of [1, 2, 3] as const) {
+            const spec = portrait({ opponentCount });
+            for (const seat of spec.opponents) {
+                expect(spec.opponentsBottom).toBeGreaterThanOrEqual(seat.y + seat.h);
+            }
+        }
+    });
+
+    /**
+     * `arcOffset` swings the OUTER chips down and holds the centre one high, so
+     * the band's floor is set by the ends. Pinned here because the field is
+     * derived from the arc's depth rather than from any one chip, and this is
+     * the fact that makes the two agree.
+     */
+    it('is set by the outer chips of an arc, which hang below the centre one', () => {
+        // The arc only exists on `landscape-narrow`; portrait and wide keep the
+        // chips level (`arcDepth: 0`), so a portrait viewport proves nothing here.
+        const arced = computeLayout({
+            w: 844,
+            h: 390,
+            opponentCount: 3,
+            handCount: 1,
+            showsRemovedCard: false,
+            maxDiscards: 3
+        });
+        const [left, centre, right] = arced.opponents;
+
+        expect(centre.y).toBeLessThan(left.y);
+        expect(centre.y).toBeLessThan(right.y);
+        expect(arced.opponentsBottom).toBeCloseTo(left.y + left.h, 5);
+        expect(arced.opponentsBottom).toBeCloseTo(right.y + right.h, 5);
+    });
+
+    it('stays above the deck, so chrome inset to it never hides the draw pile too', () => {
+        const spec = portrait();
+        expect(spec.opponentsBottom).toBeLessThanOrEqual(spec.deck.y);
+    });
+
+    it('scales with the viewport like every other rect', () => {
+        const small = computeLayout({ w: 360, h: 780, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 });
+        const large = computeLayout({ w: 430, h: 932, opponentCount: 3, handCount: 2, showsRemovedCard: false, maxDiscards: 3 });
+        expect(large.opponentsBottom).toBeGreaterThan(small.opponentsBottom);
+    });
+});

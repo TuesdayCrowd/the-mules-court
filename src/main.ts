@@ -63,7 +63,7 @@ import { assetUrl, createTable } from './client/ui/table';
 import { createBeatRunner } from './client/ui/beats';
 import type { BeatContext } from './client/ui/beats';
 import { CARD_BACK_ASSET, portraitPath } from './client/content/portraits';
-import { RESIZE_DEBOUNCE_MS } from './client/layout/tableMetrics';
+import { RESIZE_DEBOUNCE_MS, panelSafeTop } from './client/layout/tableMetrics';
 
 /**
  * The real `WebSocket`, adapted to the shape the client tests against.
@@ -173,7 +173,20 @@ function boot(): void {
     const seatDossier = createSeatDossier();
     // The dock remembers whether it was up and which tab was showing, so it
     // needs the same storage the seat token uses — injected, never reached for.
-    const referenceDock = createReferenceDock({ storage: window.localStorage });
+    const referenceDock = createReferenceDock({
+        storage: window.localStorage,
+        /**
+         * Where the dock may start without covering a seat.
+         *
+         * Clamped here rather than inside the surface: the clamp needs the
+         * viewport height, and this file is the one that owns ambient globals.
+         * Read fresh on every render, so a resize moves the panel with the seats.
+         */
+        safeTop: () => {
+            const drawn = table.currentLayout();
+            return drawn === null ? null : panelSafeTop(drawn.opponentsBottom, window.innerHeight);
+        }
+    });
     const cardHint = createCardHint({ viewport: () => ({ w: window.innerWidth, h: window.innerHeight }) });
     const eliminationNotice = createEliminationNotice();
 
@@ -358,6 +371,10 @@ function boot(): void {
         resizeHandle = setTimeout(() => {
             resizeHandle = null;
             table.update(store.getState());
+            // After the table, never before: the dock reads the layout the table
+            // just recomputed, so refreshing it first would inset the panel to
+            // the seat band's OLD position.
+            referenceDock.update(store.getState());
         }, RESIZE_DEBOUNCE_MS);
     });
 
@@ -492,26 +509,39 @@ function boot(): void {
      * `null` means the view could not answer.
      */
     function sheetRequestFor(cardInstanceId: CardInstanceId): SheetRequest | null {
-        const table = store.getState().table;
-        if (table === null) return null;
+        // Named for what it is, and deliberately not `table`: that name belongs
+        // to the table SURFACE in the enclosing scope, and shadowing it here is
+        // what hid `currentLayout()` from this function.
+        const snapshot = store.getState().table;
+        if (snapshot === null) return null;
 
         const targets: SheetTarget[] | null = sheetTargetsFor(
-            table.view,
+            snapshot.view,
             cardInstanceId,
-            id => table.nicknames[id] ?? id
+            id => snapshot.nicknames[id] ?? id
         );
         if (targets === null) return null;
 
         // Spread rather than assigned, because `exactOptionalPropertyTypes` and
         // an absent reason are the same fact: the card plays.
-        const reason = unplayableReason(table.view, cardInstanceId);
+        const reason = unplayableReason(snapshot.view, cardInstanceId);
+        const drawn = table.currentLayout();
 
         return {
             cardId: cardTypeOf(cardInstanceId),
             cardInstanceId,
             targets,
             ...(reason === undefined ? {} : { unplayable: reason }),
-            available: { w: window.innerWidth, h: window.innerHeight }
+            available: { w: window.innerWidth, h: window.innerHeight },
+            /**
+             * Read off the table's own spec rather than recomputed here.
+             *
+             * `currentLayout()` exists for exactly this — asking the table what
+             * it last drew, instead of calling `computeLayout` a second time
+             * with inputs that could drift from the ones the table used and
+             * insetting the sheet to a line the seats are not actually on.
+             */
+            ...(drawn === null ? {} : { safeTop: drawn.opponentsBottom })
         };
     }
 

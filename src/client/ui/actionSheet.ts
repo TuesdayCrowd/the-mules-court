@@ -21,6 +21,7 @@ import { QUICK_REFERENCE } from '../content/quickReference';
 import type { TargetableSeatStatus } from '../content/seatStatus';
 import { seatStatusCopy } from '../content/seatStatus';
 import { classifyTopology } from '../layout/topology';
+import { panelSafeTop } from '../layout/tableMetrics';
 import type { UnplayableReason } from '../store/targets';
 import type { ClientState } from '../store/types';
 import type { Surface } from './surface';
@@ -52,6 +53,19 @@ export interface SheetRequest {
     readonly unplayable?: UnplayableReason;
     /** Live viewport measurement. Never cached, never a device class. */
     readonly available: { readonly w: number; readonly h: number };
+    /**
+     * The y this sheet may start at without covering anything a player is
+     * deciding *about* — `LayoutSpec.opponentsBottom`, handed over by the caller.
+     *
+     * Only the right-edge anchor uses it. A bottom sheet already leaves the top
+     * of the table alone, and insetting it would push it off the bottom of the
+     * screen.
+     *
+     * Optional, and absent means the old full-height behaviour: the sheet opens
+     * over the menu and the lobby too, where there is no table to avoid and so
+     * no layout to read a line off.
+     */
+    readonly safeTop?: number;
 }
 
 export interface PlayChoice {
@@ -436,6 +450,20 @@ export function createActionSheet(deps: ActionSheetDeps): ActionSheet {
         sheet.className = 'action-sheet';
         // Measured now, not remembered: the same session can rotate or unfold.
         sheet.dataset.anchor = classifyTopology(request.available.w, request.available.h) === 'wide' ? 'right' : 'bottom';
+
+        /**
+         * Start the right-edge panel below the seats rather than at the top of
+         * the viewport.
+         *
+         * Set inline rather than in `ui.css` because the line is a number the
+         * layout computed for this viewport, and a stylesheet cannot read it.
+         * Clamped so a short or badly-proportioned viewport can never inset the
+         * sheet past half its own height — a panel starting below the fold is a
+         * worse failure than a covered seat.
+         */
+        if (sheet.dataset.anchor === 'right' && request.safeTop !== undefined) {
+            sheet.style.top = `${panelSafeTop(request.safeTop, request.available.h)}px`;
+        }
 
         const title = document.createElement('h2');
         title.id = TITLE_ID;
