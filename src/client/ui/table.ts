@@ -707,7 +707,33 @@ export function createTable(deps: TableDeps): Table {
         el.className = 'tbl-deck';
         el.setAttribute('aria-label', deck.count === 0 ? 'Deck: empty' : `Deck: ${deck.count} cards remaining`);
         setRect(el, deck.rect);
+        // Kept behind the art rather than replaced by it: it is what shows
+        // through if the image has not decoded yet, and it is what the pulse
+        // below actually tints.
         el.style.backgroundColor = hex(deck.colour);
+
+        /**
+         * The deck wears the same back as the cards it deals.
+         *
+         * It was a flat rectangle of `deck.colour` with a number on it, which
+         * read as a placeholder next to a table where every other face-down card
+         * — the seat chips' held-card marker, the burn sliver, every card in
+         * flight — already uses this art. Same `CARD_BACK_SRC` as all of them,
+         * so there is one definition of what the back of a card looks like.
+         *
+         * Explicitly sized from `deck.rect`, never left to the image's natural
+         * size: an unsized `<img>` renders at its own 768x1024 and blows through
+         * the rect the layout reserved. That is the single most repeated visual
+         * bug in this table's history.
+         */
+        const back = document.createElement('img');
+        back.className = 'tbl-art tbl-deck-back';
+        back.src = CARD_BACK_SRC;
+        back.alt = '';
+        back.decoding = 'async';
+        back.style.width = px(deck.rect.w);
+        back.style.height = px(deck.rect.h);
+        el.appendChild(back);
 
         const count = document.createElement('span');
         count.className = 'tbl-deck-count';
