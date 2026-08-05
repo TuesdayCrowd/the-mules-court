@@ -14,6 +14,7 @@
  */
 
 import type { ErrorCode } from '../../server/protocol';
+import type { AnnounceKind } from '../store/presentationQueue';
 import type { ClientState } from '../store/types';
 import type { Surface, Timers } from './surface';
 
@@ -29,9 +30,38 @@ export interface ToastsDeps {
     readonly timeoutMs?: number;
 }
 
+/**
+ * How a shown line is dressed and how long it lasts.
+ *
+ * `kind` reaches CSS as `data-kind`, never a colour written here — a personal
+ * notice has to look different from the running commentary or it is just more
+ * commentary, and that difference is a styling decision.
+ */
+/**
+ * What a toast is, which decides whether it is painted or only announced.
+ *
+ * `notice` is a server refusal — always visible, because it answers the
+ * player's own tap. `personal` is something a card did to the viewer. Both are
+ * `narration`'s superset: the running third-person commentary is the widest
+ * category and the only one that is not drawn (see `ui.css`).
+ */
+export type ToastKind = AnnounceKind | 'notice';
+
+export interface ShowOptions {
+    readonly kind?: ToastKind;
+    readonly timeoutMs?: number;
+}
+
 export interface Toasts extends Surface {
-    /** Show a narration line. Not a notice: nothing in the store owns it. */
-    show(text: string): void;
+    /**
+     * Show a narration line. Not a notice: nothing in the store owns it.
+     *
+     * A personal line — something a card just did to the viewer — passes
+     * `{ kind: 'personal' }` and its own shorter timeout, because it answers a
+     * question the player is asking *right now* rather than describing the
+     * table.
+     */
+    show(text: string, options?: ShowOptions): void;
 }
 
 interface Live {
@@ -52,11 +82,12 @@ export function createToasts(deps: ToastsDeps): Toasts {
     const live = new Map<string, Live>();
     let narrationSeq = 0;
 
-    function add(id: string, text: string, onExpire: () => void): void {
+    function add(id: string, text: string, onExpire: () => void, options: ShowOptions = {}): void {
         if (live.has(id)) return;
 
         const node = document.createElement('div');
         node.dataset.role = 'toast';
+        node.dataset.kind = options.kind ?? 'narration';
         node.className = 'toast';
         node.textContent = text; // the injection boundary — never innerHTML
         container.appendChild(node);
@@ -64,7 +95,7 @@ export function createToasts(deps: ToastsDeps): Toasts {
         const handle = deps.timers.setTimeout(() => {
             remove(id);
             onExpire();
-        }, timeoutMs);
+        }, options.timeoutMs ?? timeoutMs);
 
         live.set(id, { node, handle });
     }
@@ -95,12 +126,12 @@ export function createToasts(deps: ToastsDeps): Toasts {
             // Added by id, not rebuilt: re-rendering the region wholesale would
             // restart every live region announcement already in flight.
             for (const notice of state.notices) {
-                add(notice.id, deps.copyFor(notice.code), () => deps.onDismiss(notice.id));
+                add(notice.id, deps.copyFor(notice.code), () => deps.onDismiss(notice.id), { kind: 'notice' });
             }
         },
 
-        show(text) {
-            add(`narration:${narrationSeq++}`, text, () => {});
+        show(text, options) {
+            add(`narration:${narrationSeq++}`, text, () => {}, options ?? {});
         },
 
         destroy() {

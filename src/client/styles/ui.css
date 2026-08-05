@@ -206,6 +206,19 @@ h2,
  */
 .toasts {
     position: absolute;
+    /* Above the action sheet at 3, which is the one that matters: a player
+       choosing a target is looking at the table, and a line telling them what
+       just happened must not hide behind the panel they are choosing in.
+
+       Below the reference dock at 5 and the overlays at 6 and 7. Those are
+       panels a player deliberately opened or moments that own the screen, and a
+       three-second toast should wait rather than talk over them. `personalNotice`
+       already stays silent for anything that eliminates the viewer, so the notice
+       and the elimination overlay never answer the same event.
+
+       Ties with `.reference-tab` at 4, harmlessly: that launcher is bottom-left
+       and this strip is centred. */
+    z-index: 4;
     left: 50%;
     bottom: 38%;
     transform: translateX(-50%);
@@ -216,6 +229,36 @@ h2,
     width: min(90%, 34rem);
 }
 
+/**
+ * The running third-person commentary: announced, never painted.
+ *
+ * This is the `aria-live` vocabulary — one line per log entry — and it is
+ * genuinely valuable to a screen-reader player, who otherwise has no account of
+ * a turn they cannot see. Painting it is a different question, and the answer
+ * turned out to be no: a single bot turn emits a play and its effect, so four
+ * seats produce a column of five lines sitting over the deck and the hand for
+ * five seconds at a time. The table it describes ends up behind it.
+ *
+ * Never `display: none`, which would take it out of the accessibility tree and
+ * silence the channel this whole region exists for. Clipped instead, the
+ * standard visually-hidden recipe, so it is still read aloud.
+ *
+ * `[data-kind='notice']` (a server refusal) and `[data-kind='personal']`
+ * (something a card did to you) are both painted — they answer a question the
+ * player is asking rather than describing the table.
+ */
+.toast[data-kind='narration'] {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    border: 0;
+    overflow: hidden;
+    clip-path: inset(50%);
+    white-space: nowrap;
+}
+
 .toast {
     padding: var(--space-2) var(--space-4);
     border-radius: var(--radius);
@@ -224,6 +267,26 @@ h2,
     color: var(--color-text-primary);
     font-size: clamp(0.85rem, 3vw, 1rem);
     text-align: center;
+}
+
+/**
+ * A line about the viewer, rather than about the table.
+ *
+ * Borrowed from the game's existing vocabulary rather than invented: the
+ * your-turn colour already means "this concerns you" on the banner and on the
+ * action sheet's border, so a personal notice wearing it is read before it is
+ * parsed. Larger and heavier because the failure being fixed was a player not
+ * registering a line that was already on screen — it sat in the running
+ * commentary, in their own nickname, in the third person.
+ */
+.toast[data-kind='personal'] {
+    border-color: var(--color-state-your-turn);
+    background: rgb(0 0 0 / 0.94);
+    color: var(--color-state-your-turn);
+    font-family: var(--font-display, system-ui, sans-serif);
+    font-weight: 600;
+    font-size: clamp(1rem, 3.6vw, 1.2rem);
+    padding: var(--space-3) var(--space-5);
 }
 
 @media (prefers-reduced-motion: no-preference) {

@@ -11,15 +11,30 @@
  * answer to "serialise this" and a second idiom would be one to learn twice.
  */
 
+/**
+ * Who a queued line is about.
+ *
+ * `personal` means it happened TO the viewer — a card played on them, told in
+ * the second person. It travels with the line rather than being worked out at
+ * the far end, because by the time the line is a string the only thing that
+ * knew whose seat it concerned is long gone.
+ *
+ * Declared here, in the pure layer, so the queue and the surface that renders
+ * its lines cannot drift apart about the vocabulary.
+ */
+export type AnnounceKind = 'narration' | 'personal';
+
 export interface PresentationStep {
     /** The canvas beat. Resolves when it has finished playing. */
     readonly animate?: () => Promise<void> | void;
     /** The `aria-live` line, spoken only once `animate` has settled. */
     readonly announce?: string;
+    /** Defaults to `narration` — the running commentary about the table. */
+    readonly announceKind?: AnnounceKind;
 }
 
 export interface PresentationQueueDeps {
-    readonly announce: (line: string) => void;
+    readonly announce: (line: string, kind: AnnounceKind) => void;
 }
 
 export interface PresentationQueue {
@@ -41,7 +56,7 @@ export function createPresentationQueue(deps: PresentationQueueDeps): Presentati
 
         if (step.announce === undefined) return;
         try {
-            deps.announce(step.announce);
+            deps.announce(step.announce, step.announceKind ?? 'narration');
         } catch {
             // One bad sink must not wedge the table for the rest of the match.
         }
