@@ -172,3 +172,84 @@ describe('teardown', () => {
         expect(root.querySelector('[data-role="toasts"]')).toBeNull();
     });
 });
+
+/**
+ * A line about the viewer has to look and behave differently from the running
+ * commentary — that difference is the whole fix for "it is unclear what just
+ * happened to me".
+ */
+describe('a line about the viewer', () => {
+    it('is marked so CSS can dress it apart from commentary', () => {
+        const h = mounted();
+        h.toasts.show('Han Pritcher made you discard your hand.', { kind: 'personal' });
+
+        const node = h.root.querySelector('[data-role="toast"]') as HTMLElement;
+        expect(node.dataset.kind).toBe('personal');
+    });
+
+    it('defaults to narration, so every existing caller is unchanged', () => {
+        const h = mounted();
+        h.toasts.show('Han Pritcher played Informant.');
+
+        const node = h.root.querySelector('[data-role="toast"]') as HTMLElement;
+        expect(node.dataset.kind).toBe('narration');
+    });
+
+    it('schedules its own shorter timeout rather than the region default', () => {
+        const h = mounted();
+        h.toasts.show('Han Pritcher looked at your hand.', { kind: 'personal', timeoutMs: 3000 });
+
+        expect(h.clock.delays()).toEqual([3000]);
+    });
+
+    it('leaves a commentary line on the longer region default', () => {
+        const h = mounted();
+        h.toasts.show('Han Pritcher played Informant.');
+
+        expect(h.clock.delays()).toEqual([5000]);
+    });
+
+    it('still clears itself when its timer fires', () => {
+        const h = mounted();
+        h.toasts.show('Han Pritcher looked at your hand.', { kind: 'personal', timeoutMs: 3000 });
+        expect(h.lines()).toHaveLength(1);
+
+        h.clock.run();
+        expect(h.lines()).toHaveLength(0);
+    });
+});
+
+/**
+ * The channel is two things at once: an `aria-live` account of the whole table
+ * for a player who cannot see it, and a small number of painted lines for a
+ * player who can. Mounting the region for the first time made that split
+ * visible — five commentary lines stacked over the deck during one bot turn.
+ */
+describe('what gets painted and what only gets announced', () => {
+    it('marks a server refusal as a notice, so failure copy is never hidden', () => {
+        const h = mounted({ copyFor: () => 'Not your turn.' });
+        h.toasts.update(makeState({ notices: [{ id: 'n1', code: 'NOT_YOUR_TURN' as ErrorCode }] }));
+
+        const node = h.root.querySelector('[data-role="toast"]') as HTMLElement;
+        expect(node.dataset.kind).toBe('notice');
+    });
+
+    it('keeps commentary in the live region rather than dropping it', () => {
+        const h = mounted();
+        h.toasts.show('Kelden Amadiro played The First Speaker.');
+
+        // Still a child of the region, so it is still announced; `ui.css` is
+        // what stops it being painted, and `display: none` would silence it.
+        expect(h.lines()).toEqual(['Kelden Amadiro played The First Speaker.']);
+    });
+
+    it('distinguishes all three kinds, which is what CSS keys on', () => {
+        const h = mounted();
+        h.toasts.show('a', { kind: 'narration' });
+        h.toasts.show('b', { kind: 'personal' });
+        h.toasts.update(makeState({ notices: [{ id: 'n1', code: 'RATE_LIMITED' as ErrorCode }] }));
+
+        const kinds = [...h.root.querySelectorAll('[data-role="toast"]')].map(n => (n as HTMLElement).dataset.kind);
+        expect(new Set(kinds)).toEqual(new Set(['narration', 'personal', 'notice']));
+    });
+});

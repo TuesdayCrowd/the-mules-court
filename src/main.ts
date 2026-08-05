@@ -24,6 +24,7 @@ import type { CardInstanceId, CardTypeId, PlayerId, RedactedView } from './game/
 import { cardTypeOf } from './game/engine';
 import type { PresentationEvent } from './client/store/diff';
 import { announcementFor } from './client/content/announce';
+import { PERSONAL_NOTICE_MS, personalNotice } from './client/content/personalNotice';
 import { cardLabel } from './client/content/cardCopy';
 import { failureCopy } from './client/content/failureCopy';
 import { diffSnapshots } from './client/store/diff';
@@ -242,6 +243,25 @@ function boot(): void {
             onBackToMenu: () => location.assign('/')
         })
     );
+    /**
+     * The toast region, which for its whole life was constructed and then never
+     * mounted.
+     *
+     * `createToasts` was wired correctly — `failureCopy` for the copy,
+     * `store.dismissNotice` for the dismissal, and `main.ts` calling `show` from
+     * five places — but the surface was never handed to `uiRoot`, and `uiRoot.add`
+     * is the only thing that calls `mount`. So every narration line and every
+     * server refusal has been written into an element detached from the document.
+     *
+     * That is the actual reason a player targeted by a value-5 had to open the
+     * match log to find out: the sentence was being produced correctly and
+     * rendered into nothing.
+     *
+     * `ui.css` gives the strip an explicit z-index rather than relying on the
+     * position of this line, so the stacking order is stated where the rest of
+     * the ladder is stated and does not depend on mount order.
+     */
+    uiRoot.add(toasts);
     uiRoot.add(referenceDock);
     uiRoot.add(cardHint);
     uiRoot.add(eliminationNotice);
@@ -541,7 +561,10 @@ function boot(): void {
     }
 
     // --- the single subscriber (interface rule 6)
-    const queue = createPresentationQueue({ announce: line => toasts.show(line) });
+    const queue = createPresentationQueue({
+        announce: (line, kind) =>
+            toasts.show(line, kind === 'personal' ? { kind, timeoutMs: PERSONAL_NOTICE_MS } : { kind })
+    });
     let previous: ClientState = store.getState();
 
     /**
@@ -615,6 +638,7 @@ function boot(): void {
         const after = state.table?.view ?? null;
         if (after !== null && before !== after) {
             const nameOf = (id: PlayerId) => state.table?.nicknames[id] ?? id;
+            const viewerId = after.own.playerId;
             const events = diffSnapshots(before, after);
 
             // Every card dealt in the same push is ONE queued step, flown
@@ -633,7 +657,16 @@ function boot(): void {
                 // All three halves are exhaustive by construction — announce.ts,
                 // beatForEvent and soundForEvent. Silence is allowed, but it has
                 // to be chosen.
-                const line = announcementFor(event, nameOf);
+                /**
+                 * Second person when it happened to this viewer, third person
+                 * otherwise.
+                 *
+                 * Replacing rather than adding: the same string is the
+                 * `aria-live` line, so saying it twice in two grammatical
+                 * persons would be worse for a screen reader than either alone.
+                 */
+                const personal = event.kind === 'log' ? personalNotice(event.entry, viewerId, nameOf) : null;
+                const line = personal ?? announcementFor(event, nameOf);
                 const beat = beatForEvent(event);
                 const cue = soundForEvent(event);
                 if (line === null && beat === null && cue === null) continue;
@@ -677,7 +710,7 @@ function boot(): void {
                     // A dealt card is deliberately silent (announce.ts says
                     // why). If that judgement ever changes, the line still gets
                     // out rather than being swallowed by the grouping above.
-                    if (line !== null) queue.enqueue({ announce: line });
+                    if (line !== null) queue.enqueue({ announce: line, announceKind: personal === null ? 'narration' : 'personal' });
                     continue;
                 }
 
@@ -703,7 +736,7 @@ function boot(): void {
                                   return beat === null ? undefined : beats.run(beat, beatContext(event));
                               }
                           }),
-                    ...(line === null ? {} : { announce: line })
+                    ...(line === null ? {} : { announce: line, announceKind: personal === null ? ('narration' as const) : ('personal' as const) })
                 });
             }
 

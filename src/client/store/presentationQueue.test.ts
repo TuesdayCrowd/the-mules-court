@@ -161,3 +161,41 @@ describe('createPresentationQueue', () => {
         expect(spoken).toEqual(['slow']);
     });
 });
+
+describe('who a line is about', () => {
+    it('defaults to narration, so every existing step is unchanged', async () => {
+        const seen: Array<[string, string]> = [];
+        const queue = createPresentationQueue({ announce: (line, kind) => seen.push([line, kind]) });
+
+        queue.enqueue({ announce: 'Han Pritcher played Informant.' });
+        await queue.drained();
+
+        expect(seen).toEqual([['Han Pritcher played Informant.', 'narration']]);
+    });
+
+    it('carries a personal line through to the surface that renders it', async () => {
+        const seen: Array<[string, string]> = [];
+        const queue = createPresentationQueue({ announce: (line, kind) => seen.push([line, kind]) });
+
+        queue.enqueue({ announce: 'Han Pritcher looked at your hand.', announceKind: 'personal' });
+        await queue.drained();
+
+        expect(seen).toEqual([['Han Pritcher looked at your hand.', 'personal']]);
+    });
+
+    it('still releases a personal line only after its beat has played', async () => {
+        const order: string[] = [];
+        const queue = createPresentationQueue({ announce: (_line, kind) => order.push(`announce:${kind}`) });
+
+        queue.enqueue({
+            animate: () => {
+                order.push('animate');
+            },
+            announce: 'Han Pritcher made you discard your hand.',
+            announceKind: 'personal'
+        });
+        await queue.drained();
+
+        expect(order).toEqual(['animate', 'announce:personal']);
+    });
+});
