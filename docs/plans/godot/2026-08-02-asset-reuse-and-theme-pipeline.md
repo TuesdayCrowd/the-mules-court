@@ -54,7 +54,7 @@ The slug does **not** always match the display name — `magnifico/` for Magnifi
 
 **R1.1** The copy SHALL be a straight file copy (`cp -R public/assets godot/assets`, or the git-tracked equivalent), never a re-export through an image editor or a Godot re-save — a re-save changes bytes even at identical quality settings and would make `git diff` on `godot/assets/` meaningless for future audits.
 
-**R1.2** `godot/assets/` SHALL NOT include `PORTRAIT_PROMPTS.md` or `VISUAL_SHOWCASE.md` — those describe the generation pipeline and are documentation, not shipped assets. Keep them at the repo root where they already are.
+**R1.2** `godot/assets/` SHALL NOT include `PORTRAIT_PROMPTS.md` or `VISUAL_SHOWCASE.md` — those describe the generation pipeline and are documentation, not shipped assets. Keep them where they already live — `docs/prompts/PORTRAIT_PROMPTS.md` and `VISUAL_SHOWCASE.md` at the repo root.
 
 ---
 
@@ -95,7 +95,7 @@ Concretely, an `.import` sidecar for a portrait PNG under Lossless carries `comp
 
 ## 4. `.gdignore` — the ported variants directory
 
-`art/portraits/` (13 MB, tracked but never built) holds the three unshipped thematic variants per character — `portrait_1` (alien/evolved), `portrait_2` (ethnic-diverse), `portrait_3` (gender-diverse) — documented in `public/assets/PORTRAIT_PROMPTS.md`. On the Vite side this stays unshipped for free: Vite copies only `public/` verbatim, and `art/portraits/` sits outside that root.
+`art/portraits/` (13 MB, tracked but never built) holds the three unshipped thematic variants per character — `portrait_1` (alien/evolved), `portrait_2` (ethnic-diverse), `portrait_3` (gender-diverse) — documented in `docs/prompts/PORTRAIT_PROMPTS.md`. On the Vite side this stays unshipped for free: Vite copies only `public/` verbatim, and `art/portraits/` sits outside that root.
 
 Godot's importer has no equivalent "only this root ships" rule — it walks the whole project tree looking for importable files unless told otherwise. The direct analog of Vite's `public/`-only copy is an empty `.gdignore` file: dropping one into a directory tells Godot's importer to skip that directory entirely, and nothing under it becomes an import target [verified via github.com/godotengine/godot-docs issue #11875, research a6ab832128517f332.md §9].
 

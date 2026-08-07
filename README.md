@@ -375,7 +375,7 @@ choice and explains how to change it.
 The slug does not always match the card's display name: Magnifico Giganticus is
 `magnifico/`, and The First Speaker is `first-speaker/`.
 
-- `public/assets/PORTRAIT_PROMPTS.md` documents the generation prompts and settings behind every portrait, and how each character's color scheme is meant to map onto its card definition.
+- `docs/prompts/PORTRAIT_PROMPTS.md` documents the generation prompts and settings behind every portrait, and how each character's color scheme is meant to map onto its card definition. Its neighbours in `docs/prompts/` do the same for the sound effects and the intro video.
 - `VISUAL_SHOWCASE.md` (repo root) is the interface reference: seat states, the
   action panel, the quick reference, the palette. It carries no layout metrics —
   geometry is computed from the live viewport by `src/client/layout/` — and
