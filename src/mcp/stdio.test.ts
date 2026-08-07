@@ -1,3 +1,4 @@
+import { toFallbackInput } from './tools';
 /**
  * The whole stack, end to end, through the actual MCP server process.
  *
@@ -29,6 +30,18 @@ interface ToolResult {
     isError?: boolean;
 }
 
+/**
+ * `get_view`, called for real here, no longer ships `own.hand` and
+ * `own.legalPlays` as bare instance ids — each entry is now
+ * `{cardInstanceId, cardId, value, displayName, ...}` (`tools.ts`'s
+ * `compactView`), so a card that would give an agent no portrait to read a
+ * value off of gets one anyway. `chooseFallbackPlay` was written against the
+ * engine's own `RedactedView` and has no reason to change with a *tool
+ * shipping* decision, so this test — the one place that drives it through
+ * the real tool rather than through `MatchSession.getView()` directly, the
+ * way `wholeMatch.test.ts` does — reads the bare id back out before handing
+ * it a view.
+ */
 /** A minimal JSON-RPC client over a spawned process's stdio. */
 class StdioClient {
     private readonly proc: Bun.Subprocess<'pipe', 'pipe', 'inherit'>;
@@ -216,7 +229,7 @@ describe('the MCP server over real stdio', () => {
                     const seen = await mcp.callJson<{ view: RedactedView }>('get_view', { handle });
                     expect(seen.view.own.playerId).toBe(signal.seat!);
 
-                    const move = chooseFallbackPlay(seen.view);
+                    const move = chooseFallbackPlay(toFallbackInput(seen.view));
                     if (move === null) {
                         // A failing assertion here would only say "null". The
                         // interesting question is which of signal and view

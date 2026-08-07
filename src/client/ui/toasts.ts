@@ -41,9 +41,12 @@ export interface ToastsDeps {
  * What a toast is, which decides whether it is painted or only announced.
  *
  * `notice` is a server refusal — always visible, because it answers the
- * player's own tap. `personal` is something a card did to the viewer. Both are
- * `narration`'s superset: the running third-person commentary is the widest
- * category and the only one that is not drawn (see `ui.css`).
+ * player's own tap. `personal` is something a card did to the viewer, told in
+ * the second person. `table` is a third-person event between two OTHER seats
+ * that still has to be visible — currently only a guess, per
+ * `content/tableNotice.ts`. `narration` is everything else: the running
+ * third-person commentary, and the only one of the four `ui.css` clips to
+ * screen-reader-only rather than painting.
  */
 export type ToastKind = AnnounceKind | 'notice';
 

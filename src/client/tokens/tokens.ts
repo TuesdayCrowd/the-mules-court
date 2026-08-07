@@ -8,6 +8,7 @@ export const TOKENS = {
     colorNebulaRed: 0xef4444,
     colorNebulaPurple: 0xa855f7,
     colorTextPrimary: 0xf5f5f5,
+    colorTextSecondary: 0x9ca3af,
 
     colorSeatCurrent: 0xef4444,
     colorSeatOther: 0x6b7280,

@@ -19,10 +19,17 @@
  * the far end, because by the time the line is a string the only thing that
  * knew whose seat it concerned is long gone.
  *
+ * `table` means it happened BETWEEN two other seats and still has to be READ,
+ * not only heard — a guess exchanged by two players, neither of them the
+ * viewer, told in the same third person `narrate()` already uses. It exists
+ * because the rest of the third-person channel (`narration`) is deliberately
+ * unpainted, and a guess is the one bystander event whose card VALUE is public
+ * information every other player's deduction depends on having seen.
+ *
  * Declared here, in the pure layer, so the queue and the surface that renders
  * its lines cannot drift apart about the vocabulary.
  */
-export type AnnounceKind = 'narration' | 'personal';
+export type AnnounceKind = 'narration' | 'personal' | 'table';
 
 export interface PresentationStep {
     /** The canvas beat. Resolves when it has finished playing. */

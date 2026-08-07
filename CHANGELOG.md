@@ -5,6 +5,149 @@ All notable changes to this project are documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+## [Unreleased]
+
+## [1.2.5] - 2026-08-07
+
+Two pieces of gameplay feedback from a real match, the pre-existing bugs that
+surfaced while verifying them, and the same fix carried into the client that had
+never received it.
+
+A revealed hand at the showdown named a card without its value, and a guess
+between two other players was generated, spoken to a screen reader, and never
+drawn. Fixing the second exposed a toast that had been shipping with no padding
+at all, on every viewport, because a spacing token was never defined — and the
+gates could not see it, since jsdom computes the same wrong value without
+minding it and the screenshot harness had never photographed a toast. So the
+harness gained a second pass, and it found the bug on its first run.
+
+The MCP seat server got the value fix too. It was naming cards to an agent the
+way the round-over screen had been naming them to a person: by name alone, in a
+game where every rule is written in numbers.
+
+### Fixed
+
+- **The round-over overlay names a card with its value.** A revealed hand read
+  *"Bayta held The Mule"*, and every rule the showdown is decided by is written in
+  numbers — so the one screen that exists to explain who won stated the result in
+  the only vocabulary the rule does not use. It now reads *"Bayta held 8 · The
+  Mule"*, through the same `cardLabel` formatter the table, the action sheet and
+  the card hint already use, rather than a second hand-written format that would
+  drift from them. The overlay's tests asserted the bare card name, which is why a
+  missing value passed a green suite; they assert the value-bearing label now.
+- **A guess between two other players is shown, not only spoken.** Reported
+  verbatim: *"Just as when someone guesses your card and text shows on your
+  screen indicating what they guessed, the same should be when another player
+  guesses against another player."* The line already existed — every log entry
+  reaches the toast region — but the running third-person commentary is clipped
+  to a screen-reader-only box on purpose, because one bot turn emits a play and
+  its effect, and four seats painting all of it put a column of five lines over
+  the deck and the hand. A guess is the one carve-out worth making: it is the
+  only public statement of a card *value*, and a miss rules a value out of a
+  hand exactly as informatively as a hit confirms one, so it is the evidence the
+  rest of the round's deduction runs on. It now travels on a third channel —
+  painted as an unframed plate rather than the bordered box a server refusal
+  wears, so the two cannot be confused at a glance, and never in the your-turn
+  violet, which in this game means "this concerns you" and nothing else. A guess
+  aimed at *you* is unchanged: still second person, still once. A compare, a peek
+  or a trade between two other seats stays announced-only, having no value to
+  state.
+- **The personal notice had no padding, on every viewport the game ships to.**
+  Its text sat against its own border. `ui.css` asked for `--space-5` and the
+  spacing scale ran 1, 2, 3, 4, 6, 8 — the token was never defined, and an
+  undefined custom property does not fall back to the rule beneath it. The
+  declaration becomes `unset`, which for a non-inherited property like `padding`
+  means its initial value: zero, on all four sides.
+- **Four tokens were read and never defined; the palette now owns all of them.**
+  `--space-5` was the loud one, because `padding` is not inherited and a missing
+  value is visible as nothing at all. The other three were read *with* fallbacks
+  and so failed silently: `--color-text-secondary` (three sites) served whatever
+  colour it inherited, so the lobby's difficulty legend and hints rendered at
+  full primary weight instead of stepping back — they are the documented
+  `#9ca3af` now, the grey `tokens/contrast.test.ts` already argued for at 8.27
+  against black; `--color-border-subtle` framed the difficulty fieldset from a
+  literal buried in one declaration; and `--font-size-sm` was read twice with two
+  *different* fallbacks, one name quietly meaning two sizes. The action sheet's
+  uppercase micro-label keeps the smaller of the two, said outright rather than
+  smuggled in as a fallback.
+- **A test now fails on any `var()` a stylesheet reads and no stylesheet
+  defines**, fallback or not — a fallback hides the omission rather than
+  excusing it. The only exemptions are the two properties a surface genuinely
+  sets at runtime, each named with the line that sets it, and a second test
+  fails if an exemption stops being read. This whole class was invisible to both
+  gates: jsdom applies the same cascade and computes the same wrong value
+  without minding it, and the visual harness had never photographed a toast.
+
+### Added
+
+- **Thirteen recorded sounds, and synthesis kept underneath them.** The table's
+  voice was nine synthesised effects (1.2.1); it is now a recorded take per
+  entry in `src/client/store/sound.ts`, ambience included, at 1.4 MB under
+  `public/assets/sfx/`. Every spec still carries its complete synthesis recipe —
+  oscillators, filters, envelopes — and the layer owning the audio graph
+  *prefers the recording and falls back to the recipe*. The fallback is the
+  point: a sample can fail to arrive for reasons that have nothing to do with
+  this game — a cold cache, a codec a browser will not decode, a tab opened
+  offline — and a table answering any of those with silence has lost something a
+  synthesised table would not have. Synthesis costs zero bytes and cannot 404,
+  so it stays as the floor rather than being deleted once the files existed. The
+  loader is injected and optional, so a client built without it synthesises
+  everything and has no ambience, which is exactly the game as it stood before
+  the recordings and is still fully covered by the tests written for it.
+  *(Landed 2026-08-04, after the 1.2.4 release, and had no entry until now — the
+  gap that prompted this file's `[Unreleased]` section.)*
+- **The MCP seat surface now names a card the way the browser does.** An agent
+  holding a seat received `own.hand` as bare instance ids — `["mule#0",
+  "first-speaker#0"]` — while the very same payload handed it `{cardId, value}`
+  for every card already discarded. Every rule in this game is decided in
+  values: the Informant's guess, the compare, the deck-out showdown. So the one
+  client with no portrait to read was the one client made to carry the deck
+  table in its head. Hand and legal plays now carry `value` and `displayName`,
+  and legal plays additionally carry `requiresTarget` — which is what separates
+  "this card takes no target" from "it takes one and none is legal", an
+  ambiguity `engine/types.ts` documents and previously left an agent to guess.
+  The Mule's entry carries the same `warning` sentence the browser spends a red
+  button on, keyed off the engine's `eliminatesOnDiscard` flag rather than the
+  string "mule". `join_match` gained `seatLabel` so an agent narrating "Seat 2"
+  cannot contradict the lobby on the human's screen.
+
+  The enrichment is in `src/mcp/tools.ts` alone. `RedactedView` is the security
+  boundary and did not move: what a seat may *see* is the engine's decision,
+  and how much of it a tool *ships* is the MCP layer's — a test asserts the
+  engine still hands `own.hand` as bare strings.
+- **The visual harness photographs surfaces a match never walks past.**
+  `bun run test:visual` played a real match, screenshotted the deal, and stopped
+  — so it had never captured a round-over overlay, which comes after a round it
+  never ends, nor a toast, which lives five seconds inside a turn nobody drove.
+  Both surfaces above were changed without either ever appearing in an image.
+  `visual/gallery.ts` mounts the real surface factories with the real stylesheet
+  in the same real browser, one specimen per page, and the harness now asks it
+  the questions only a live cascade can answer: what a toast *measures* (the
+  clipped channel is 1px and the painted ones are not), and what a border
+  *resolves to* once the cascade has run. Its first screenshot is what exposed
+  the padding bug below.
+
+### Changed
+
+- **The documented verification gate ran its three steps in an order that fails.**
+  `AGENTS.md` said `test`, then `tsc`, then `build`. But `bun test src/server`
+  checks the committed embedded-asset manifest against the *current* `dist/`, and
+  Vite content-hashes the bundle filename — so any change to client source, down
+  to a one-word comment, moves the hash and leaves the manifest pointing at a
+  file that no longer exists. Following the documented order after touching the
+  client failed two server tests with `Cannot find module
+  '../../dist/assets/index-….js'`, which reads like a broken import and is
+  actually a stale build. `build` goes first now, and says why.
+- **The choice of which channel carries a line moved out of `src/main.ts`.**
+  It was a ternary in the composition root, written twice, one at each
+  `queue.enqueue` site — and `main.ts` owns the socket, the document and every
+  ambient global, which is why nothing tests it. Swapping the precedence of
+  "happened to you" over "happened between two others", or dropping the guard
+  that keeps a private peek out of the painted channel, would have compiled and
+  passed every test in the repo. `announcementForViewer` in `src/client/content/`
+  returns the line and its channel together, and the precedence is now covered by
+  tests rather than by a person noticing it at a live table.
+
 ## [1.2.4] - 2026-08-02
 
 Four things a real match kept catching on, and a set of proper names for the
@@ -568,6 +711,8 @@ a browser: host a room, share a link, play a hand, win Devotion Tokens.
   the transport layer, and the client UI, kept as the historical record of
   each stage's decisions.
 
+[Unreleased]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.5...HEAD
+[1.2.5]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.1...v1.2.2

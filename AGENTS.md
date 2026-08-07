@@ -107,10 +107,19 @@ Three gates worth knowing about, because they fail for reasons that are not obvi
 The verification gate before considering any change done is:
 
 ```bash
-bun run test        # engine/client (Vitest) + server + MCP (bun test)
+bun run build        # FIRST — see below; also regenerates the embedded manifest
 bunx tsc --noEmit    # neither vite build nor the dev server type-checks; this is the only type check
-bun run build        # confirm the production bundle still builds
+bun run test         # engine/client (Vitest) + server + MCP (bun test)
 ```
+
+**`build` runs first, and the order is load-bearing.** `bun test src/server` includes
+`embeddedManifest.test.ts` ("covers every file in the current `dist/`") and
+`standalone.test.ts`, which imports `embeddedAssets.generated.ts` and through it
+`dist/assets/index-<hash>.js`. Vite content-hashes that filename, so **any** change to
+client source — a one-word comment in `announce.ts` counts — moves the hash and leaves
+the committed manifest pointing at a file that no longer exists. Run `test` before
+`build` and those two fail with `Cannot find module '../../dist/assets/index-….js'`,
+which reads like a broken import and is actually a stale build.
 
 **None of that can see the table.** jsdom has no layout engine, so every geometry
 assertion in the suite is arithmetic against a `LayoutSpec` — and *anything drawn past
@@ -123,6 +132,55 @@ a page error, a table that never mounted, a table with no seats, a hand with no 
 a control with no accessible name — and leaves the rest to eyes. Run it after any
 change to geometry or motion, and actually look at the output. Two layout bugs shipped
 past a fully green suite and were obvious in a screenshot.
+
+**A match walks past most of the client, so there is a second pass.** The match
+capture deals a hand and photographs it; it never plays a turn, so it never reaches a
+round-over overlay, and a toast lives five seconds somewhere in a turn nobody drove.
+Two surfaces were therefore changed on the strength of a green suite and had *never*
+appeared in an image. `visual/gallery.ts` closes that: the same surface factories
+`main.ts` builds and the same `ui.css`, in the same real browser, handed a synthetic
+state instead of a played one. The state is the only synthetic part, and it buys the
+assertions a real cascade can make and jsdom cannot: what a toast actually *measures*,
+and what its border actually *resolves to* once the cascade has run.
+
+**A visual change adds its surface to the gallery.** Append to `SPECIMENS` in
+`visual/gallery.ts`; the harness enumerates the list off the page, so it needs no edit
+to start photographing a new entry. Then put whatever a machine can judge about it in
+`judgeSpecimen` in `harness.ts`, beside the others. This is not ceremony — the
+gallery's very first screenshot showed the personal toast shipping with **no padding
+at all**, its text against its own border — `--space-5` was never defined, and an
+undefined `var()` makes the whole declaration `unset` rather than falling back to the
+rule beneath it. Measuring the page confirmed it: 0px, against 16px on every other
+*painted* toast — the clipped narration line zeroes its padding on purpose, as part
+of the visually-hidden recipe. It had been that way on every viewport the game ships to, invisible to a green
+suite, because jsdom applies the same cascade and computes the same zero without
+minding it.
+
+The two passes do not substitute for one another: a specimen proves a surface draws
+correctly given a state, and only a live match proves the client ever reaches it.
+
+## Recording a change
+
+`CHANGELOG.md` carries an **`## [Unreleased]`** section at the top, and a
+player-visible change is written into it **as it is implemented** — in the same
+piece of work, not reconstructed later.
+
+Reconstructing it later is the failure this rule exists to prevent. The entries in
+this file are not a list of commit subjects; each one states the failure a change
+fixes and why the fix takes the shape it does. That reasoning is in hand at the
+moment the change is made, and gone by the time somebody is reading a diff back out
+of `git log` trying to remember what a player actually complained about.
+
+Use Keep a Changelog's six headings — `Added`, `Changed`, `Deprecated`,
+`Removed`, `Fixed`, `Security` — plus `Docs`, which is this repo's own addition
+and not part of that standard. Match the surrounding voice: the player-facing
+effect first, then the mechanism, then the reason an obvious alternative was not
+taken.
+Cutting a release means renaming the section to `## [x.y.z] - YYYY-MM-DD`, adding
+its compare link at the foot of the file, and opening an empty `Unreleased` above it.
+
+Purely internal work — a refactor no player can observe, a test-only change — does
+not need an entry. Anything that changes what someone sees, hears, or can do does.
 
 ## Architecture
 
@@ -350,7 +408,7 @@ The slug does **not** always match the card's display name. Mapping (README card
 | The First Speaker    | `first-speaker/` | 7     |
 | The Mule             | `mule/`          | 8     |
 
-Other asset dirs: `card-back/` (the deck and face-down cards), `shaders/` (`rainbow_gradient.png` for the devotion-token shimmer, `sparkle_pattern.png` for the victory burst), and `misc/` (the playfield background and the devotion token badge). Catalogued in `VISUAL_SHOWCASE.md`.
+Other asset dirs: `card-back/` (the deck and face-down cards), `shaders/` (`rainbow_gradient.png` for the devotion-token shimmer, `sparkle_pattern.png` for the victory burst; `distortion_map.png` ships and is unused by design), `misc/` (the playfield background and the devotion token badge), and `sfx/` (thirteen recorded takes, one per entry in `src/client/store/sound.ts`, 1.4 MB — just under `card-back/`'s single 1.5 MB texture). Catalogued in `VISUAL_SHOWCASE.md`.
 
 ## Skills
 

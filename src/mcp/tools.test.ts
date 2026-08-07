@@ -1,4 +1,5 @@
 import { describe, expect, it } from 'bun:test';
+import { CARD_CATALOG, createMatch, view } from '../game/engine';
 import type { PlayerId, RedactedView } from '../game/engine';
 import { callTool, TOOL_DEFS, type ToolSurface } from './tools';
 
@@ -179,6 +180,126 @@ describe('callTool trims what it ships', () => {
         const text = textOf(await callTool(surfaceWithHistory(), 'get_view', { handle: 'h2' }));
         expect(text).toContain('deckCount');
         expect(text).toContain('informant#0');
+    });
+});
+
+describe('callTool names cards for a client with no portrait', () => {
+    // Mule + Informant + Shielded Mind cover: the one self-eliminating card,
+    // a card that requires a target, and a card that does not.
+    const viewWithCards = {
+        turnNumber: 3,
+        deckCount: 9,
+        publicLog: [],
+        roundHistory: [],
+        own: {
+            playerId: 'p2',
+            hand: ['mule#0', 'informant#0'],
+            legalPlays: ['mule#0', 'shielded-mind#0', 'informant#0'],
+            legalTargets: { 'mule#0': [], 'shielded-mind#0': [], 'informant#0': ['p1'] }
+        }
+    } as unknown as RedactedView;
+
+    function surfaceWithCards(): ToolSurface {
+        return stubSurface({ getView: () => ({ ok: true, view: viewWithCards, nicknames: {} }) }).surface;
+    }
+
+    interface DescribedOwn {
+        readonly hand: { cardInstanceId: string; cardId: string; value: number; displayName: string }[];
+        readonly legalPlays: {
+            cardInstanceId: string;
+            cardId: string;
+            value: number;
+            displayName: string;
+            requiresTarget: boolean;
+            warning?: string;
+        }[];
+    }
+
+    async function ownOf(surface: ToolSurface): Promise<DescribedOwn> {
+        const payload = JSON.parse(textOf(await callTool(surface, 'get_view', { handle: 'h2' }))) as { view: { own: DescribedOwn } };
+        return payload.view.own;
+    }
+
+    it('gives each hand card its value and display name, matching CARD_CATALOG', async () => {
+        const own = await ownOf(surfaceWithCards());
+        expect(own.hand).toEqual([
+            { cardInstanceId: 'mule#0', cardId: 'mule', value: CARD_CATALOG.mule.value, displayName: CARD_CATALOG.mule.displayName },
+            {
+                cardInstanceId: 'informant#0',
+                cardId: 'informant',
+                value: CARD_CATALOG.informant.value,
+                displayName: CARD_CATALOG.informant.displayName
+            }
+        ]);
+    });
+
+    it('carries the self-elimination warning on the Mule\'s legalPlays entry, and no other', async () => {
+        const own = await ownOf(surfaceWithCards());
+        const mule = own.legalPlays.find(p => p.cardInstanceId === 'mule#0')!;
+        const shieldedMind = own.legalPlays.find(p => p.cardInstanceId === 'shielded-mind#0')!;
+        expect(mule.warning).toBe('Discard The Mule — you are eliminated.');
+        expect(shieldedMind.warning).toBeUndefined();
+    });
+
+    it('marks requiresTarget true for the Informant (GUARD) and false for Shielded Mind (HANDMAID)', async () => {
+        const own = await ownOf(surfaceWithCards());
+        const informant = own.legalPlays.find(p => p.cardInstanceId === 'informant#0')!;
+        const shieldedMind = own.legalPlays.find(p => p.cardInstanceId === 'shielded-mind#0')!;
+        expect(informant.requiresTarget).toBe(true);
+        expect(shieldedMind.requiresTarget).toBe(false);
+    });
+});
+
+describe('callTool labels a claimed seat the way the browser lobby does', () => {
+    it('returns seatLabel one greater than the wire\'s 0-based seat index', async () => {
+        const { surface } = stubSurface();
+        const result = await callTool(surface, 'join_match', { matchId: 'm1', nicknames: ['A', 'B'] });
+        const seats = JSON.parse(textOf(result)) as { seat: number; handle: string; nickname: string; playerId: string; seatLabel: string }[];
+        expect(seats).toEqual([
+            { seat: 1, handle: 'h2', nickname: 'A', playerId: 'p2', seatLabel: 'Seat 2' },
+            { seat: 2, handle: 'h3', nickname: 'B', playerId: 'p3', seatLabel: 'Seat 3' }
+        ]);
+    });
+});
+
+describe('TOOL_DEFS say what the enriched fields mean', () => {
+    it('tells the agent that a legal play can still be self-destructive', () => {
+        const description = TOOL_DEFS.find(d => d.name === 'play_card')!.description;
+        expect(description).toMatch(/eliminat/i);
+        expect(description).toMatch(/warning/i);
+    });
+
+    it('tells the agent what an empty legalTargets array means, via requiresTarget', () => {
+        const description = TOOL_DEFS.find(d => d.name === 'get_view')!.description;
+        expect(description).toMatch(/value/i);
+        expect(description).toMatch(/requiresTarget/);
+        expect(description).toMatch(/fizzle|no legal target/i);
+    });
+
+    it('tells the agent which of seat and seatLabel matches the browser lobby', () => {
+        const description = TOOL_DEFS.find(d => d.name === 'join_match')!.description;
+        expect(description).toMatch(/seatLabel/);
+    });
+});
+
+describe('the engine boundary this enrichment must not move', () => {
+    it('still hands own.hand and own.legalPlays as bare instance ids straight from view.ts', () => {
+        // Enrichment lives in tools.ts's compactView only. This calls the
+        // engine's own `view()` directly — nowhere near tools.ts — so a
+        // regression that moved the enrichment into view.ts, or that widened
+        // RedactedView itself, fails here even though nothing above touches
+        // this code path.
+        const match = createMatch(['p0', 'p1', 'p2'], 'enrichment-boundary-seed');
+        const starter = match.round.seatOrder[0]!;
+        const projection = view(match, starter);
+
+        expect(projection.own.hand.length).toBeGreaterThan(0);
+        for (const entry of projection.own.hand) {
+            expect(typeof entry).toBe('string');
+        }
+        for (const entry of projection.own.legalPlays) {
+            expect(typeof entry).toBe('string');
+        }
     });
 });
 

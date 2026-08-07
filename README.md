@@ -27,10 +27,10 @@ takes a seat. Start the match when 2-4 people are seated.
 _The opening screen. Name yourself, then either host a court or paste a link into
 someone else's._
 
-<img src="docs/gameplay/lobby.png" alt="The lobby: the title 'The Mule's Court', an invite link with a Copy button, a radio group headed 'Computer opponents play as' offering Converted, Officer and Mentalic, four numbered seats — seat 1 the host, seat 3 a computer, seats 2 and 4 open with 'Add computer' buttons — and a Start Match button." width="560">
+<img src="docs/gameplay/lobby.png" alt="The lobby: the title 'The Mule's Court', an invite link with a Copy button, a radio group headed 'Computer opponents play as' offering Converted, Officer and Mentalic, four numbered seats — seat 1 the host, seat 3 holding the computer opponent Salvor Hardin marked Officer with a Remove button beside it, seats 2 and 4 open with 'Add computer' buttons — and a Start Match button." width="560">
 
-_The lobby. The invite link is the whole of joining. Any seat still open when you want
-to begin can be filled by a computer opponent instead._
+_The lobby. The invite link is the whole of joining. Any seat still open when you want to
+begin can be filled by a computer opponent instead, and emptied again if somebody turns up._
 
 To play across a room instead of across tabs, use `bun run dev:host` in terminal 2 —
 it binds to the network and prints an address other devices can open. See
@@ -68,8 +68,10 @@ A computer seat waits 1.2 seconds before it plays. That is pacing, not thinking 
 takes well under a millisecond — because three seats resolving instantly is a table nobody
 can read.
 
-Filling a seat is one-way: the lobby has no button to empty it again, so a misclick means
-starting a new court.
+A seated computer opponent can be removed again while the court is still in the lobby, so a
+misclick costs nothing and a table filled while waiting can be emptied when a friend actually
+arrives. It is the host's button and the lobby's only: a seat that vanished mid-round would
+take a player out of a rotation the engine has already dealt to.
 
 ## Game Rules
 
@@ -120,7 +122,9 @@ A round ends when:
 - The deck runs out → Player with the highest card value wins
 
 When the deck runs out, ties break on the **total value of the discard pile**. Players
-still tied after that share the round, and each earns a token.
+still tied after that share the round, and each earns a token. The round-over screen names
+every revealed hand with its value — *Bayta held 8 · The Mule* — because the showdown is
+decided in numbers and reading it should not mean remembering which character carries which.
 
 The round winner earns 1 Devotion Token. Reset the round and continue until a player
 reaches the winning token count.
@@ -205,6 +209,14 @@ Speaker beside a 5 or a 6 takes the choice away from you._
 _**Match log** — every play, guess and consequence in order. It is the deduction game's
 working memory, so nobody has to hold ten turns of public information in their head._
 
+The log is also spoken. Every entry goes to a live region as it happens, so a screen-reader
+player gets a running account of a turn they cannot see. Most of that commentary is heard
+and not drawn — a single turn can emit a play and its effect, and four seats painting all
+of it would bury the table under its own narration. Two things are drawn: anything a card
+did **to you**, told in the second person, and **a guess between two other players**, which
+is the one public statement of a card *value* in the game and the evidence everyone else's
+deduction is built on.
+
 ## Development
 
 ### Tech Stack
@@ -215,7 +227,7 @@ No runtime dependencies. `package.json` declares none: the client is TypeScript 
 
 ### Architecture
 
-Four layers, each testable without the one above it:
+Four layers stacked, each testable without the one above it — and a fifth beside them:
 
 | Layer                | Where               | What it is                                                                     |
 | -------------------- | ------------------- | ------------------------------------------------------------------------------ |
@@ -223,6 +235,7 @@ Four layers, each testable without the one above it:
 | **Server**           | `src/server/`       | `Bun.serve` WebSocket transport that wraps the engine and owns match state     |
 | **Client (pure)**    | `src/client/`       | Layout, copy, palette, and state — no DOM, no ambient globals                 |
 | **Client (surface)** | `src/client/ui/`    | The table and the chrome, one factory per DOM surface                        |
+| **MCP seats**        | `src/mcp/`          | Seats a model at two or three chairs, over the same socket a browser uses    |
 
 The interface holds no game state. The server pushes a `RedactedView` — one player's
 redacted picture of the match — and the client sends back a single `PLAY_CARD` message.
@@ -231,6 +244,13 @@ Anything the interface appears to decide, it read from that view.
 Rooms persist `{seed, actionLog}` rather than a state snapshot, and rebuild by replaying
 actions through the engine. A server restart mid-match is therefore safe: clients
 reconnect with backoff and resume their seat.
+
+`src/mcp/` is a **client** of the transport rather than a part of it: it connects over a
+WebSocket exactly as a browser does and imports the protocol and engine types rather than
+restating them, so wire drift is a compile error. Each seat gets an opaque handle at claim
+time and every seat-scoped tool demands one, so an agent holding one seat's handle cannot
+read another's hand — without that the game stops existing, since one mind holding three
+hands makes every Informant guess a certainty.
 
 Beside those sits `src/game/ai/`, the [computer opponents](#computer-opponents). It is a
 client of the engine rather than a layer of it: a policy takes the same `RedactedView` a
@@ -242,8 +262,9 @@ the embedded asset manifest is: `heuristic.ts` imports it, so a clone without it
 judged — by win rate over seeded matches, not by inspection.
 
 The full design documents live in `docs/plans/` — engine architecture, transport
-protocol, the UI/UX design, and `2026-07-30-computer-opponent-design.md` for the
-opponents.
+protocol, the UI/UX design, `2026-07-30-computer-opponent-design.md` for the opponents,
+and `2026-07-28-mcp-seat-design.md` for the MCP seats. `AGENTS.md` at the repo root is the
+working guide for anyone — human or agent — changing the code.
 
 ### Requirements
 
@@ -273,12 +294,19 @@ one process serving the built `dist/` as well.
 | `bun run dev`         | Vite dev server for the client on `http://localhost:8080` (`vite/config.dev.mjs`)    |
 | `bun run dev:server`  | The API and WebSocket server on `:3000`, under `bun --watch`                         |
 | `bun run dev:host`    | Like `dev`, but bound to the network so another device can reach it                  |
-| `bun run test`        | Every test — engine and client under Vitest, then server under `bun test`            |
+| `bun run test`        | Every test — engine and client under Vitest, then server and MCP under `bun test`    |
 | `bun run test:engine` | Engine and client tests only                                                         |
 | `bun run test:server` | Server and transport tests only                                                      |
+| `bun run test:mcp`    | MCP seat-server tests only                                                           |
 | `bun run test:watch`  | Vitest in watch mode                                                                 |
-| `bun run build`       | Minified production build into `dist/` (`vite/config.prod.mjs`)                      |
+| `bun run test:visual` | Screenshot real matches and real surfaces in a real browser; needs both dev servers  |
+| `bun run build`       | Minified production build into `dist/`, then regenerates the embedded asset manifest |
 | `bun run serve`       | Serve the built `dist/` and the game server from one process                         |
+| `bun run mcp`         | The MCP seat server on stdio; needs a game server running                            |
+| `bun run host`        | Own the game server and seat 1, leaving the rest to arrive over MCP                  |
+| `bun run compile`     | Single-file executable → `./mules-court` (see [As a single binary](#as-a-single-binary)) |
+| `bun run compile:mcp` | Single-file MCP seat server → `./mules-court-mcp`                                    |
+| `bun run generate:assets` | Regenerate the embedded asset manifest from `dist/` (`build` already does this)  |
 
 Type-check with `bunx tsc --noEmit`. Neither `vite build` nor the dev server checks types —
 Vite transpiles without checking — so this is the only command that catches a type error.
@@ -305,19 +333,26 @@ lobby's **Copy** button all work on a phone.
 ### Testing
 
 ```bash
-bun run test         # everything
+bun run build        # FIRST — see below
 bunx tsc --noEmit    # types
-bun run build        # the production bundle still builds
+bun run test         # everything
 ```
 
-Two runners, split by what each layer needs. Engine and client tests run under
-**Vitest**; server and transport tests run under **Bun's own test runner**, because
-Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun
-globals the transport depends on.
+**`build` comes first, and the order matters.** The server suite checks the committed
+embedded asset manifest against the *current* `dist/`, and Vite content-hashes the bundle
+filename — so any change to client source, down to a one-word comment, moves the hash and
+leaves the manifest naming a file that no longer exists. Run `test` first and two server
+tests fail with `Cannot find module '../../dist/assets/index-….js'`, which reads like a
+broken import and is really a stale build.
+
+Two runners, three suites. Engine and client tests run under **Vitest**; the server and
+the MCP seat server run under **Bun's own test runner**, because Vitest's workers run
+under Node, which can load neither `bun:sqlite` nor the Bun globals the transport depends
+on — and the MCP tests inherit that, since they open real sockets and spawn a server.
 
 There is no linter configured.
 
-Three gates fail for reasons worth knowing in advance:
+Five gates fail for reasons worth knowing in advance:
 
 - **`src/client/__tests__/purity.test.ts`** — `layout/`, `content/`, `store/`, and
   `tokens/` may not touch a DOM global or import server runtime. It reads raw file
@@ -328,6 +363,34 @@ Three gates fail for reasons worth knowing in advance:
 - **`src/client/layout/discardCapacity.test.ts`** — drives thousands of real matches
   through the engine to prove the layout reserves room for the deepest discard pile
   that can actually occur (eight, not the seven the design assumed).
+- **`src/client/ui/tableContract.test.ts`** — reads `table.ts` as raw source text and
+  asserts every field the pure layout layer publishes is actually named by the renderer.
+  It cannot prove a field is *obeyed*, so its allowlist of deliberate omissions is only as
+  strong as the reason written beside each entry.
+- **`src/client/tokens/tokens.test.ts`** — fails on any `var(--token)` a stylesheet reads
+  and no stylesheet defines, fallback or not. An undefined custom property makes the whole
+  declaration `unset`, which is *not* a fallback to the rule beneath it: a missing spacing
+  step once left a toast with zero padding on every viewport, silently.
+
+#### Seeing it
+
+None of the above can see the table. jsdom has no layout engine, so every geometry
+assertion is arithmetic against a spec — and anything drawn *past* a rect is not a rect.
+`bun run test:visual` closes that, and needs both dev servers up because it drives the
+real socket:
+
+```bash
+bun run dev:server   # terminal 1
+bun run dev          # terminal 2
+bun run test:visual  # terminal 3 — writes PNGs to visual/output/
+```
+
+It runs two passes. The first plays real matches and photographs the lobby and the table
+at eight viewports. The second walks `visual/gallery.ts`, which mounts the real surface
+factories with the real stylesheet in the same real browser, one specimen per page, so
+surfaces a match never walks past — a finished round, a toast — can be photographed and
+measured too. It fails only on what a machine can judge and leaves the rest to eyes, so
+run it after any visual change and actually look at the output.
 
 ### Accessibility
 
@@ -358,11 +421,15 @@ cannot assert — see [Status](#status).
 | `src/client/`       | Browser-independent client: `layout/`, `content/`, `store/`, `tokens/`         |
 | `src/client/ui/`    | One factory per surface with `mount`/`update`/`destroy`; `table.ts` draws the table, `beats.ts` animates it |
 | `src/client/styles/`| Self-hosted fonts, the authoritative palette, and the shell and table CSS      |
+| `src/mcp/`          | The MCP seat server: stdio JSON-RPC, seat handles, one socket per claimed seat |
+| `visual/`           | The screenshot harness and the surface gallery it photographs                  |
+| `scripts/`          | Offline tooling: AI training, the embedded asset manifest, hand-driven matches |
 | `docs/plans/`       | Design documents and implementation plans for each layer                       |
+| `.github/workflows/`| Release automation: type-check, full test run, all five binaries, `SHA256SUMS.txt` |
 
 ### Assets
 
-Portrait art lives under `public/assets/<character-slug>/` — one directory per card (`bail-channis/`, `bayta-darell/`, `ebling-mis/`, `first-speaker/`, `han-pritcher/`, `informant/`, `magnifico/`, `mayor-indbur/`, `mule/`, `shielded-mind/`, `toran-darell/`). The card back, the two effect textures and the playfield background live in their own top-level `public/assets/` folders.
+Portrait art lives under `public/assets/<character-slug>/` — one directory per card (`bail-channis/`, `bayta-darell/`, `ebling-mis/`, `first-speaker/`, `han-pritcher/`, `informant/`, `magnifico/`, `mayor-indbur/`, `mule/`, `shielded-mind/`, `toran-darell/`). Four more top-level folders hold the rest: `card-back/` for the deck and every face-down card, `shaders/` for the effect textures, `misc/` for the playfield background and the devotion token badge, and `sfx/` for the thirteen recorded sounds. Portrait art is still the bulk of the bundle at 4.6 MB; after it come the card back at 1.5 MB and the recordings at 1.4 MB. `shaders/distortion_map.png` ships but is deliberately unused — the Mule's ripple is not a displacement filter, a DOM table offering no surface to warp.
 
 Four thematic variants exist for every character, but **only the one the game
 uses ships**. Vite copies `public/` into the bundle verbatim, so the three
@@ -410,6 +477,16 @@ every machine because the design says so.
 | `MULES_DB_PATH`         | `mules-court.sqlite`    | Relative to the working directory                 |
 | `MULES_STATIC_ROOT`     | none                    | Directory of built client files, or unset for none |
 
+**The port also has a flag: `--port=5000` or `--port 5000`**, accepted by `bun run serve`
+and by the binary alike. It exists because the port is the only one of the four whose
+value you learn *at the moment of starting the server* — :3000 turns out to be busy, and
+there is nowhere to put an environment variable in that sentence. The flag beats
+`MULES_PORT` and moves the derived invite link with it; an explicitly named
+`MULES_PUBLIC_BASE_URL` still outranks both, since a proxy or a domain is a deployment
+fact that changing the listen port does not invalidate. It is the only flag, and an
+argument that is not it exits 1 rather than being ignored — `bun run serve --prot=5000`
+should not bind :3000 and leave you wondering.
+
 An unusable `MULES_PORT` refuses to start rather than falling back to 3000: a server
 listening somewhere other than where it was told is worse than one that does not come
 up. Behind a reverse proxy, set `MULES_PUBLIC_BASE_URL` to the public origin — though
@@ -436,8 +513,8 @@ Cross-compile with `bun run compile:linux-x64`, `compile:linux-arm64`,
 `.github/workflows/release-binaries.yml`, which type-checks, runs every test, builds all
 five targets and attaches them with a `SHA256SUMS.txt`. One runner covers every
 platform, because `--target` cross-compiles from any host. The size is Bun's runtime rather than the game, and is unavoidable with
-`--compile`: the entire client accounts for about 7.6 MB of it, and only 104 KB of
-*that* is JavaScript and CSS — the rest is portrait art.
+`--compile`: the entire client accounts for about 9 MB of it, and only ~124 KB of
+*that* is JavaScript and CSS — the rest is portrait art and 1.4 MB of recorded sound.
 
 **It lists every address it can be reached on**, because it is reachable on all of
 them: the server is given no bind hostname, so it listens on every interface from the
@@ -451,7 +528,7 @@ variable — only the right address:
                http://192.168.1.24:3000    en0
                http://100.101.102.103:3000 tailscale
   Database     /Users/you/mules-court.sqlite
-  Assets       27 files compiled in
+  Assets       39 files compiled in
 
   Other devices can use any address below the first. Open that same
   one here too, before you invite anyone — the invite link is built
@@ -490,8 +567,8 @@ than editing it.
 
 ## Status
 
-Version 1.2.3. The engine, the transport, the client, the computer opponents and
-the MCP seat server are built and tested — 2,151 tests across 122 files — and a
+Version 1.2.5. The engine, the transport, the client, the computer opponents and
+the MCP seat server are built and tested — 2,334 tests across 128 files — and a
 match is playable end to end, alone or with up to three other people, from a
 checkout or from a single-file binary you compile yourself.
 
@@ -504,7 +581,6 @@ Known limitations:
 - **Binaries are unsigned.** macOS quarantines them on download and Windows SmartScreen
   flags them; see [As a single binary](#as-a-single-binary). Every release attaches a
   `SHA256SUMS.txt`, which is the only way to tell a good copy from a tampered one.
-- **A non-host cannot end a match whose host vanished mid-round.**
 
 ### License
 

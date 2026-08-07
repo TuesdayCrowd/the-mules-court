@@ -1,0 +1,20 @@
+<!doctype html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8" />
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, viewport-fit=cover" />
+    <meta name="color-scheme" content="dark" />
+    <title>The Mule's Court — surface gallery</title>
+</head>
+
+<body>
+    <!-- The shell `index.html` ships, exactly: the surfaces under test position
+         themselves against `#ui-root`, and a gallery that gave them a different
+         parent would be measuring its own scaffolding. -->
+    <main id="app">
+        <div id="game-container"></div>
+        <div id="ui-root"></div>
+    </main>
+    <script type="module" src="./gallery.ts"></script>
+</body>
+</html>

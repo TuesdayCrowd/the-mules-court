@@ -12,7 +12,7 @@
  */
 
 import type { PlayerId, RedactedView, RoundResult } from '../../game/engine';
-import { cardCopyFor } from '../content/cardCopy';
+import { cardLabel } from '../content/cardCopy';
 import { secondsRemaining } from '../content/countdown';
 import type { ClientState, TableSnapshot } from '../store/types';
 import type { Surface, Timers } from './surface';
@@ -114,7 +114,7 @@ export function createOverlays(deps: OverlaysDeps): Surface {
                 if (cardId === null) continue;
                 const item = document.createElement('li');
                 item.dataset.role = 'revealed-hand';
-                item.textContent = `${name(playerId)} held ${cardCopyFor(cardId).displayName}`;
+                item.textContent = `${name(playerId)} held ${cardLabel(cardId)}`;
                 list.appendChild(item);
             }
             if (list.children.length > 0) nodes.push(list);
