@@ -54,8 +54,18 @@
  */
 
 import type { KeyValueStore } from '../store/seatTokenStore';
-import type { SoundFilter, SoundName, SoundSpec, SoundSource, SoundVoice } from '../store/sound';
-import { MAX_GAIN, MUTE_FADE_MS, soundSpec, varySpec } from '../store/sound';
+import type { AmbienceName, SoundFilter, SoundName, SoundSpec, SoundSource, SoundVoice } from '../store/sound';
+import {
+    AMBIENCE,
+    AMBIENCE_FADE_MS,
+    AMBIENCE_GAIN,
+    MAX_GAIN,
+    MUTE_FADE_MS,
+    SOUNDS,
+    soundSpec,
+    varySample,
+    varySpec
+} from '../store/sound';
 
 // ------------------------------------------------------- the injected surface
 
@@ -122,6 +132,14 @@ export interface AudioBufferLike {
 export interface AudioBufferSourceNodeLike extends ScheduledSourceLike {
     buffer: AudioBufferLike | null;
     loop: boolean;
+    /**
+     * Speed, and therefore pitch — the two are one control on a buffer.
+     *
+     * Optional on the interface rather than required, because the noise voices
+     * that predate sampling never touch it and a test double written for those
+     * should not have to grow a field to keep compiling.
+     */
+    readonly playbackRate?: AudioParamLike;
 }
 
 export interface AudioContextLike {
@@ -135,6 +153,14 @@ export interface AudioContextLike {
     createBiquadFilter(): BiquadFilterNodeLike;
     createBufferSource(): AudioBufferSourceNodeLike;
     createBuffer(channels: number, length: number, sampleRate: number): AudioBufferLike;
+    /**
+     * Turns encoded bytes into a playable buffer.
+     *
+     * Optional for the same reason `playbackRate` is: a context that only ever
+     * synthesises never needs it, and every existing test double is such a
+     * context. A player handed no decoder simply never has a sample to prefer.
+     */
+    decodeAudioData?(data: ArrayBuffer): Promise<AudioBufferLike>;
 }
 
 /**
@@ -172,6 +198,15 @@ export interface SoundControl {
 export interface SoundPlayer extends SoundControl {
     /** Fire and forget. A sound that cannot be made is silence, never an error. */
     play(name: SoundName): void;
+    /**
+     * Put a bed under the table, or take it away with `null`.
+     *
+     * Idempotent by name: calling it with the bed already playing does nothing,
+     * which matters because the only sensible call site is a store subscriber
+     * that fires on every single state push. A version that restarted the loop
+     * each time would make the room tone stutter once per frame from the server.
+     */
+    setAmbience(name: AmbienceName | null): void;
 }
 
 export interface SoundPlayerDeps {
@@ -191,6 +226,20 @@ export interface SoundPlayerDeps {
     readonly storage: KeyValueStore;
     /** Jitter's source of variation, so a test can make a play deterministic. */
     readonly random: () => number;
+    /**
+     * Fetches the encoded bytes for a path under `public/assets/`.
+     *
+     * **Optional, and the whole sampling feature hangs off that.** A player
+     * built without it synthesises everything and has no ambience — which is
+     * exactly the game as it stood before the recordings existed, still fully
+     * exercised by the tests written for it. Supplying it is opt-in enrichment,
+     * never a prerequisite.
+     *
+     * Injected rather than reached for so a test can serve, stall, or fail a
+     * load without a network; `main.ts` wires it to a fetch of the resolved
+     * asset URL.
+     */
+    readonly loadAudio?: (path: string) => Promise<ArrayBuffer>;
 }
 
 /**
@@ -238,6 +287,19 @@ export function createSoundPlayer(deps: SoundPlayerDeps): SoundPlayer {
     /** Context time, in ms, of the last time each sound was allowed to start. */
     const lastStart = new Map<SoundName, number>();
 
+    /** Decoded cues, keyed by name. A miss means "synthesise it instead". */
+    const samples = new Map<SoundName, AudioBufferLike>();
+    /** Decoded beds. Loaded on first request rather than up front — see `preloadCues`. */
+    const beds = new Map<AmbienceName, AudioBufferLike>();
+    /** Paths with a load in flight or permanently failed, so neither is retried in a loop. */
+    const settled = new Set<string>();
+    let cuesRequested = false;
+
+    /** What the game wants playing, which is not the same as what is playing. */
+    let desiredBed: AmbienceName | null = null;
+    let currentBed: { readonly name: AmbienceName; readonly source: AudioBufferSourceNodeLike; readonly amp: GainNodeLike } | null =
+        null;
+
     /**
      * Both halves guarded, exactly as `referenceDock` guards them: Safari in
      * private mode throws from `setItem`, and losing a remembered preference is
@@ -280,6 +342,13 @@ export function createSoundPlayer(deps: SoundPlayerDeps): SoundPlayer {
 
                 context = created;
                 master = out;
+
+                // The earliest honest moment to start fetching: there is now a
+                // decoder, and this branch runs exactly once. Deliberately not
+                // at module load, where there is no context, and not on first
+                // `play`, which would guarantee the first cue of the match is
+                // the one that misses.
+                preloadCues(created);
             } catch {
                 // No Web Audio, or a browser refusing another context. Sound is
                 // decoration attached to something that already happened; the
@@ -346,6 +415,55 @@ export function createSoundPlayer(deps: SoundPlayerDeps): SoundPlayer {
 
         noise = buffer;
         return buffer;
+    }
+
+    // ------------------------------------------------------ loading recordings
+
+    /**
+     * Fetch and decode one path, once, ever.
+     *
+     * Every failure lands in the same place and does the same thing: mark the
+     * path settled and return. A cue then keeps synthesising and a bed simply
+     * never arrives, which is the behaviour the game had before any of these
+     * files existed. Nothing here is worth taking a table down for, and nothing
+     * here retries — a path that 404s would otherwise be re-fetched on every
+     * play for the length of the match.
+     */
+    async function decode(ctx: AudioContextLike, path: string): Promise<AudioBufferLike | null> {
+        if (settled.has(path)) return null;
+        settled.add(path);
+
+        const fetchBytes = deps.loadAudio;
+        if (fetchBytes === undefined || ctx.decodeAudioData === undefined) return null;
+
+        try {
+            return await ctx.decodeAudioData(await fetchBytes(path));
+        } catch {
+            return null;
+        }
+    }
+
+    /**
+     * Pull in all nine cues as soon as there is a context to decode them with.
+     *
+     * Eager for the cues and lazy for the beds, which is not an inconsistency:
+     * the nine cues together are a few hundred kilobytes and any of them can be
+     * needed within a second of the first tap, whereas one bed is larger than
+     * all nine and a session will only ever want one or two. Loading beds up
+     * front would spend the most bandwidth on the least urgent audio.
+     *
+     * Fire-and-forget on purpose — `play` never waits on this, it just checks
+     * whether the buffer happens to be there yet.
+     */
+    function preloadCues(ctx: AudioContextLike): void {
+        if (cuesRequested || deps.loadAudio === undefined) return;
+        cuesRequested = true;
+
+        for (const name of Object.keys(SOUNDS) as SoundName[]) {
+            void decode(ctx, soundSpec(name).samplePath).then(buffer => {
+                if (buffer !== null) samples.set(name, buffer);
+            });
+        }
     }
 
     function buildSource(ctx: AudioContextLike, source: SoundSource, start: number, end: number): ScheduledSourceLike {
@@ -436,6 +554,133 @@ export function createSoundPlayer(deps: SoundPlayerDeps): SoundPlayer {
         source.stop(end);
     }
 
+    /**
+     * One recorded cue, played flat.
+     *
+     * No envelope, and that is the difference from `startVoice` rather than an
+     * omission: the file already *contains* its attack and its tail, trimmed and
+     * faded when it was mastered. Scheduling an ADSR over the top would be a
+     * second envelope fighting the one in the audio.
+     */
+    function playSample(ctx: AudioContextLike, out: GainNodeLike, spec: SoundSpec, buffer: AudioBufferLike): void {
+        const varied = varySample(spec, deps.random);
+        const start = ctx.currentTime;
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        // Absent on a double written before sampling existed; a recording that
+        // cannot be detuned is still a recording.
+        source.playbackRate?.setValueAtTime(varied.playbackRate, start);
+
+        const amp = ctx.createGain();
+        amp.gain.setValueAtTime(varied.gain, start);
+
+        source.connect(amp);
+        amp.connect(out);
+
+        voices += 1;
+        source.addEventListener('ended', () => {
+            voices = Math.max(0, voices - 1);
+            source.disconnect();
+            amp.disconnect();
+        });
+
+        // Started but never stopped: a non-looping buffer ends itself and fires
+        // `ended` when it does. Scheduling a stop would clip the tail the
+        // mastering pass was careful to keep.
+        source.start(start);
+    }
+
+    // ---------------------------------------------------------------- ambience
+
+    /**
+     * Take the bed away, fading rather than cutting.
+     *
+     * The `ended` handler is attached here rather than at start because a
+     * looping source has no natural end — it fires `ended` only in response to
+     * this `stop`, so this is the one path on which its nodes can be released.
+     * That asymmetry is also why a bed must never be counted in `voices`: a loop
+     * that is still playing would hold its slot forever, and after `MAX_VOICES`
+     * bed changes the table would fall silent with nothing to show for it.
+     */
+    function stopBed(): void {
+        const bed = currentBed;
+        if (bed === null || context === null) return;
+        currentBed = null;
+
+        const at = context.currentTime;
+        const until = at + AMBIENCE_FADE_MS / 1000;
+
+        bed.amp.gain.cancelScheduledValues(at);
+        bed.amp.gain.setValueAtTime(bed.amp.gain.value, at);
+        bed.amp.gain.linearRampToValueAtTime(0, until);
+
+        bed.source.addEventListener('ended', () => {
+            bed.source.disconnect();
+            bed.amp.disconnect();
+        });
+        bed.source.stop(until);
+    }
+
+    /** Bring a decoded bed in from silence, looping. */
+    function startBed(ctx: AudioContextLike, out: GainNodeLike, name: AmbienceName, buffer: AudioBufferLike): void {
+        const start = ctx.currentTime;
+
+        const source = ctx.createBufferSource();
+        source.buffer = buffer;
+        // The files are crossfaded head-to-tail so the seam is continuous;
+        // looping one is why that mastering step existed.
+        source.loop = true;
+
+        const amp = ctx.createGain();
+        amp.gain.setValueAtTime(0, start);
+        amp.gain.linearRampToValueAtTime(AMBIENCE_GAIN, start + AMBIENCE_FADE_MS / 1000);
+
+        source.connect(amp);
+        amp.connect(out);
+        source.start(start);
+
+        currentBed = { name, source, amp };
+    }
+
+    /**
+     * Reconcile what is playing with what the game wants playing.
+     *
+     * Called from `setAmbience`, from a bed finishing its download, and from
+     * unmuting — three different events with one meaning, so they share a body
+     * rather than each getting their own subtly different version.
+     */
+    function reconcileBed(): void {
+        // Muted is not "playing quietly": a loop nobody can hear is battery
+        // spent on nothing, so it is stopped outright and restored on unmute.
+        const wanted = silenced ? null : desiredBed;
+
+        if (currentBed?.name === wanted) return;
+        if (wanted === null) {
+            stopBed();
+            return;
+        }
+
+        const ctx = ensureContext();
+        if (ctx === null || master === null) return;
+
+        const buffer = beds.get(wanted);
+        if (buffer === undefined) {
+            void decode(ctx, AMBIENCE[wanted]).then(loaded => {
+                if (loaded === null) return;
+                beds.set(wanted, loaded);
+                // Re-entered rather than started directly: the download is slow
+                // enough that the player may have left this screen, and starting
+                // it here would drop a lobby bed onto a live table.
+                reconcileBed();
+            });
+            return;
+        }
+
+        stopBed();
+        startBed(ctx, master, wanted, buffer);
+    }
+
     return {
         play(name) {
             if (silenced) return;
@@ -451,6 +696,18 @@ export function createSoundPlayer(deps: SoundPlayerDeps): SoundPlayer {
             const previous = lastStart.get(name);
             if (previous !== undefined && nowMs - previous < spec.minIntervalMs) return;
 
+            // The recording wins whenever one has arrived. The recipe below is
+            // what plays until then — and forever, if it never does.
+            const sample = samples.get(name);
+            if (sample !== undefined) {
+                // One voice, where the synthesised Mule is four. The budget is
+                // about how much can sound at once, and a mixdown is one thing.
+                if (voices + 1 > MAX_VOICES) return;
+                lastStart.set(name, nowMs);
+                playSample(ctx, master, spec, sample);
+                return;
+            }
+
             const varied = varySpec(spec, deps.random);
 
             // Dropped whole, and before the throttle is recorded: a sound that
@@ -461,9 +718,20 @@ export function createSoundPlayer(deps: SoundPlayerDeps): SoundPlayer {
             for (const voice of varied.voices) startVoice(ctx, master, varied, voice);
         },
 
+        setAmbience(name) {
+            desiredBed = name;
+            reconcileBed();
+        },
+
         setMuted(next) {
             silenced = next;
             remember(next ? '1' : '0');
+
+            // Before the early return below: a player who mutes before the
+            // context exists still has a desired bed, and unmuting later must
+            // start it. Reconciling only after that guard would leave the bed
+            // permanently off for exactly that player.
+            reconcileBed();
 
             if (context === null || master === null) return;
             // Whatever is already in flight is faded rather than cut. A step

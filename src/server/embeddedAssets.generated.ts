@@ -22,26 +22,40 @@ import a3 from '../../dist/assets/card-back/card_back_2.png' with { type: 'file'
 import a4 from '../../dist/assets/ebling-mis/portrait_0.png' with { type: 'file' };
 import a5 from '../../dist/assets/first-speaker/portrait_0.png' with { type: 'file' };
 import a6 from '../../dist/assets/han-pritcher/portrait_0.png' with { type: 'file' };
-import a7 from '../../dist/assets/index-CCumdLLG.css' with { type: 'file' };
-import a8 from '../../dist/assets/index-CI83P9fy.js' with { type: 'file' };
+import a7 from '../../dist/assets/index-C3cdMiRn.js' with { type: 'file' };
+import a8 from '../../dist/assets/index-CTcUI5o6.css' with { type: 'file' };
 import a9 from '../../dist/assets/informant/portrait_0.png' with { type: 'file' };
 import a10 from '../../dist/assets/magnifico/portrait_0.png' with { type: 'file' };
 import a11 from '../../dist/assets/mayor-indbur/portrait_0.png' with { type: 'file' };
 import a12 from '../../dist/assets/misc/devotion_token.png' with { type: 'file' };
 import a13 from '../../dist/assets/misc/playfield_background_space.png' with { type: 'file' };
 import a14 from '../../dist/assets/mule/portrait_0.png' with { type: 'file' };
-import a15 from '../../dist/assets/shaders/distortion_map.png' with { type: 'file' };
-import a16 from '../../dist/assets/shaders/rainbow_gradient.png' with { type: 'file' };
-import a17 from '../../dist/assets/shaders/sparkle_pattern.png' with { type: 'file' };
-import a18 from '../../dist/assets/shielded-mind/portrait_0.png' with { type: 'file' };
-import a19 from '../../dist/assets/toran-darell/portrait_0.png' with { type: 'file' };
-import a20 from '../../dist/favicon.png' with { type: 'file' };
-import a21 from '../../dist/fonts/exo2-600.woff2' with { type: 'file' };
-import a22 from '../../dist/fonts/inter-var-latin-ext.woff2' with { type: 'file' };
-import a23 from '../../dist/fonts/inter-var-latin.woff2' with { type: 'file' };
-import a24 from '../../dist/index.html' with { type: 'file' };
-import a25 from '../../dist/love-letter-rules.md' with { type: 'file' };
-import a26 from '../../dist/salvor-hardin-quotes.txt' with { type: 'file' };
+import a15 from '../../dist/assets/sfx/SFX_PROMPTS.md' with { type: 'file' };
+import a16 from '../../dist/assets/sfx/amb-lobby.mp3' with { type: 'file' };
+import a17 from '../../dist/assets/sfx/amb-mule-presence.mp3' with { type: 'file' };
+import a18 from '../../dist/assets/sfx/amb-table.mp3' with { type: 'file' };
+import a19 from '../../dist/assets/sfx/amb-vault.mp3' with { type: 'file' };
+import a20 from '../../dist/assets/sfx/deal.mp3' with { type: 'file' };
+import a21 from '../../dist/assets/sfx/elimination.mp3' with { type: 'file' };
+import a22 from '../../dist/assets/sfx/mule.mp3' with { type: 'file' };
+import a23 from '../../dist/assets/sfx/play.mp3' with { type: 'file' };
+import a24 from '../../dist/assets/sfx/refused.mp3' with { type: 'file' };
+import a25 from '../../dist/assets/sfx/reveal.mp3' with { type: 'file' };
+import a26 from '../../dist/assets/sfx/token-award.mp3' with { type: 'file' };
+import a27 from '../../dist/assets/sfx/victory.mp3' with { type: 'file' };
+import a28 from '../../dist/assets/sfx/your-turn.mp3' with { type: 'file' };
+import a29 from '../../dist/assets/shaders/distortion_map.png' with { type: 'file' };
+import a30 from '../../dist/assets/shaders/rainbow_gradient.png' with { type: 'file' };
+import a31 from '../../dist/assets/shaders/sparkle_pattern.png' with { type: 'file' };
+import a32 from '../../dist/assets/shielded-mind/portrait_0.png' with { type: 'file' };
+import a33 from '../../dist/assets/toran-darell/portrait_0.png' with { type: 'file' };
+import a34 from '../../dist/favicon.png' with { type: 'file' };
+import a35 from '../../dist/fonts/exo2-600.woff2' with { type: 'file' };
+import a36 from '../../dist/fonts/inter-var-latin-ext.woff2' with { type: 'file' };
+import a37 from '../../dist/fonts/inter-var-latin.woff2' with { type: 'file' };
+import a38 from '../../dist/index.html' with { type: 'file' };
+import a39 from '../../dist/love-letter-rules.md' with { type: 'file' };
+import a40 from '../../dist/salvor-hardin-quotes.txt' with { type: 'file' };
 
 export const EMBEDDED: ReadonlyMap<string, string> = new Map([
     ['/assets/PORTRAIT_PROMPTS.md', a0],
@@ -51,24 +65,38 @@ export const EMBEDDED: ReadonlyMap<string, string> = new Map([
     ['/assets/ebling-mis/portrait_0.png', a4],
     ['/assets/first-speaker/portrait_0.png', a5],
     ['/assets/han-pritcher/portrait_0.png', a6],
-    ['/assets/index-CCumdLLG.css', a7],
-    ['/assets/index-CI83P9fy.js', a8],
+    ['/assets/index-C3cdMiRn.js', a7],
+    ['/assets/index-CTcUI5o6.css', a8],
     ['/assets/informant/portrait_0.png', a9],
     ['/assets/magnifico/portrait_0.png', a10],
     ['/assets/mayor-indbur/portrait_0.png', a11],
     ['/assets/misc/devotion_token.png', a12],
     ['/assets/misc/playfield_background_space.png', a13],
     ['/assets/mule/portrait_0.png', a14],
-    ['/assets/shaders/distortion_map.png', a15],
-    ['/assets/shaders/rainbow_gradient.png', a16],
-    ['/assets/shaders/sparkle_pattern.png', a17],
-    ['/assets/shielded-mind/portrait_0.png', a18],
-    ['/assets/toran-darell/portrait_0.png', a19],
-    ['/favicon.png', a20],
-    ['/fonts/exo2-600.woff2', a21],
-    ['/fonts/inter-var-latin-ext.woff2', a22],
-    ['/fonts/inter-var-latin.woff2', a23],
-    ['/index.html', a24],
-    ['/love-letter-rules.md', a25],
-    ['/salvor-hardin-quotes.txt', a26]
+    ['/assets/sfx/SFX_PROMPTS.md', a15],
+    ['/assets/sfx/amb-lobby.mp3', a16],
+    ['/assets/sfx/amb-mule-presence.mp3', a17],
+    ['/assets/sfx/amb-table.mp3', a18],
+    ['/assets/sfx/amb-vault.mp3', a19],
+    ['/assets/sfx/deal.mp3', a20],
+    ['/assets/sfx/elimination.mp3', a21],
+    ['/assets/sfx/mule.mp3', a22],
+    ['/assets/sfx/play.mp3', a23],
+    ['/assets/sfx/refused.mp3', a24],
+    ['/assets/sfx/reveal.mp3', a25],
+    ['/assets/sfx/token-award.mp3', a26],
+    ['/assets/sfx/victory.mp3', a27],
+    ['/assets/sfx/your-turn.mp3', a28],
+    ['/assets/shaders/distortion_map.png', a29],
+    ['/assets/shaders/rainbow_gradient.png', a30],
+    ['/assets/shaders/sparkle_pattern.png', a31],
+    ['/assets/shielded-mind/portrait_0.png', a32],
+    ['/assets/toran-darell/portrait_0.png', a33],
+    ['/favicon.png', a34],
+    ['/fonts/exo2-600.woff2', a35],
+    ['/fonts/inter-var-latin-ext.woff2', a36],
+    ['/fonts/inter-var-latin.woff2', a37],
+    ['/index.html', a38],
+    ['/love-letter-rules.md', a39],
+    ['/salvor-hardin-quotes.txt', a40]
 ]);

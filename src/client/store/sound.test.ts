@@ -2,11 +2,17 @@ import { describe, expect, it } from 'vitest';
 import type { PublicLogEntry } from '../../game/engine';
 import type { ErrorCode } from '../../server/protocol';
 import type { PresentationEvent } from './diff';
-import type { SoundName, SoundSpec, SoundVoice } from './sound';
+import type { AmbienceName, SoundName, SoundSpec, SoundVoice } from './sound';
+import type { Screen } from './types';
 import {
+    AMBIENCE,
+    AMBIENCE_FADE_MS,
+    AMBIENCE_GAIN,
     MAX_GAIN,
     MUTE_FADE_MS,
+    SAMPLE_GAIN,
     SOUNDS,
+    ambienceFor,
     soundForEvent,
     soundForNotice,
     soundForTurnStart,
@@ -478,5 +484,100 @@ describe('soundForTurnStart', () => {
             players: [{ ...makeView().players[0], alive: false }, makeView().players[1]]
         });
         expect(soundForTurnStart(theirs, dead)).toBeNull();
+    });
+});
+
+describe('the sampled voicing', () => {
+    it('names a recording for every sound, so a new name cannot ship without one', () => {
+        for (const name of Object.keys(SOUNDS) as SoundName[]) {
+            expect(soundSpec(name).samplePath).toMatch(/^sfx\/[a-z-]+\.mp3$/);
+        }
+    });
+
+    it('gives each sound its own recording rather than sharing one', () => {
+        const paths = Object.values(SOUNDS).map(spec => spec.samplePath);
+        expect(new Set(paths).size).toBe(paths.length);
+    });
+
+    /**
+     * The load-bearing arithmetic behind `SAMPLE_GAIN`, checked rather than
+     * trusted. Each file was peak-normalised to `gain / MAX_GAIN`; playing it at
+     * `SAMPLE_GAIN` must land back on `gain`, or a sample and its synthesised
+     * fallback would be two different mixes of the same game.
+     */
+    it('plays a sample at exactly the level its own spec asks for', () => {
+        for (const spec of Object.values(SOUNDS)) {
+            const masteredPeak = spec.gain / MAX_GAIN;
+            expect(masteredPeak * SAMPLE_GAIN).toBeCloseTo(spec.gain, 10);
+        }
+    });
+
+    it('masters every file inside full scale, so nothing was normalised into clipping', () => {
+        for (const spec of Object.values(SOUNDS)) {
+            expect(spec.gain / MAX_GAIN).toBeGreaterThan(0);
+            expect(spec.gain / MAX_GAIN).toBeLessThanOrEqual(1);
+        }
+    });
+});
+
+describe('ambience', () => {
+    const SCREENS: Screen[] = ['menu', 'joining', 'lobby', 'table', 'fatal'];
+
+    it('answers every screen without throwing', () => {
+        for (const screen of SCREENS) {
+            expect(() => ambienceFor(screen, null)).not.toThrow();
+        }
+    });
+
+    it('has a file for every bed it can name', () => {
+        const named = SCREENS.map(screen => ambienceFor(screen, null)).filter(
+            (name): name is AmbienceName => name !== null
+        );
+        for (const name of named) expect(AMBIENCE[name]).toMatch(/^sfx\/amb-[a-z-]+\.mp3$/);
+    });
+
+    it('gives each bed its own recording', () => {
+        const paths = Object.values(AMBIENCE);
+        expect(new Set(paths).size).toBe(paths.length);
+    });
+
+    it('is silent on the one screen where silence is the decision', () => {
+        expect(ambienceFor('fatal', null)).toBeNull();
+        for (const screen of SCREENS.filter(s => s !== 'fatal')) {
+            expect(ambienceFor(screen, null)).not.toBeNull();
+        }
+    });
+
+    it('puts the player outside the game in the same room before and during joining', () => {
+        expect(ambienceFor('menu', null)).toBe(ambienceFor('joining', null));
+    });
+
+    it('leaves a living player in the room the table is in', () => {
+        expect(ambienceFor('table', makeView())).toBe('table');
+    });
+
+    it("moves an eliminated viewer into the Mule's room, since they are still watching", () => {
+        const eliminated = makeView({
+            players: [{ ...makeView().players[0], alive: false }, makeView().players[1]]
+        });
+        expect(ambienceFor('table', eliminated)).toBe('eliminated');
+    });
+
+    it('lifts the pressure once the match is won, so the victory chord rings out clean', () => {
+        const lostTheMatch = makeView({
+            players: [{ ...makeView().players[0], alive: false }, makeView().players[1]],
+            matchWinnerId: 'p2'
+        });
+        expect(ambienceFor('table', lostTheMatch)).toBe('table');
+    });
+
+    it('keeps every bed quieter than the quietest thing a player is meant to hear', () => {
+        const quietestCue = Math.min(...Object.values(SOUNDS).map(spec => spec.gain));
+        // Beds are mastered to a peak of 0.125; this is the level they play at.
+        expect(0.125 * AMBIENCE_GAIN).toBeLessThan(quietestCue);
+    });
+
+    it('arrives far more slowly than a mute, because nobody should catch a bed starting', () => {
+        expect(AMBIENCE_FADE_MS).toBeGreaterThan(MUTE_FADE_MS * 10);
     });
 });
