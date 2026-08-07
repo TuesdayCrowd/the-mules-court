@@ -79,7 +79,17 @@ export async function serveFrom(
  * — identity is acceptable to everybody.
  */
 async function respond(file: Bun.BunFile, key: string, acceptEncoding: string | null): Promise<Response> {
-    if (!shouldCompress(acceptEncoding, file.type, file.size)) return new Response(file);
+    const cacheControl = cacheControlFor(key);
+
+    if (!shouldCompress(acceptEncoding, file.type, file.size)) {
+        // Mutated rather than constructed with an explicit header set, so
+        // `Bun.file`'s own content-type inference is left entirely alone —
+        // restating it here would be a second place for a MIME type to be
+        // decided, and `staticAssets.test.ts` pins that it is right.
+        const response = new Response(file);
+        response.headers.set('cache-control', cacheControl);
+        return response;
+    }
 
     return new Response(await gzipped(file, key), {
         headers: {
@@ -87,9 +97,66 @@ async function respond(file: Bun.BunFile, key: string, acceptEncoding: string | 
             // `Bun.file` would have supplied is no longer inferred for us.
             'content-type': file.type,
             'content-encoding': 'gzip',
-            vary: 'accept-encoding'
+            vary: 'accept-encoding',
+            'cache-control': cacheControl
         }
     });
+}
+
+/**
+ * How long an unhashed asset may be reused without asking again.
+ *
+ * One hour, and the number is a compromise rather than a target. These files —
+ * the portraits, the sound effects, the fonts — keep their names across a
+ * rebuild, so a cache entry is the only thing standing between a player and a
+ * stale one. An hour is long enough to be the difference this exists to make
+ * (nothing refetches inside a session, or across several) and short enough that
+ * a bad asset cannot outlive a lunch break.
+ */
+export const ASSET_MAX_AGE_SECONDS = 3600;
+
+/**
+ * A build artefact whose name changes whenever its bytes do.
+ *
+ * Deliberately narrow. Vite fingerprints exactly two files here — the JS chunk
+ * and the CSS — and everything else under `/assets/` arrives from `public/`
+ * copied verbatim, keeping whatever name a human gave it. Restricting the test
+ * to `.js` and `.css` is what makes that distinction reliable: a hyphen
+ * followed by eight or more characters is a perfectly ordinary way to name an
+ * audio file (`amb-mule-presence.mp3` matches the shape exactly), and treating
+ * one of those as immutable for a year would be the worst bug this whole
+ * function could produce.
+ */
+const CONTENT_HASHED = /-[A-Za-z0-9_-]{8,}\.(?:js|css)$/;
+
+/**
+ * The caching rule for one asset, by the key it was served under.
+ *
+ * Three cases, and the first is the one that keeps a deployment honest:
+ *
+ * - **The shell revalidates every time.** `index.html` is the only file that
+ *   names the hashed bundles, and it keeps its own name forever. A cached shell
+ *   after a deploy asks for chunks that no longer exist, which is not a stale
+ *   page but a blank one. Every client route falls back to this same shell —
+ *   `serveFrom` keys them all to `SHELL_PATH` — so the rule covers invite links
+ *   too. (`no-cache` permits storing and requires revalidation; it is not
+ *   `no-store`.)
+ * - **Fingerprinted bundles are immutable.** Their names already carry a
+ *   content hash, so a change ships a different URL and a year-long entry can
+ *   never go stale.
+ * - **Everything else gets a bounded age.** Stable names, mutable bytes.
+ */
+export function cacheControlFor(key: string): string {
+    // Two keys, one file, and the reason is a real asymmetry between the
+    // lookups: `embeddedLookup` translates '/' to the shell itself and hits, so
+    // `respond` is keyed '/', while `filesystemLookup` misses on the root
+    // directory and lets the fallback re-request it under SHELL_PATH. The same
+    // homepage therefore arrives here under a different name depending on which
+    // deployment is serving it, and a rule that knew only one of them would
+    // cache the binary's homepage for an hour and the directory's not at all.
+    if (key === SHELL_PATH || key === '/') return 'no-cache';
+    if (CONTENT_HASHED.test(key)) return 'public, max-age=31536000, immutable';
+    return `public, max-age=${ASSET_MAX_AGE_SECONDS}`;
 }
 
 interface CachedGzip {

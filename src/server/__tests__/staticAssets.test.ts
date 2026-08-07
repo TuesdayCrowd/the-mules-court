@@ -14,7 +14,7 @@ import { describe, expect, it } from 'bun:test';
 import { mkdirSync, mkdtempSync, rmSync, writeFileSync } from 'node:fs';
 import { tmpdir } from 'node:os';
 import { join } from 'node:path';
-import { embeddedLookup, filesystemLookup, serveFrom } from '../staticAssets';
+import { ASSET_MAX_AGE_SECONDS, cacheControlFor, embeddedLookup, filesystemLookup, serveFrom } from '../staticAssets';
 
 const SHELL = join(import.meta.dir, 'fixtures', 'shell.html');
 const CARD = join(import.meta.dir, 'fixtures', 'card.png');
@@ -233,5 +233,106 @@ describe('compression', () => {
             const second = await serveFrom(filesystemLookup(root), '/join/A', 'gzip');
             expect(new TextDecoder().decode(Bun.gunzipSync(new Uint8Array(await second.arrayBuffer())))).toContain('court two');
         });
+    });
+});
+
+/**
+ * Caching, which is one policy over both lookups like everything else here.
+ *
+ * The bug that prompted it: with no `cache-control` at all, a browser refetched
+ * every sound effect on the page navigation that hosting a game performs —
+ * roughly 370 KB of mp3 re-downloaded inside one session, verified against the
+ * running server.
+ */
+describe('cache-control', () => {
+    const fsLookup = filesystemLookup(join(import.meta.dir, 'fixtures'));
+
+    it('is set on a served asset at all, which was the whole bug', async () => {
+        const res = await serveFrom(embeddedLookup(EMBEDDED), '/assets/card.png');
+        expect(res.headers.get('cache-control')).not.toBeNull();
+    });
+
+    it('gives an unhashed asset a bounded life rather than an unbounded one', async () => {
+        const res = await serveFrom(embeddedLookup(EMBEDDED), '/assets/card.png');
+        expect(res.headers.get('cache-control')).toBe(`public, max-age=${ASSET_MAX_AGE_SECONDS}`);
+        expect(res.headers.get('cache-control')).not.toContain('immutable');
+    });
+
+    /**
+     * A stale shell asks for hashed chunks that no longer exist after a deploy,
+     * which is a blank page rather than an old one.
+     */
+    it('makes the shell revalidate every time', async () => {
+        const res = await serveFrom(embeddedLookup(EMBEDDED), '/');
+        expect(res.headers.get('cache-control')).toBe('no-cache');
+    });
+
+    it('makes every client route revalidate too, since they are all the shell', async () => {
+        const res = await serveFrom(embeddedLookup(EMBEDDED), '/join/K7QX2');
+        expect(res.headers.get('cache-control')).toBe('no-cache');
+    });
+
+    it('lets a fingerprinted bundle be kept forever, because its name changes with it', () => {
+        expect(cacheControlFor('/assets/index-CtByFVTU.js')).toContain('immutable');
+        expect(cacheControlFor('/assets/index-i3XKi0pu.css')).toContain('immutable');
+    });
+
+    /**
+     * The false positive that would matter most: an audio file whose own name
+     * happens to have the shape of a fingerprint. `amb-mule-presence.mp3` ends
+     * in a hyphen followed by exactly eight characters, and treating it as
+     * immutable would pin a stale sound effect for a year.
+     */
+    it('never mistakes a hyphenated asset name for a content hash', () => {
+        for (const key of [
+            '/assets/sfx/amb-mule-presence.mp3',
+            '/assets/sfx/token-award.mp3',
+            '/assets/sfx/your-turn.mp3',
+            '/assets/card-back/card_back_2.png',
+            '/assets/first-speaker/portrait_0.png',
+            '/fonts/inter-var-latin-ext.woff2'
+        ]) {
+            expect(cacheControlFor(key)).not.toContain('immutable');
+        }
+    });
+
+    it('applies the same rule through the filesystem lookup', async () => {
+        const res = await serveFrom(fsLookup, '/card.png');
+        expect(res.status).toBe(200);
+        expect(res.headers.get('cache-control')).toBe(`public, max-age=${ASSET_MAX_AGE_SECONDS}`);
+    });
+
+    it('survives compression, which builds its own header set', async () => {
+        const res = await serveFrom(embeddedLookup(EMBEDDED), '/index.html', 'gzip');
+        expect(res.headers.get('cache-control')).toBe('no-cache');
+    });
+});
+
+/**
+ * The homepage reaches `respond` under a different key depending on the lookup:
+ * the embedded one translates '/' to the shell and hits, the filesystem one
+ * misses on the root directory and falls back under SHELL_PATH. One policy over
+ * two lookups is this file's entire premise, so the header must not notice.
+ */
+describe('the homepage caches the same way whichever lookup serves it', () => {
+    it('agrees across both lookups', async () => {
+        // A real root on disk, because the shared fixtures directory holds a
+        // `shell.html` rather than an `index.html` and so has no homepage to
+        // serve — the filesystem lookup would 404 and the comparison would pass
+        // by both sides being wrong.
+        const root = mkdtempSync(join(tmpdir(), 'mules-cache-'));
+        writeFileSync(join(root, 'index.html'), '<!doctype html><title>court</title>');
+
+        try {
+            const embedded = await serveFrom(embeddedLookup(EMBEDDED), '/');
+            const onDisk = await serveFrom(filesystemLookup(root), '/');
+
+            expect(embedded.status).toBe(200);
+            expect(onDisk.status).toBe(200);
+            expect(embedded.headers.get('cache-control')).toBe('no-cache');
+            expect(onDisk.headers.get('cache-control')).toBe(embedded.headers.get('cache-control'));
+        } finally {
+            rmSync(root, { recursive: true, force: true });
+        }
     });
 });
