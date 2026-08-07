@@ -3,7 +3,7 @@
  * (UIX §12).
  *
  * Four thematic variants exist per character (`portrait_0` … `portrait_3`,
- * catalogued in `PORTRAIT_PROMPTS.md`). This file is the **only** place in the
+ * catalogued in `docs/prompts/PORTRAIT_PROMPTS.md`). This file is the **only** place in the
  * client that names one, so a curation decision is a one-line edit here and
  * nothing downstream has to be found and changed.
  *

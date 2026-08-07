@@ -1,7 +1,7 @@
 # Sound Effect Generation Prompts
 
 Every ComfyUI prompt behind the audio in this directory, so the set is
-reproducible. Companion to `../PORTRAIT_PROMPTS.md`, which does the same job for
+reproducible. Companion to `PORTRAIT_PROMPTS.md`, which does the same job for
 the portrait art.
 
 ## Where these fit

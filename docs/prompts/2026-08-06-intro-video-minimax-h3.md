@@ -1,9 +1,9 @@
 # Intro video — MiniMax H3 (text-to-video)
 
 Prompts for the game's opening title sequence, written for **MiniMax H3** text-to-video
-through ComfyUI. Kept here for the same reason `public/assets/PORTRAIT_PROMPTS.md` keeps
-the portrait prompts: so a result can be reproduced, and so the next attempt starts from
-the last one rather than from nothing.
+through ComfyUI. Kept here for the same reason `PORTRAIT_PROMPTS.md` and `SFX_PROMPTS.md`
+sit beside it: so a result can be reproduced, and so the next attempt starts from the last
+one rather than from nothing.
 
 **Written:** 2026-08-06. **Not yet generated** — no take from either prompt has been run.
 
