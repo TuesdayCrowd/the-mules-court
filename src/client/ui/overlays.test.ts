@@ -99,12 +99,12 @@ describe('round over', () => {
         expect(ui.text()).toContain('Bayta');
     });
 
-    it('renders revealed hands from roundResult alone', () => {
+    it('renders revealed hands with their value, from roundResult alone', () => {
         const ui = mounted();
         ui.show({ table: makeTable({ phase: 'round_over', view: makeView({ roundResult: DECK_OUT }) }) });
 
-        expect(ui.text()).toContain('The Mule');
-        expect(ui.text()).toContain('Informant');
+        expect(ui.text()).toContain('8 · The Mule');
+        expect(ui.text()).toContain('1 · Informant');
     });
 
     it('renders nothing for a null revealed hand, which is the empty-hand edge case', () => {
@@ -118,7 +118,7 @@ describe('round over', () => {
 
         const rows = [...ui.root.querySelectorAll('[data-role="revealed-hand"]')];
         expect(rows).toHaveLength(1);
-        expect(rows[0].textContent).toContain('The Mule');
+        expect(rows[0].textContent).toContain('8 · The Mule');
     });
 
     it('reveals no hands at all on a last-survivor round', () => {

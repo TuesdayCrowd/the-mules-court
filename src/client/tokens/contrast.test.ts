@@ -28,6 +28,7 @@ describe('contrastRatio', () => {
 /** Carries small text. AA governs these strictly. */
 const SMALL_TEXT = [
     'colorTextPrimary',
+    'colorTextSecondary',
     'colorStateYourTurn',
     'colorStateWaiting',
     'colorStateRoundOver',

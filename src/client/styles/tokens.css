@@ -13,6 +13,11 @@
     /* Foreground for body copy and for numerals drawn on a deck fill. Near-white
        rather than #fff: pure white haloes badly against a pure black field. */
     --color-text-primary: #f5f5f5;
+    /* The grey that carries words. `tokens/contrast.test.ts` argues this exact
+       value: #6b7280 measures 4.34 and borders seats without ever labelling
+       them, #9ca3af measures 8.27 and is the one to reach for when grey has to
+       be read. Referenced in three places before it existed. */
+    --color-text-secondary: #9ca3af;
 
     /* Seat states */
     --color-seat-current: #ef4444;
@@ -38,8 +43,19 @@
     --space-2: 0.5rem;
     --space-3: 0.75rem;
     --space-4: 1rem;
+    /* The gap in the scale was not a design decision. `ui.css` asked for
+       `--space-5` and nothing defined it, so the personal toast's whole
+       `padding` shorthand became invalid at computed-value time and resolved to
+       the initial value — zero, on all four sides, rather than falling back to
+       the base rule's padding the way a reader expects. Its text sat against
+       its own border on every viewport the game ships to. */
+    --space-5: 1.25rem;
     --space-6: 1.5rem;
     --space-8: 2rem;
+    --font-size-sm: 0.875rem;
+    /* Not a palette colour and deliberately not mirrored in TS: the drift test
+       matches `#rrggbb`, and an alpha boundary has no integer form to mirror. */
+    --color-border-subtle: rgb(255 255 255 / 0.18);
     --radius: 0.5rem;
     --tap-min: 48px;
 }

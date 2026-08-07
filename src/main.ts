@@ -23,8 +23,8 @@ import './client/styles/table.css';
 import type { CardInstanceId, CardTypeId, PlayerId, RedactedView } from './game/engine';
 import { cardTypeOf } from './game/engine';
 import type { PresentationEvent } from './client/store/diff';
-import { announcementFor } from './client/content/announce';
-import { PERSONAL_NOTICE_MS, personalNotice } from './client/content/personalNotice';
+import { announcementForViewer } from './client/content/announce';
+import { PERSONAL_NOTICE_MS } from './client/content/personalNotice';
 import { cardLabel } from './client/content/cardCopy';
 import { failureCopy } from './client/content/failureCopy';
 import { diffSnapshots } from './client/store/diff';
@@ -715,15 +715,17 @@ function boot(): void {
                 // beatForEvent and soundForEvent. Silence is allowed, but it has
                 // to be chosen.
                 /**
-                 * Second person when it happened to this viewer, third person
-                 * otherwise.
+                 * What to say and which channel says it — second person when it
+                 * happened to this viewer, painted third person when two other
+                 * seats exchanged a guess, clipped third person otherwise.
                  *
-                 * Replacing rather than adding: the same string is the
-                 * `aria-live` line, so saying it twice in two grammatical
-                 * persons would be worse for a screen reader than either alone.
+                 * Both halves come back together from one pure call, and both
+                 * enqueue sites below read the same pair. They were a ternary
+                 * here, twice; `content/announce.ts` says why that was the wrong
+                 * file for a decision.
                  */
-                const personal = event.kind === 'log' ? personalNotice(event.entry, viewerId, nameOf) : null;
-                const line = personal ?? announcementFor(event, nameOf);
+                const announcement = announcementForViewer(event, viewerId, nameOf);
+                const line = announcement?.line ?? null;
                 const beat = beatForEvent(event);
                 const cue = soundForEvent(event);
                 if (line === null && beat === null && cue === null) continue;
@@ -767,7 +769,7 @@ function boot(): void {
                     // A dealt card is deliberately silent (announce.ts says
                     // why). If that judgement ever changes, the line still gets
                     // out rather than being swallowed by the grouping above.
-                    if (line !== null) queue.enqueue({ announce: line, announceKind: personal === null ? 'narration' : 'personal' });
+                    if (announcement !== null) queue.enqueue({ announce: announcement.line, announceKind: announcement.kind });
                     continue;
                 }
 
@@ -793,7 +795,7 @@ function boot(): void {
                                   return beat === null ? undefined : beats.run(beat, beatContext(event));
                               }
                           }),
-                    ...(line === null ? {} : { announce: line, announceKind: personal === null ? ('narration' as const) : ('personal' as const) })
+                    ...(announcement === null ? {} : { announce: announcement.line, announceKind: announcement.kind })
                 });
             }
 

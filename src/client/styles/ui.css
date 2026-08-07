@@ -246,6 +246,10 @@ h2,
  * `[data-kind='notice']` (a server refusal) and `[data-kind='personal']`
  * (something a card did to you) are both painted — they answer a question the
  * player is asking rather than describing the table.
+ *
+ * `[data-kind='table']` (a guess exchanged by two OTHER seats — see
+ * `content/tableNotice.ts`) is painted too, and gets a look of its own below.
+ * `narration` is the only kind this file clips to screen-reader-only.
  */
 .toast[data-kind='narration'] {
     position: absolute;
@@ -287,6 +291,48 @@ h2,
     font-weight: 600;
     font-size: clamp(1rem, 3.6vw, 1.2rem);
     padding: var(--space-3) var(--space-5);
+}
+
+/**
+ * A guess exchanged by two OTHER seats: painted, but not addressed to you.
+ *
+ * It needs a third look, and the reason is the base style it would otherwise
+ * inherit. `notice` — a server refusal, the copy in `content/failureCopy.ts` —
+ * has no rule of its own, so the plain bordered `.toast` box has until now
+ * meant exactly one thing: *something went wrong with the thing you just did*.
+ * Dropping table commentary into that same box makes a painted grey toast
+ * ambiguous between "the court refused your play" and "two other players
+ * exchanged a guess", and both can be on screen at once, stacked, identical.
+ *
+ * So: no frame at all. A refusal keeps the drawn edge that says a box wants
+ * answering; a bystander line is an unframed plate laid over the table, which
+ * is what ambient commentary should look like.
+ *
+ * The first attempt at this was a *dimmed* frame — the seat-other grey at 45%
+ * alpha over a lightened ground — and the arithmetic killed it: composited
+ * against the playfield art it lands at 1.4–1.7:1, under the 3:1 floor
+ * `tokens/contrast.test.ts` holds every other non-text token to. It would have
+ * read as no frame anyway, on some backgrounds, some of the time. Absent on
+ * purpose beats faint by accident: the same look, now guaranteed, and one the
+ * harness can measure.
+ *
+ * The ground stays at the base 0.82 rather than going lighter. It is the only
+ * thing separating this text from a nebula, and the earlier 0.72 was making the
+ * one toast whose content is load-bearing the hardest one to read.
+ *
+ * Weight, then, not hue. The palette already spends colour on whose turn it is,
+ * and `personal`'s violet (`--color-state-your-turn`) is the one toast colour in
+ * the game precisely because it is the only one that means "you" — the actual
+ * amber in this palette is `--color-state-paused`, and is already spoken for. A
+ * third hue would cost one of them its word.
+ *
+ * The text stays `--color-text-primary`. This line names a card VALUE that the
+ * rest of the round's deduction runs on, so it is quiet in framing and never in
+ * legibility — dimming the glyphs would have failed contrast for the one toast
+ * whose content is load-bearing.
+ */
+.toast[data-kind='table'] {
+    border-color: transparent;
 }
 
 @media (prefers-reduced-motion: no-preference) {
@@ -616,7 +662,10 @@ h2,
 }
 
 .action-sheet button[data-state] [data-role='target-state'] {
-    font-size: var(--font-size-sm, 0.8125rem);
+    /* A step below `--font-size-sm` on purpose: an uppercase, letterspaced
+       micro-label reads larger than its size, and this one sits under a
+       target name it must not compete with. */
+    font-size: 0.8125rem;
     text-transform: uppercase;
     letter-spacing: 0.05em;
 }
@@ -913,7 +962,7 @@ h2,
 
 .reference-modal [role='tab'][aria-selected='false'] {
     border-color: var(--color-seat-other);
-    color: var(--color-text-secondary, var(--color-text-primary));
+    color: var(--color-text-secondary);
 }
 
 /* One block per round, so a round boundary is visible rather than implied. */
@@ -1129,7 +1178,7 @@ h2,
    screen reader announces — none of which a div would have. Everything below is
    presentation only; remove it all and the control still works. */
 .screen-lobby [data-role='difficulty'] {
-    border: 1px solid var(--color-border-subtle, rgba(255, 255, 255, 0.18));
+    border: 1px solid var(--color-border-subtle);
     border-radius: var(--radius);
     padding: var(--space-4);
     margin: 0;
@@ -1162,7 +1211,7 @@ h2,
 .screen-lobby [data-role='difficulty-hint'] {
     grid-column: 2;
     color: var(--color-text-secondary);
-    font-size: var(--font-size-sm, 0.875rem);
+    font-size: var(--font-size-sm);
 }
 
 /**
