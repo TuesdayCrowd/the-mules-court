@@ -408,7 +408,7 @@ The slug does **not** always match the card's display name. Mapping (README card
 | The First Speaker    | `first-speaker/` | 7     |
 | The Mule             | `mule/`          | 8     |
 
-Other asset dirs: `card-back/` (the deck and face-down cards), `shaders/` (`rainbow_gradient.png` for the devotion-token shimmer, `sparkle_pattern.png` for the victory burst), and `misc/` (the playfield background and the devotion token badge). Catalogued in `VISUAL_SHOWCASE.md`.
+Other asset dirs: `card-back/` (the deck and face-down cards), `shaders/` (`rainbow_gradient.png` for the devotion-token shimmer, `sparkle_pattern.png` for the victory burst; `distortion_map.png` ships and is unused by design), `misc/` (the playfield background and the devotion token badge), and `sfx/` (thirteen recorded takes, one per entry in `src/client/store/sound.ts`, 1.4 MB — just under `card-back/`'s single 1.5 MB texture). Catalogued in `VISUAL_SHOWCASE.md`.
 
 ## Skills
 

@@ -62,6 +62,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **Thirteen recorded sounds, and synthesis kept underneath them.** The table's
+  voice was nine synthesised effects (1.2.1); it is now a recorded take per
+  entry in `src/client/store/sound.ts`, ambience included, at 1.4 MB under
+  `public/assets/sfx/`. Every spec still carries its complete synthesis recipe —
+  oscillators, filters, envelopes — and the layer owning the audio graph
+  *prefers the recording and falls back to the recipe*. The fallback is the
+  point: a sample can fail to arrive for reasons that have nothing to do with
+  this game — a cold cache, a codec a browser will not decode, a tab opened
+  offline — and a table answering any of those with silence has lost something a
+  synthesised table would not have. Synthesis costs zero bytes and cannot 404,
+  so it stays as the floor rather than being deleted once the files existed. The
+  loader is injected and optional, so a client built without it synthesises
+  everything and has no ambience, which is exactly the game as it stood before
+  the recordings and is still fully covered by the tests written for it.
+  *(Landed 2026-08-04, after the 1.2.4 release, and had no entry until now — the
+  gap that prompted this file's `[Unreleased]` section.)*
 - **The visual harness photographs surfaces a match never walks past.**
   `bun run test:visual` played a real match, screenshotted the deal, and stopped
   — so it had never captured a round-over overlay, which comes after a round it
