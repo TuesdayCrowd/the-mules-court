@@ -31,6 +31,7 @@ import { makeConfig } from '../src/server/config';
 import { serveStatic, startServer } from '../src/server/index';
 import type { ClientMessage, ServerMessage } from '../src/server/protocol';
 import { chooseFallbackPlay } from '../src/mcp/fallbackPlay';
+import { toFallbackInput } from '../src/mcp/tools';
 
 // ------------------------------------------------------------------ arguments
 
@@ -293,7 +294,9 @@ try {
                 handPlayed++;
                 source = 'decided';
             } else {
-                const auto = chooseFallbackPlay(view);
+                // The MCP tool ships an ENRICHED view (cards carry value and name); the
+                // fallback chooser reads the engine's bare shape. Narrow it back.
+                const auto = chooseFallbackPlay(toFallbackInput(view));
                 if (auto === null) {
                     log(`!! ${seat} had no legal play at turn ${view.turnNumber}`);
                     break;

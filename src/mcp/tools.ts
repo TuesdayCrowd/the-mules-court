@@ -14,7 +14,9 @@
  * thing to tell an agent that simply passed the wrong argument.
  */
 
-import type { RedactedView } from '../game/engine';
+import type { FallbackInput } from './fallbackPlay';
+import { CARD_CATALOG, cardTypeOf, EFFECT_DEFS } from '../game/engine';
+import type { CardInstanceId, CardTypeId, RedactedView } from '../game/engine';
 import type { SeatPlay } from './seatClient';
 import type { AckResult, JoinedSeat, NotebookResult, TableStatus, ViewResult } from './session';
 import type { TurnSignal } from './turnRouter';
@@ -58,7 +60,7 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     {
         name: 'join_match',
         description:
-            'Claim seats at an existing match and receive one opaque handle per seat. Call this once, first, with the matchId from the host\'s invite link. Each handle authorises exactly one seat: hand a handle only to the agent playing that seat, and never read one seat\'s view with another seat\'s handle.',
+            'Claim seats at an existing match and receive one opaque handle per seat. Call this once, first, with the matchId from the host\'s invite link. Each handle authorises exactly one seat: hand a handle only to the agent playing that seat, and never read one seat\'s view with another seat\'s handle. Each returned seat carries `seat`, the 0-based index the wire itself uses (the same number ADD_BOT takes) — do not narrate this one to a human — and `seatLabel`, that same chair 1-based exactly as the browser lobby prints it ("Seat 2" for seat 1): narrate with seatLabel so an agent describing the table never contradicts what the human is looking at on their own screen.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -93,13 +95,13 @@ export const TOOL_DEFS: readonly ToolDef[] = [
     {
         name: 'get_view',
         description:
-            'This seat\'s own redacted view of the table: its hand, its legal plays, its legal targets per play, what it has peeked, every discard pile, and the public log. Call it before every play, because legal plays are only populated while this seat holds the turn. Requires that seat\'s handle.',
+            'This seat\'s own redacted view of the table: its hand, its legal plays, its legal targets per play, what it has peeked, every discard pile, and the public log. Every entry in hand and legalPlays carries `value` and `displayName` alongside the bare cardInstanceId — every rule in this game (the Informant\'s guess, the Baron\'s compare, the deck-out showdown) is decided on a value, and there is no portrait here to read one off instead. A legalPlays entry also carries `requiresTarget`: when legalTargets for that card is an empty array, `requiresTarget: false` means the card simply takes no target, while `requiresTarget: true` means it takes one but none is legal right now — a fizzle, not a free play. Call it before every play, because legal plays are only populated while this seat holds the turn. Requires that seat\'s handle.',
         inputSchema: { type: 'object', properties: { ...HANDLE_PROPERTY }, required: ['handle'] }
     },
     {
         name: 'play_card',
         description:
-            'Play one card for this seat and wait for the table to confirm it. Choose cardInstanceId from own.legalPlays and target from own.legalTargets for that card — both come from get_view and are already the engine\'s answers, so never compute legality yourself. guess names a card VALUE from 2 to 8 and applies only to the Informant.',
+            'Play one card for this seat and wait for the table to confirm it. Choose cardInstanceId from own.legalPlays and target from own.legalTargets for that card — both come from get_view and are already the engine\'s answers, so never compute legality yourself. A LEGAL play is not always a SAFE one: discarding The Mule is a legal play that eliminates this seat from the round on the spot, and own.legalPlays carries a `warning` string on that entry whenever playing it would. guess names a card VALUE from 2 to 8 and applies only to the Informant.',
         inputSchema: {
             type: 'object',
             properties: {
@@ -130,6 +132,116 @@ export const TOOL_DEFS: readonly ToolDef[] = [
 ];
 
 /**
+ * Why `own.hand` and `own.legalPlays` carry more than `view.ts` puts in them.
+ *
+ * `src/client/content/cardCopy.ts`'s `cardLabel()` renders every card the
+ * browser shows as "8 · The Mule" — value first — and its own comment gives
+ * the reason: "value is what every rule in the game is written in". The
+ * Informant's guess, the Baron's compare, and the deck-out showdown are all
+ * decided on a number; the character is flavour on top of it. The browser was
+ * changed to lean on that fact for the round-over screen. An MCP agent reading
+ * a bare `own.hand: ["mule#0"]` has none of it: no portrait to recognise, no
+ * value printed anywhere, just an instance id it has to resolve against an
+ * eleven-identity deck table it would otherwise have to carry around in its
+ * own head, every turn, for the rest of the match — while `players[].discardPile`
+ * a few keys over already hands it values for cards nobody can play again.
+ *
+ * The Mule carries one thing more than a name. It is the one card whose
+ * *legal* play self-eliminates its owner, and the browser spends a red Play
+ * button and an explicit sentence on that (`playWarning`, rendered by
+ * `src/client/ui/actionSheet.ts`). `own.legalPlays` is the only place an agent
+ * chooses what to play, so the warning belongs on the entry itself — a fact
+ * the agent must already know is not a fact an agent reliably already knows.
+ *
+ * None of this moves `view.ts`. What a seat may *see* stays the engine's
+ * decision, and `view()` still hands `own.hand` and `own.legalPlays` as bare
+ * instance ids, unchanged — see the regression guard in `tools.test.ts` that
+ * calls `view()` directly and asserts exactly that. This is strictly a
+ * shipping decision, layered on top of values the engine already computed
+ * (`CARD_CATALOG`) and a static rule the engine already tags every effect
+ * with (`EFFECT_DEFS[...].requiresTarget`, `.eliminatesOnDiscard`) — reformatted
+ * for a client with no eyes.
+ */
+const MULE_DISCARD_WARNING = 'Discard The Mule — you are eliminated.';
+
+interface DescribedCard {
+    readonly cardInstanceId: CardInstanceId;
+    readonly cardId: CardTypeId;
+    readonly value: number;
+    readonly displayName: string;
+}
+
+interface DescribedLegalPlay extends DescribedCard {
+    readonly requiresTarget: boolean;
+    /** Present for the Mule alone — see the comment above this block. */
+    readonly warning?: string;
+}
+
+function describeCard(cardInstanceId: CardInstanceId): DescribedCard {
+    const cardId = cardTypeOf(cardInstanceId);
+    const def = CARD_CATALOG[cardId];
+    return { cardInstanceId, cardId, value: def.value, displayName: def.displayName };
+}
+
+/**
+ * `describeCard` plus what a seat needs to choose safely: whether the card
+ * takes a target at all, and — keyed off the engine's own
+ * `eliminatesOnDiscard` flag rather than the string "mule", so this reads
+ * correctly if a future card ever shares the behaviour — the warning to
+ * surface when playing it ends the seat's round.
+ */
+/**
+ * The inverse of the enrichment above, for the one caller shape that needs it.
+ *
+ * `chooseFallbackPlay` is written against the ENGINE's `RedactedView`, where a
+ * hand is bare instance ids. Anything that reads a seat's view back out of the
+ * MCP *tool* — the stdio test, `scripts/mcpPlay.ts` — now gets the enriched
+ * shape instead, and handing that straight to the fallback chooser throws
+ * `instanceId.lastIndexOf is not a function` from inside `cardTypeOf`.
+ *
+ * Exported, and defined exactly once, because the failure is silent until a
+ * live match reaches the fallback phase: two hand-rolled copies of this
+ * conversion would drift, and the one that drifted would only be found by
+ * somebody playing a real game.
+ */
+export function bareCardId(entry: CardInstanceId | { readonly cardInstanceId: CardInstanceId }): CardInstanceId {
+    return typeof entry === 'string' ? entry : entry.cardInstanceId;
+}
+
+/** An enriched tool view, narrowed back to what `chooseFallbackPlay` reads. */
+export function toFallbackInput(enriched: {
+    readonly players: FallbackInput['players'];
+    readonly revealed: FallbackInput['revealed'];
+    readonly own: {
+        readonly playerId: FallbackInput['own']['playerId'];
+        readonly hand: readonly (CardInstanceId | { readonly cardInstanceId: CardInstanceId })[];
+        readonly legalPlays: readonly (CardInstanceId | { readonly cardInstanceId: CardInstanceId })[];
+        readonly legalTargets: FallbackInput['own']['legalTargets'];
+    };
+}): FallbackInput {
+    return {
+        players: enriched.players,
+        revealed: enriched.revealed,
+        own: {
+            playerId: enriched.own.playerId,
+            hand: enriched.own.hand.map(bareCardId),
+            legalPlays: enriched.own.legalPlays.map(bareCardId),
+            legalTargets: enriched.own.legalTargets
+        }
+    };
+}
+
+function describeLegalPlay(cardInstanceId: CardInstanceId): DescribedLegalPlay {
+    const described = describeCard(cardInstanceId);
+    const effect = EFFECT_DEFS[CARD_CATALOG[described.cardId].effectType];
+    return {
+        ...described,
+        requiresTarget: effect.requiresTarget,
+        ...(effect.eliminatesOnDiscard ? { warning: MULE_DISCARD_WARNING } : {})
+    };
+}
+
+/**
  * The view as a seat should receive it: every finished round keeps its outcome
  * and loses its log.
  *
@@ -152,6 +264,11 @@ export const TOOL_DEFS: readonly ToolDef[] = [
 function compactView(view: RedactedView): unknown {
     return {
         ...view,
+        own: {
+            ...view.own,
+            hand: view.own.hand.map(describeCard),
+            legalPlays: view.own.legalPlays.map(describeLegalPlay)
+        },
         roundHistory: view.roundHistory.map(round => ({
             roundNumber: round.roundNumber,
             reason: round.reason,
@@ -199,7 +316,15 @@ export async function callTool(surface: ToolSurface, name: string, args: unknown
                     nicknames: raw as string[],
                     serverUrl: stringArg(input, 'serverUrl') ?? DEFAULT_SERVER_URL
                 });
-                return ok(seats);
+                // `seat` is 0-based and is the wire's own index — ADD_BOT and
+                // every seat roster use it, so it is left exactly as
+                // `joinMatch` returns it. The browser lobby labels chairs
+                // 1-based ("Seat 2" for index 1), and an agent narrating a
+                // match to the human sitting at it needs to say the word that
+                // human is looking at, not the index the wire uses to route.
+                // `seatLabel` carries that word; `seat` still carries the
+                // number every other tool call and the transport expect.
+                return ok(seats.map(seat => ({ ...seat, seatLabel: `Seat ${seat.seat + 1}` })));
             }
 
             case 'await_turn': {

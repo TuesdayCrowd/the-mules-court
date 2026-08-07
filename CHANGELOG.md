@@ -78,6 +78,25 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   the recordings and is still fully covered by the tests written for it.
   *(Landed 2026-08-04, after the 1.2.4 release, and had no entry until now — the
   gap that prompted this file's `[Unreleased]` section.)*
+- **The MCP seat surface now names a card the way the browser does.** An agent
+  holding a seat received `own.hand` as bare instance ids — `["mule#0",
+  "first-speaker#0"]` — while the very same payload handed it `{cardId, value}`
+  for every card already discarded. Every rule in this game is decided in
+  values: the Informant's guess, the compare, the deck-out showdown. So the one
+  client with no portrait to read was the one client made to carry the deck
+  table in its head. Hand and legal plays now carry `value` and `displayName`,
+  and legal plays additionally carry `requiresTarget` — which is what separates
+  "this card takes no target" from "it takes one and none is legal", an
+  ambiguity `engine/types.ts` documents and previously left an agent to guess.
+  The Mule's entry carries the same `warning` sentence the browser spends a red
+  button on, keyed off the engine's `eliminatesOnDiscard` flag rather than the
+  string "mule". `join_match` gained `seatLabel` so an agent narrating "Seat 2"
+  cannot contradict the lobby on the human's screen.
+
+  The enrichment is in `src/mcp/tools.ts` alone. `RedactedView` is the security
+  boundary and did not move: what a seat may *see* is the engine's decision,
+  and how much of it a tool *ships* is the MCP layer's — a test asserts the
+  engine still hands `own.hand` as bare strings.
 - **The visual harness photographs surfaces a match never walks past.**
   `bun run test:visual` played a real match, screenshotted the deal, and stopped
   — so it had never captured a round-over overlay, which comes after a round it
