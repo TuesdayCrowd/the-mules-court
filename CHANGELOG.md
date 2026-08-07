@@ -7,6 +7,24 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+## [1.2.5] - 2026-08-07
+
+Two pieces of gameplay feedback from a real match, the pre-existing bugs that
+surfaced while verifying them, and the same fix carried into the client that had
+never received it.
+
+A revealed hand at the showdown named a card without its value, and a guess
+between two other players was generated, spoken to a screen reader, and never
+drawn. Fixing the second exposed a toast that had been shipping with no padding
+at all, on every viewport, because a spacing token was never defined — and the
+gates could not see it, since jsdom computes the same wrong value without
+minding it and the screenshot harness had never photographed a toast. So the
+harness gained a second pass, and it found the bug on its first run.
+
+The MCP seat server got the value fix too. It was naming cards to an agent the
+way the round-over screen had been naming them to a person: by name alone, in a
+game where every rule is written in numbers.
+
 ### Fixed
 
 - **The round-over overlay names a card with its value.** A revealed hand read
@@ -693,7 +711,8 @@ a browser: host a room, share a link, play a hand, win Devotion Tokens.
   the transport layer, and the client UI, kept as the historical record of
   each stage's decisions.
 
-[Unreleased]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.4...HEAD
+[Unreleased]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.5...HEAD
+[1.2.5]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.4...v1.2.5
 [1.2.4]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.3...v1.2.4
 [1.2.3]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.2...v1.2.3
 [1.2.2]: https://github.com/TuesdayCrowd/the-mules-court/compare/v1.2.1...v1.2.2

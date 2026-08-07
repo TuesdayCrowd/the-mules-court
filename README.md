@@ -567,8 +567,8 @@ than editing it.
 
 ## Status
 
-Version 1.2.4. The engine, the transport, the client, the computer opponents and
-the MCP seat server are built and tested — 2,326 tests across 128 files — and a
+Version 1.2.5. The engine, the transport, the client, the computer opponents and
+the MCP seat server are built and tested — 2,334 tests across 128 files — and a
 match is playable end to end, alone or with up to three other people, from a
 checkout or from a single-file binary you compile yourself.
 
