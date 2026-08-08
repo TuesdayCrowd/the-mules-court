@@ -92,9 +92,11 @@ fine: nothing is proxied during a build.
 
 ## Testing instructions
 
-Two test runners and three suites. Engine **and client** tests run under **Vitest** (`bun run test:engine` — the name predates the client; `vitest.config.ts` collects `src/game/**/*.test.ts` and `src/client/**/*.test.ts`). Server/transport tests run under **Bun's own test runner** (`bun run test:server`, i.e. `bun test src/server`), and so do the MCP tests (`bun run test:mcp`). The split isn't stylistic: Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun globals the transport depends on, so `src/server/` has to run on `bun test` instead — and `src/mcp/` inherits that, since it opens real WebSockets and spawns its own server as a subprocess. `bun run test` runs all three in sequence. There is still **no linter** configured.
+Two test runners and four suites. Engine **and client** tests run under **Vitest** (`bun run test:engine` — the name predates the client; `vitest.config.ts` collects `src/game/**/*.test.ts` and `src/client/**/*.test.ts`). Server/transport tests run under **Bun's own test runner** (`bun run test:server`, i.e. `bun test src/server`), and so do the MCP tests (`bun run test:mcp`) and the build-tooling tests (`bun run test:scripts`, i.e. `bun test scripts`). The split isn't stylistic: Vitest's workers run under Node, which can load neither `bun:sqlite` nor the Bun globals the transport depends on, so `src/server/` has to run on `bun test` instead — and `src/mcp/` inherits that, since it opens real WebSockets and spawns its own server as a subprocess, as does `scripts/`, which spawns real compiles. `bun run test` runs all four in sequence. There is still **no linter** configured.
 
-**`vitest.config.ts` enumerates globs while the two `bun test` scripts name directories**, so a new top-level directory under `src/` is type-checked automatically (`tsconfig.json` includes `src` wholesale) but is **silently untested** until a script names it. That asymmetry is how a suite rots; `test:mcp` exists because of it.
+**`vitest.config.ts` enumerates globs while the three `bun test` scripts name directories**, so a new top-level directory under `src/` is type-checked automatically (`tsconfig.json` includes `src` wholesale) but is **silently untested** until a script names it. That asymmetry is how a suite rots; `test:mcp` exists because of it.
+
+`scripts/` is the same trap facing the other way: `tsconfig.json`'s `include` is `["src", "visual"]`, so **build tooling is now tested but still not type-checked**. Adding `scripts` to that list today fails on a pre-existing `TS6133` in `scripts/hostSeat.ts`, which is the only thing standing between the directory and the same gate everything else gets.
 
 Client tests default to the **Node** environment; a file needing a DOM opts in with a `// @vitest-environment jsdom` docblock on its first line. Vitest 4 removed `environmentMatchGlobs`, and the docblock keeps that choice beside the code that needs it.
 
@@ -264,7 +266,20 @@ client asset in one ~71 MB executable that runs from any directory with nothing
 installed. Cross-compile with `compile:linux-x64` and friends, which land in
 `dist-bin/`.
 
-Three things about it are load-bearing:
+Four things about it are load-bearing:
+
+**Every `compile:*` script goes through `scripts/compileBinary.ts`, never `bun build`
+directly.** A successful compile whose target matches the host stages a ~63 MB copy of the
+Bun runtime as `.<hex>-00000000.bun-build` in the working directory and never removes it.
+Nothing in `bun build` relocates it — it follows the *working directory* rather than
+`--outfile`, ignores `TMPDIR`/`BUN_TMPDIR`, and has no flag. The names are random, so runs
+accumulate rather than overwrite, and `.gitignore` hides them from `git status`: this repo
+had silently banked 189 MB before anyone looked, and `.gitignore`'s own comment blamed
+*interrupted* builds, which is why nobody did. The wrapper removes what its build created
+and leaves anything it did not, so a concurrent compile keeps its own. Compiling from a
+throwaway directory would avoid the file altogether and was rejected — the working directory
+is the root Bun records for embedded module paths, so building elsewhere bakes the
+developer's absolute checkout path into the shipped binary (measured: seven occurrences).
 
 **Static hosting is one policy over two lookups** (`src/server/staticAssets.ts`).
 `serveFrom` owns the rules — decode, refuse a `..` segment, exact hit, shell

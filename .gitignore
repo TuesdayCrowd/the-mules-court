@@ -57,5 +57,8 @@ mules-court-mcp
 mules-court-mcp.exe
 dist-bin/
 
-# Interrupted `bun build --compile` leaves these behind
+# A backstop. `bun build --compile` stages a ~63 MB copy of the Bun runtime here on
+# every *successful* host-target compile, not only an interrupted one — so these used
+# to accumulate unseen, this rule being what kept them out of `git status`.
+# `scripts/compileBinary.ts` now removes each one as its build finishes.
 .*.bun-build
