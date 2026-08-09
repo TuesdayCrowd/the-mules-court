@@ -67,7 +67,11 @@ describe('pure client layer', () => {
         // touches neither Bun nor `process`, so it is a plain literal — and the
         // alternative is a second copy of the nickname limit that can drift into
         // the client sending exactly what the server refuses.
-        const ALLOWED = new Set(['src/client/content/nickname.ts']);
+        //
+        // `content/chat.ts` is the second, on the identical argument: the chat
+        // length limit is the server's rule, and a client holding its own copy
+        // sends exactly what the server refuses.
+        const ALLOWED = new Set(['src/client/content/nickname.ts', 'src/client/content/chat.ts']);
         const runtimeServerImport = /^\s*import\s+(?!type\b)[^;]*?from\s+['"][^'"]*\/server\/[^'"]*['"]/m;
 
         for (const dir of PURE_DIRS) {
