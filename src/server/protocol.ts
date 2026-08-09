@@ -47,6 +47,30 @@ export type BotDifficulty = 'novice' | 'adept' | 'master';
 
 export type SeatStatus = 'open' | 'occupied' | 'disconnected' | 'computer';
 
+/** What a system line in the transcript says. A code, never a sentence — copy lives in the client. */
+export type ChatNoteCode =
+    // The process restarted and the room was rebuilt; the transcript did not survive.
+    | 'RESTARTED'
+    // The byte cap evicted the oldest entries, so the transcript begins partway through.
+    | 'TRIMMED';
+
+/**
+ * One line of the transcript.
+ *
+ * `nickname` is denormalized rather than resolved from `STATE_UPDATE`'s
+ * `nicknames` map at render time, and that is the point: `Room.sweep()` reopens
+ * a disconnected lobby seat by clearing its name, and the next arrival claims
+ * the same `p2`. A transcript keyed on `PlayerId` alone would relabel one
+ * person's words as another's an hour later.
+ *
+ * Nullable because a seat can genuinely hold no name — the host seat is minted
+ * over HTTP without one. The client renders a seat label in that case.
+ */
+export type ChatEntry = { readonly seq: number; readonly sentAt: number } & (
+    | { readonly kind: 'said'; readonly from: PlayerId; readonly nickname: string | null; readonly text: string }
+    | { readonly kind: 'note'; readonly code: ChatNoteCode }
+);
+
 export type ClientMessage =
     | { type: 'CLAIM_SEAT'; matchId: MatchId; nickname: string } // no seat index — server assigns
     // `nickname` is adopted only by a seat that has none, and only in lobby
@@ -73,6 +97,10 @@ export type ClientMessage =
       }
     | { type: 'END_MATCH'; matchId: MatchId } // host, or any seat after the grace period
     | { type: 'REQUEST_RESYNC'; matchId: MatchId }
+    // No playerId, for the reason PLAY_CARD has none: the acting seat is the
+    // bound connection's. No clientMsgId either — nothing is locked while a
+    // chat message flies, so nothing waits on its acknowledgement.
+    | { type: 'SEND_CHAT'; matchId: MatchId; text: string }
     | { type: 'PING' };
 
 export type ServerMessage =
@@ -105,6 +133,15 @@ export type ServerMessage =
           serverTime: number;
       }
     | { type: 'MATCH_ENDED'; matchId: MatchId; reason: 'won' | 'abandoned'; winnerSeat?: PlayerId } // broadcast
+    // Broadcast, append one. The same unredacted fan-out LOBBY_UPDATE uses:
+    // chat carries no hidden game state, so there is no per-seat view of it.
+    | { type: 'CHAT_SAID'; matchId: MatchId; entry: ChatEntry }
+    // Unicast, replace the whole slice. Sent on seat claim and on every resume.
+    // Deliberately a separate type from CHAT_SAID rather than an array of one:
+    // a match in which exactly one thing has been said would otherwise produce
+    // a history frame indistinguishable from a live broadcast of that entry,
+    // and a client that appends shows it twice.
+    | { type: 'CHAT_HISTORY'; matchId: MatchId; entries: ChatEntry[] }
     | { type: 'ERROR'; code: ErrorCode; refId?: string }
     | { type: 'FATAL'; code: ErrorCode } // sent, then socket closed
     | { type: 'PONG' };
@@ -186,13 +223,47 @@ function parseMatchIdOnly<T extends 'START_MATCH' | 'END_MATCH' | 'REQUEST_RESYN
     return { type, matchId: obj.matchId };
 }
 
+/** The two free-text limits the parser enforces. Named rather than positional: two bare numbers get swapped. */
+export interface ParseLimits {
+    readonly maxNickname: number;
+    readonly maxChat: number;
+}
+
+/** Printable ASCII, inclusive. 0x7F is DEL — a control character, not a printable one. */
+const PRINTABLE_ASCII_MIN = 0x20;
+const PRINTABLE_ASCII_MAX = 0x7e;
+
+/**
+ * Trims, then refuses empty, oversized, and anything outside printable ASCII.
+ *
+ * Stricter than `parseNickname`, which only bars control characters: a chat
+ * message is rendered as a run of text in a transcript, and restricting it to
+ * one well-understood range is what lets the client measure and lay out a line
+ * without a shaping surprise. `0x0A` falls below the floor, so a message is
+ * always a single line.
+ *
+ * Iterates code UNITS rather than code points on purpose: any astral character
+ * has both surrogates outside the range, so it is refused by either reading,
+ * and this needs no `Intl` and no iterator allocation per message.
+ */
+function parseChatText(value: unknown, maxChat: number): string | undefined {
+    if (typeof value !== 'string') return undefined;
+    const trimmed = value.trim();
+    if (trimmed.length === 0 || trimmed.length > maxChat) return undefined;
+    for (let i = 0; i < trimmed.length; i++) {
+        const code = trimmed.charCodeAt(i);
+        if (code < PRINTABLE_ASCII_MIN || code > PRINTABLE_ASCII_MAX) return undefined;
+    }
+    return trimmed;
+}
+
 // -------------------------------------------------------------------- parse
 
 /**
  * The parse boundary (Design §8 steps 2-3). Never throws: a malformed payload
  * is expected traffic, not an exceptional condition.
  */
-export function parseClientMessage(raw: string, maxNickname: number): ParseResult {
+export function parseClientMessage(raw: string, limits: ParseLimits): ParseResult {
     let parsed: unknown;
     try {
         parsed = JSON.parse(raw);
@@ -212,7 +283,7 @@ export function parseClientMessage(raw: string, maxNickname: number): ParseResul
         case 'CLAIM_SEAT': {
             if (!hasExactKeys(obj, ['type', 'matchId', 'nickname'])) return { ok: false };
             if (typeof obj.matchId !== 'string') return { ok: false };
-            const nickname = parseNickname(obj.nickname, maxNickname);
+            const nickname = parseNickname(obj.nickname, limits.maxNickname);
             if (nickname === undefined) return { ok: false };
             return { ok: true, msg: { type: 'CLAIM_SEAT', matchId: obj.matchId, nickname } };
         }
@@ -223,7 +294,7 @@ export function parseClientMessage(raw: string, maxNickname: number): ParseResul
 
             let nickname: string | undefined;
             if (obj.nickname !== undefined) {
-                nickname = parseNickname(obj.nickname, maxNickname);
+                nickname = parseNickname(obj.nickname, limits.maxNickname);
                 // Present but invalid is MALFORMED, never silently dropped: a
                 // client that sent a name it believed good must not be told the
                 // frame was fine while the name vanished.
@@ -290,6 +361,14 @@ export function parseClientMessage(raw: string, maxNickname: number): ParseResul
         case 'REQUEST_RESYNC': {
             const msg = parseMatchIdOnly(obj, 'REQUEST_RESYNC');
             return msg === undefined ? { ok: false } : { ok: true, msg };
+        }
+
+        case 'SEND_CHAT': {
+            if (!hasExactKeys(obj, ['type', 'matchId', 'text'])) return { ok: false };
+            if (typeof obj.matchId !== 'string') return { ok: false };
+            const text = parseChatText(obj.text, limits.maxChat);
+            if (text === undefined) return { ok: false };
+            return { ok: true, msg: { type: 'SEND_CHAT', matchId: obj.matchId, text } };
         }
 
         case 'PING': {

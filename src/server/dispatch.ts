@@ -95,7 +95,7 @@ export async function dispatchMessage(
     raw: string
 ): Promise<void> {
     // Steps 2-3.
-    const parsed = parseClientMessage(raw, config.maxNicknameLength);
+    const parsed = parseClientMessage(raw, { maxNickname: config.maxNicknameLength, maxChat: config.maxChatLength });
     if (!parsed.ok) {
         sendError(state.conn, 'MALFORMED');
         return;

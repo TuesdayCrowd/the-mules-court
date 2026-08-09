@@ -313,7 +313,7 @@ const rows: { name: string; raw: string; ok: boolean; expectedMsg?: ClientMessag
 describe('parseClientMessage', () => {
     for (const row of rows) {
         it(`${row.name} (${row.ok ? 'ok' : 'rejected'})`, () => {
-            const result = parseClientMessage(row.raw, MAX_NICKNAME);
+            const result = parseClientMessage(row.raw, LIMITS);
             expect(result.ok).toBe(row.ok);
             if (row.expectedMsg !== undefined && result.ok) {
                 expect(result.msg).toEqual(row.expectedMsg);
@@ -324,7 +324,7 @@ describe('parseClientMessage', () => {
     it('accepts a nickname the design shows accepted-and-trimmed, returning "ok"', () => {
         const result = parseClientMessage(
             JSON.stringify({ type: 'CLAIM_SEAT', matchId: 'm1', nickname: '  ok  ' }),
-            MAX_NICKNAME
+            LIMITS
         );
         expect(result.ok).toBe(true);
         if (result.ok && result.msg.type === 'CLAIM_SEAT') {
@@ -334,7 +334,64 @@ describe('parseClientMessage', () => {
 
     it('never throws on any malformed row', () => {
         for (const row of rows.filter(r => !r.ok)) {
-            expect(() => parseClientMessage(row.raw, MAX_NICKNAME)).not.toThrow();
+            expect(() => parseClientMessage(row.raw, LIMITS)).not.toThrow();
         }
+    });
+});
+
+const LIMITS = { maxNickname: 24, maxChat: 255 } as const;
+
+describe('SEND_CHAT', () => {
+    const send = (text: unknown) =>
+        parseClientMessage(JSON.stringify({ type: 'SEND_CHAT', matchId: 'K7QX2', text }), LIMITS);
+
+    it('accepts ordinary printable text', () => {
+        const result = send('I have the Mule. Obviously.');
+        expect(result.ok).toBe(true);
+        expect(result.ok && result.msg).toEqual({
+            type: 'SEND_CHAT',
+            matchId: 'K7QX2',
+            text: 'I have the Mule. Obviously.'
+        });
+    });
+
+    it('trims, and measures length after trimming', () => {
+        const result = send(`  ${'a'.repeat(255)}  `);
+        expect(result.ok && result.msg.type === 'SEND_CHAT' && result.msg.text.length).toBe(255);
+    });
+
+    it('refuses an empty or whitespace-only message', () => {
+        expect(send('').ok).toBe(false);
+        expect(send('   ').ok).toBe(false);
+    });
+
+    it('refuses 256 characters', () => {
+        expect(send('a'.repeat(256)).ok).toBe(false);
+    });
+
+    // Written as an escape, never as a literal byte: a raw control character in
+    // source is invisible in review and survives neither copy nor formatter.
+    it('refuses DEL, which is 127 and not printable', () => {
+        expect(send(`hi${String.fromCharCode(127)}`).ok).toBe(false);
+    });
+
+    it('refuses a newline, so a message is always one line', () => {
+        expect(send('one\ntwo').ok).toBe(false);
+    });
+
+    it('refuses non-ASCII, including an em dash and an emoji', () => {
+        expect(send('an em dash — here').ok).toBe(false);
+        expect(send('nice \u{1F600}').ok).toBe(false);
+    });
+
+    it('refuses a non-string text, a missing text, and an extra field', () => {
+        expect(send(42).ok).toBe(false);
+        expect(parseClientMessage(JSON.stringify({ type: 'SEND_CHAT', matchId: 'K7QX2' }), LIMITS).ok).toBe(false);
+        expect(
+            parseClientMessage(
+                JSON.stringify({ type: 'SEND_CHAT', matchId: 'K7QX2', text: 'hi', playerId: 'p2' }),
+                LIMITS
+            ).ok
+        ).toBe(false);
     });
 });

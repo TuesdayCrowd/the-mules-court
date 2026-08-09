@@ -229,6 +229,16 @@ export function createStore(deps: StoreDeps): Store {
 
             case 'PONG':
                 return state;
+
+            // Chat is on the wire (protocol Task 1) but has no reader yet: the
+            // store carries no chat log field, and the UI task that adds one is
+            // still ahead. Falling through here rather than adding a case would
+            // make this switch non-exhaustive over ServerMessage and fail
+            // `bunx tsc --noEmit` on the declared `ClientState` return type — so
+            // both frames are inert for now, exactly like MATCH_STARTED above.
+            case 'CHAT_SAID':
+            case 'CHAT_HISTORY':
+                return state;
         }
     }
 
