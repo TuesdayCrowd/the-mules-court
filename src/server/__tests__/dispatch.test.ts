@@ -51,6 +51,7 @@ function makeState(overrides: Partial<ConnectionState> = {}): ConnectionState {
     return {
         ip: '127.0.0.1',
         bucket: new TokenBucket(1000, 1000),
+        chatBucket: new TokenBucket(1000, 1000),
         seat: null,
         matchId: null,
         conn: new RecordingConn(),
@@ -418,5 +419,93 @@ describe('dispatchMessage — happy path sanity', () => {
         );
 
         expect((store.load(created.matchId) as MatchRecord).actionLog.length).toBe(before + 1);
+    });
+});
+
+/** A registry, a room, and a ConnectionState already bound to the host seat. */
+async function seated(): Promise<{
+    registry: RoomRegistry;
+    config: ReturnType<typeof makeConfig>;
+    state: ConnectionState;
+    matchId: string;
+}> {
+    const { registry, config } = freshRegistry();
+    const created = registry.createRoom();
+    const state = makeState({ conn: new RecordingConn() });
+
+    // Bound through the real pipeline, so `state.seat`/`state.matchId` are set
+    // by the one function allowed to set them.
+    await dispatchMessage(
+        registry,
+        config,
+        state,
+        JSON.stringify({ type: 'RESUME_SEAT', matchId: created.matchId, seatToken: created.hostSeatToken, nickname: 'Host' })
+    );
+
+    return { registry, config, state, matchId: created.matchId };
+}
+
+describe('dispatchMessage — SEND_CHAT', () => {
+    it('reaches the room', async () => {
+        const { registry, config, state, matchId } = await seated();
+        await dispatchMessage(registry, config, state, JSON.stringify({ type: 'SEND_CHAT', matchId, text: 'hi' }));
+
+        expect((state.conn as RecordingConn).sent.filter(m => m.type === 'CHAT_SAID')).toHaveLength(1);
+    });
+
+    it('is refused from a connection with no bound seat', async () => {
+        const { registry, config } = freshRegistry();
+        const created = registry.createRoom();
+        const stranger = makeState(); // seat: null
+
+        await dispatchMessage(
+            registry,
+            config,
+            stranger,
+            JSON.stringify({ type: 'SEND_CHAT', matchId: created.matchId, text: 'let me in' })
+        );
+
+        expect((stranger.conn as RecordingConn).sent).toEqual([{ type: 'ERROR', code: 'NOT_YOUR_SEAT' }]);
+    });
+
+    it('does not spend the shared bucket, so a burst of chat cannot block a play', async () => {
+        const { registry, config, state, matchId } = await seated();
+        // A shared bucket small enough that any chat spend would empty it, and
+        // a chat bucket large enough not to be the thing that refuses.
+        const tight = makeState({
+            conn: state.conn,
+            seat: state.seat,
+            matchId: state.matchId,
+            bucket: new TokenBucket(3, 0, () => 1_000_000),
+            chatBucket: new TokenBucket(1000, 1000, () => 1_000_000)
+        });
+        const chat = JSON.stringify({ type: 'SEND_CHAT', matchId, text: 'hi' });
+
+        for (let i = 0; i < 10; i++) await dispatchMessage(registry, config, tight, chat);
+
+        (tight.conn as RecordingConn).sent = [];
+        await dispatchMessage(registry, config, tight, JSON.stringify({ type: 'PING' }));
+
+        // PING draws on the shared bucket, which still has all three tokens.
+        // If chat had been spending it too, this would be RATE_LIMITED.
+        expect(last((tight.conn as RecordingConn).sent)).toEqual({ type: 'PONG' });
+    });
+
+    it('is itself rate limited once its own bucket empties', async () => {
+        const { registry, config, state, matchId } = await seated();
+        // Fixed clock, for the reason the existing step-4 test states: a real
+        // one refills between two awaited calls and the refusal goes flaky.
+        const limited = makeState({
+            conn: state.conn,
+            seat: state.seat,
+            matchId: state.matchId,
+            chatBucket: new TokenBucket(1, 1000, () => 1_000_000)
+        });
+        const chat = JSON.stringify({ type: 'SEND_CHAT', matchId, text: 'hi' });
+
+        await dispatchMessage(registry, config, limited, chat);
+        await dispatchMessage(registry, config, limited, chat);
+
+        expect(last((limited.conn as RecordingConn).sent)).toEqual({ type: 'ERROR', code: 'RATE_LIMITED' });
     });
 });
