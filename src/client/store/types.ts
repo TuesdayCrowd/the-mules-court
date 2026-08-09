@@ -8,7 +8,7 @@
  */
 
 import type { CardInstanceId, PlayerId, RedactedView } from '../../game/engine';
-import type { BotDifficulty, ErrorCode, SeatStatus } from '../../server/protocol';
+import type { BotDifficulty, ChatEntry, ErrorCode, SeatStatus } from '../../server/protocol';
 
 /**
  * Which surface the player is looking at.
@@ -83,4 +83,13 @@ export interface ClientState {
     readonly pendingPlay: { readonly clientMsgId: string; readonly cardInstanceId: CardInstanceId } | null;
     readonly fatal: ErrorCode | null;
     readonly notices: readonly Notice[];
+    /**
+     * The match transcript, newest last.
+     *
+     * Held as the server sent it and nothing more: no unread count, no
+     * grouping, no formatting. Those are presentation questions, and the
+     * surface that asks them is the one that can answer them — the same reason
+     * this store derives no game rule.
+     */
+    readonly chat: readonly ChatEntry[];
 }

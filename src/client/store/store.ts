@@ -13,6 +13,7 @@
 
 import type { CardInstanceId, GuessValue, PlayerId } from '../../game/engine';
 import type { ClientMessage, ErrorCode, ServerMessage } from '../../server/protocol';
+import { validateChatText } from '../content/chat';
 import type { SeatTokenStore } from './seatTokenStore';
 import type { ClientState, ConnectionStatus, Notice, TableSnapshot } from './types';
 
@@ -53,6 +54,12 @@ export interface Store {
     claimSeat(nickname: string): boolean;
     /** True when a PLAY_CARD frame actually left. */
     playCard(intent: PlayIntent): boolean;
+    /**
+     * Send one line to the transcript. False when the text fails
+     * `validateChatText` — checked here so a message the server would refuse
+     * never spends a frame — or when there is no match to send it in.
+     */
+    sendChat(text: string): boolean;
     cancelPending(): void;
     /**
      * Leave a fatal wall and accept messages again.
@@ -82,7 +89,8 @@ function initialState(deps: StoreDeps): ClientState {
         ended: null,
         pendingPlay: null,
         fatal: null,
-        notices: []
+        notices: [],
+        chat: []
     };
 }
 
@@ -230,15 +238,14 @@ export function createStore(deps: StoreDeps): Store {
             case 'PONG':
                 return state;
 
-            // Chat is on the wire (protocol Task 1) but has no reader yet: the
-            // store carries no chat log field, and the UI task that adds one is
-            // still ahead. Falling through here rather than adding a case would
-            // make this switch non-exhaustive over ServerMessage and fail
-            // `bunx tsc --noEmit` on the declared `ClientState` return type — so
-            // both frames are inert for now, exactly like MATCH_STARTED above.
             case 'CHAT_SAID':
+                return { ...state, chat: [...state.chat, msg.entry] };
+
+            // Replaced whole, never merged. The server sends this on claim and
+            // on every resume, and it is authoritative by construction — a
+            // merge would have to invent a dedupe rule the wire never asked for.
             case 'CHAT_HISTORY':
-                return state;
+                return { ...state, chat: msg.entries };
         }
     }
 
@@ -291,6 +298,18 @@ export function createStore(deps: StoreDeps): Store {
 
             commit({ ...state, pendingPlay: { clientMsgId, cardInstanceId: intent.cardInstanceId } });
             return true;
+        },
+
+        sendChat(text) {
+            if (state.matchId === null) return false;
+
+            // Checked here so a message the server would refuse never costs a
+            // frame — and, more to the point, never costs the MALFORMED that
+            // would follow it.
+            const validated = validateChatText(text);
+            if (!validated.ok) return false;
+
+            return deps.send({ type: 'SEND_CHAT', matchId: state.matchId, text: validated.value });
         },
 
         cancelPending() {

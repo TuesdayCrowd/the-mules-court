@@ -153,6 +153,11 @@ describe('parseServerMessage', () => {
         expect(parseServerMessage(JSON.stringify({ type: 'SURRENDER' }))).toBeNull();
         expect(parseServerMessage(JSON.stringify({ code: 'BAD_TOKEN' }))).toBeNull();
     });
+
+    it('accepts the two chat frame types', () => {
+        expect(parseServerMessage(JSON.stringify({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: {} }))).not.toBeNull();
+        expect(parseServerMessage(JSON.stringify({ type: 'CHAT_HISTORY', matchId: 'K7QX2', entries: [] }))).not.toBeNull();
+    });
 });
 
 describe('createSocket handshake', () => {

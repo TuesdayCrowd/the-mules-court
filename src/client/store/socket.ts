@@ -100,7 +100,9 @@ const SERVER_MESSAGE_TYPES: ReadonlySet<string> = new Set([
     'MATCH_ENDED',
     'ERROR',
     'FATAL',
-    'PONG'
+    'PONG',
+    'CHAT_SAID',
+    'CHAT_HISTORY'
 ]);
 
 /**
