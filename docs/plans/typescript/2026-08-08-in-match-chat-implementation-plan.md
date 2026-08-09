@@ -2099,12 +2099,41 @@ Append to `ui.css`, following the file's existing conventions (tokens for every 
     display: none;
 }
 
-/* Below the breakpoint the panel is what the launcher opens. */
+/**
+ * Below the breakpoint the panel is what the launcher opens — and it takes the
+ * TOP, never the bottom.
+ *
+ * The same split `.reference-modal` already argues for, and for the same
+ * reason: the action sheet anchors to the bottom on narrow layouts and the hand
+ * is under it, so a full-height panel on the right would cover the cards a
+ * player is choosing between. The sheet and the hand own the bottom; chat and
+ * the dock take the top.
+ */
 [data-role='chat-rail-host'][data-open='true'] .chat-rail {
     display: flex;
+    top: 0;
+    bottom: auto;
     width: min(100%, 22rem);
+    max-height: 55dvh;
+    border-radius: 0 0 0 var(--radius);
+}
+
+/**
+ * When the action sheet is up, the launcher crosses to the left.
+ *
+ * `#ui-root[data-sheet] .reference-tab` (ui.css:793) already does exactly this,
+ * for exactly this reason — the sheet owns the bottom-right corner while it is
+ * open. Without the matching rule the chat launcher stays behind and sits on
+ * the sheet's own buttons, which is the collision that rule was written to
+ * settle in the first place.
+ */
+#ui-root[data-sheet] .chat-launcher {
+    right: auto;
+    left: var(--space-3);
 }
 ```
+
+Two rules there are not obvious and are both corrections to a first draft that had the launcher simply stacked above the dock's tab in the bottom-right. The dock's tab does not stay in that corner: it crosses to the left whenever the action sheet is open, and a launcher that did not follow it would be left sitting on the sheet's buttons.
 
 Every token used above is already defined in `tokens.css`: `--color-border-subtle` (58), `--radius` (59), `--tap-min` (60), `--color-state-paused` (33). There is no `--color-border` — reaching for one would define a new token by accident, and an undefined `var()` does not fall back to the rule beneath it; the whole declaration becomes `unset`, which is exactly how the personal toast shipped with no padding at all.
 
