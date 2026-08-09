@@ -47,7 +47,7 @@ import type {
 import type { TransportConfig } from './config';
 import type { EndReason, MatchPhase, MatchRecord, StoredSeat } from './persistence';
 import { MatchStore, replayMatch } from './persistence';
-import type { BotDifficulty, ClientMessage, ErrorCode, ServerMessage, SeatStatus } from './protocol';
+import type { BotDifficulty, ChatEntry, ClientMessage, ErrorCode, ServerMessage, SeatStatus } from './protocol';
 import { hashToken, mintMatchId, mintSeed, mintToken, tokenMatches } from './seatTokens';
 import { createOpponent } from '../game/ai/difficulty';
 import type { Rng } from '../game/ai/rng';
@@ -275,6 +275,27 @@ export class Room {
     /** The pending computer move, if the seat holding the turn is a bot. */
     private botTimer: ReturnType<typeof setTimeout> | null;
 
+    /**
+     * The match transcript, in memory and nowhere else.
+     *
+     * Deliberately in the same category as `revealTimer` and `advancing`:
+     * transport-only state that a rebuild does not restore. Nothing here
+     * reaches `MatchRecord`, the sqlite schema, or the `actionLog` — a chat
+     * message is not a game action and replaying one would mean nothing.
+     *
+     * A restart therefore wipes it, and that is documented behaviour rather
+     * than a gap: `dev:server` runs under `bun --watch`, so during development
+     * this happens every time an engine file is saved. `Room.rebuild` seeds a
+     * RESTARTED note so the loss explains itself.
+     */
+    private chatLog: ChatEntry[] = [];
+    /** Running total of `JSON.stringify(entry).length` across `chatLog`, kept so eviction never re-serializes. */
+    private chatBytes = 0;
+    /** Monotonic within a room; the client's stable list key and the basis of its unread count. */
+    private chatSeq = 0;
+    /** Each live entry's serialized size, keyed by seq, so eviction never re-serializes. */
+    private readonly chatSizes = new Map<number, number>();
+
     private queue: Promise<void> = Promise.resolve();
 
     private constructor(
@@ -390,7 +411,7 @@ export class Room {
         const seats = restoreSeats(record.seats, resolvedDeps.now());
 
         if (record.phase === 'lobby') {
-            return new Room(record.matchId, seats, 'lobby', record.createdAt, config, store, resolvedDeps);
+            return Room.withRestartNote(new Room(record.matchId, seats, 'lobby', record.createdAt, config, store, resolvedDeps));
         }
 
         if (record.phase === 'active') {
@@ -406,17 +427,34 @@ export class Room {
                 store.quarantine(record.matchId);
                 return null;
             }
-            return new Room(record.matchId, seats, 'active', record.createdAt, config, store, resolvedDeps, {
-                match: matchState
-            });
+            return Room.withRestartNote(
+                new Room(record.matchId, seats, 'active', record.createdAt, config, store, resolvedDeps, {
+                    match: matchState
+                })
+            );
         }
 
         // 'ended'
-        return new Room(record.matchId, seats, 'ended', record.createdAt, config, store, resolvedDeps, {
-            endReason: record.endReason,
-            winnerSeat: record.winnerSeat,
-            endedAt: record.updatedAt
-        });
+        return Room.withRestartNote(
+            new Room(record.matchId, seats, 'ended', record.createdAt, config, store, resolvedDeps, {
+                endReason: record.endReason,
+                winnerSeat: record.winnerSeat,
+                endedAt: record.updatedAt
+            })
+        );
+    }
+
+    /**
+     * A rebuilt room has no transcript, and cannot know whether it had one.
+     *
+     * So the note states the restart rather than the loss. `Room.rebuild` runs
+     * only on a genuine cold miss of the registry's map — live rooms are never
+     * evicted except on deletion — which in practice means the process was
+     * restarted.
+     */
+    private static withRestartNote(room: Room): Room {
+        room.pushChat({ seq: ++room.chatSeq, sentAt: room.deps.now(), kind: 'note', code: 'RESTARTED' });
+        return room;
     }
 
     /** The 15-line chain of Design §10, copied exactly: every room message routes through one queue. */
@@ -757,6 +795,45 @@ export class Room {
         }
 
         this.commitMatchState(result.state);
+    }
+
+    /**
+     * Appends one line to the transcript and broadcasts it.
+     *
+     * `text` has already passed `parseChatText`, so this re-derives no rule
+     * about what a message may contain. What it does own is who may speak:
+     * the seat is looked up from the connection rather than trusted from a
+     * payload — the same conn-keyed lookup `playCard` uses, and the reason
+     * `SEND_CHAT` carries no `playerId`.
+     *
+     * `broadcast`, not `pushStateToConnectedSeats`: chat holds no hidden state,
+     * so there is nothing to redact and every seat receives identical bytes.
+     */
+    sendChat(conn: SeatConnection, text: string): void {
+        if (this.phase === 'ended') {
+            this.sendError(conn, 'MATCH_OVER');
+            return;
+        }
+
+        const seat = this.seats.find(s => s.conn === conn);
+        if (!seat) {
+            this.sendError(conn, 'NOT_YOUR_SEAT');
+            return;
+        }
+
+        const entry: ChatEntry = {
+            seq: ++this.chatSeq,
+            sentAt: this.deps.now(),
+            kind: 'said',
+            from: seat.playerId,
+            // Denormalized on purpose — see the comment on `ChatEntry`.
+            nickname: seat.nickname,
+            text
+        };
+
+        this.appendChat(entry);
+        this.broadcast({ type: 'CHAT_SAID', matchId: this.matchId, entry });
+        // No persist: nothing about a chat message belongs in `MatchRecord`.
     }
 
     /**
@@ -1277,6 +1354,57 @@ export class Room {
 
     private broadcastLobbyUpdate(): void {
         this.broadcast(this.buildLobbyUpdate());
+    }
+
+    /**
+     * Appends one entry and evicts from the front until the log fits.
+     *
+     * Enforced on append rather than when a history frame is built: trimming
+     * lazily would leave `chatLog` growing without bound between reads and make
+     * the cap cosmetic. Each entry's size is measured once, here, and carried
+     * beside it — the number that matters is what a `CHAT_HISTORY` frame costs,
+     * and `perMessageDeflate` is off, so it is also what crosses the wire.
+     *
+     * At most one TRIMMED note ever leads the log. Without it a transcript that
+     * begins partway through is indistinguishable from a short one.
+     */
+    private appendChat(entry: ChatEntry): void {
+        this.pushChat(entry);
+        if (this.chatBytes <= this.config.chatLogMaxBytes) return;
+
+        // Drop the existing note first, so it is re-added at the front rather
+        // than one accumulating per eviction round.
+        const head = this.chatLog[0];
+        if (head !== undefined && head.kind === 'note' && head.code === 'TRIMMED') this.dropOldestChat();
+
+        const note: ChatEntry = { seq: ++this.chatSeq, sentAt: this.deps.now(), kind: 'note', code: 'TRIMMED' };
+        const noteBytes = JSON.stringify(note).length;
+
+        // `> 1`, not `> 0`: an entry larger than the whole cap would otherwise
+        // evict itself, and losing the message somebody just sent is a worse
+        // answer than briefly exceeding a bound that exists as insurance.
+        while (this.chatLog.length > 1 && this.chatBytes + noteBytes > this.config.chatLogMaxBytes) {
+            this.dropOldestChat();
+        }
+
+        this.chatLog.unshift(note);
+        this.chatSizes.set(note.seq, noteBytes);
+        this.chatBytes += noteBytes;
+    }
+
+    /** Append and account for one entry. The only place `chatBytes` grows. */
+    private pushChat(entry: ChatEntry): void {
+        const size = JSON.stringify(entry).length;
+        this.chatLog.push(entry);
+        this.chatSizes.set(entry.seq, size);
+        this.chatBytes += size;
+    }
+
+    private dropOldestChat(): void {
+        const dropped = this.chatLog.shift();
+        if (dropped === undefined) return;
+        this.chatBytes -= this.chatSizes.get(dropped.seq) ?? 0;
+        this.chatSizes.delete(dropped.seq);
     }
 
     /**
