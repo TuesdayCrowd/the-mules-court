@@ -504,6 +504,10 @@ export class Room {
             playerId: seat.playerId,
             seatToken: rawToken
         });
+        // After SEAT_CLAIMED so the seat exists before anything is attributed
+        // to it, and before the lobby broadcast so the arriving player has the
+        // conversation in hand by the time they are shown the table of seats.
+        this.send(conn, this.buildChatHistory());
         this.broadcastLobbyUpdate();
 
         return { seat: seat.index, playerId: seat.playerId };
@@ -551,6 +555,11 @@ export class Room {
 
         seat.conn = conn;
         seat.disconnectedAt = null;
+
+        // Every resume, not merely the first. The nickname adoption above is
+        // one-time by design; this is not, and copying its guard would silently
+        // stop re-delivering the transcript on a second reconnect.
+        this.send(conn, this.buildChatHistory());
 
         if (this.phase === 'lobby') {
             this.broadcastLobbyUpdate();
@@ -1328,6 +1337,13 @@ export class Room {
                 difficulty: s.bot ? s.difficulty : null
             }))
         };
+    }
+
+    private buildChatHistory(): ServerMessage {
+        // A copy, not the live array: the message is serialized immediately by
+        // `send`, but handing out the field would let a future caller hold a
+        // reference that eviction mutates underneath them.
+        return { type: 'CHAT_HISTORY', matchId: this.matchId, entries: [...this.chatLog] };
     }
 
     private send(conn: SeatConnection, msg: ServerMessage): void {
