@@ -333,6 +333,59 @@ async function judgeSpecimen(page: Page, viewport: string, specimen: string): Pr
         return;
     }
 
+    if (specimen === 'chat') {
+        const rail = await page.evaluate(() => {
+            const panel = document.querySelector('[data-role="chat-rail"]') as HTMLElement | null;
+            if (panel === null) return null;
+            const lines = [...panel.querySelectorAll('[data-role="chat-line"]')].map(el => ({
+                kind: (el as HTMLElement).dataset.kind ?? '',
+                overflow: el.scrollWidth - el.clientWidth,
+                color: getComputedStyle(el).color
+            }));
+            const form = panel.querySelector('[data-role="chat-form"]') as HTMLElement | null;
+            return {
+                width: Math.round(panel.getBoundingClientRect().width),
+                lines,
+                // The composer must be inside the panel's box. If the transcript
+                // ever grows the panel instead of scrolling, this goes negative.
+                composerBottomGap:
+                    form === null
+                        ? -1
+                        : Math.round(panel.getBoundingClientRect().bottom - form.getBoundingClientRect().bottom)
+            };
+        });
+
+        if (rail === null) {
+            fail(viewport, 'gallery/chat: no rail mounted');
+            return;
+        }
+
+        if (rail.lines.length === 0) fail(viewport, 'gallery/chat: the transcript drew no lines');
+
+        // The bug this specimen exists to catch: 255 unbroken characters
+        // widening the column and taking the scrollbar with them.
+        for (const line of rail.lines) {
+            if (line.overflow > 1) {
+                fail(viewport, `gallery/chat: a ${line.kind} line clips its own text by ${line.overflow}px`);
+            }
+        }
+
+        // A note that resolves to the same colour as speech is a system message
+        // wearing a player's voice.
+        const note = rail.lines.find(line => line.kind === 'note');
+        const said = rail.lines.find(line => line.kind === 'said');
+        if (note !== undefined && said !== undefined && note.color === said.color) {
+            fail(viewport, `gallery/chat: a note and a message share a colour (${note.color}) — indistinguishable`);
+        }
+
+        if (rail.composerBottomGap < 0) {
+            fail(viewport, 'gallery/chat: the composer has been pushed outside the panel by the transcript');
+        }
+
+        console.log(`  ✓ chat: ${rail.lines.length} lines, width ${rail.width}px, composer inside the panel`);
+        return;
+    }
+
     // A specimen the gallery publishes and this file has no opinion on. Said out
     // loud rather than passed over: an unjudged specimen is still photographed,
     // and someone should know the picture is all they are getting.

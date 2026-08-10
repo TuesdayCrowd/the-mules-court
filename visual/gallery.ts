@@ -49,6 +49,7 @@ import type { RoundResult } from '../src/game/engine';
 import { failureCopy } from '../src/client/content/failureCopy';
 import { makeView } from '../src/client/store/__fixtures__/view';
 import type { ClientState, TableSnapshot } from '../src/client/store/types';
+import { createChatRail } from '../src/client/ui/chatRail';
 import { createOverlays } from '../src/client/ui/overlays';
 import { REAL_TIMERS } from '../src/client/ui/surface';
 import { createToasts } from '../src/client/ui/toasts';
@@ -150,6 +151,29 @@ const SPECIMENS: readonly Specimen[] = [
                     phase: 'round_over',
                     view: makeView({ roundResult, playerCount: 3 })
                 })
+            });
+        }
+    },
+    {
+        name: 'chat',
+        about: 'the rail with a full-length message, a nameless speaker and a note — none may overflow its column',
+        mount(root) {
+            const rail = createChatRail({ onSend: () => true, railVisible: () => true });
+            rail.mount(root);
+            rail.update({
+                ...BASE_STATE,
+                screen: 'table',
+                chat: [
+                    { seq: 1, sentAt: 1, kind: 'note', code: 'RESTARTED' },
+                    { seq: 2, sentAt: 2, kind: 'said', from: 'p1', nickname: 'Cornelius', text: 'Short one.' },
+                    // The full limit, unbroken: 255 characters of ASCII with no
+                    // space in them is the widest thing this column can ever be
+                    // asked to hold, and `overflow-wrap` is the only reason it
+                    // fits. A jsdom test cannot measure that.
+                    { seq: 3, sentAt: 3, kind: 'said', from: 'p2', nickname: 'Ana', text: 'x'.repeat(255) },
+                    { seq: 4, sentAt: 4, kind: 'said', from: 'p3', nickname: null, text: 'No name here.' },
+                    { seq: 5, sentAt: 5, kind: 'note', code: 'TRIMMED' }
+                ]
             });
         }
     }
