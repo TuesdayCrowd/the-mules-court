@@ -42,6 +42,7 @@ import { sheetTargetsFor, unplayableReason } from './client/store/targets';
 import type { ClientState } from './client/store/types';
 import { createActionSheet } from './client/ui/actionSheet';
 import type { SheetRequest, SheetTarget } from './client/ui/actionSheet';
+import { createChatRail } from './client/ui/chatRail';
 import { createClipboard } from './client/ui/clipboard';
 import { createCardHint } from './client/ui/cardHint';
 import { createEliminationNotice } from './client/ui/eliminationNotice';
@@ -113,6 +114,37 @@ function boot(): void {
 
     const tokens = createSeatTokenStore(window.localStorage);
     const timers = REAL_TIMERS;
+
+    // Looked up here rather than beside the table, because four surfaces
+    // measure it and three of them are constructed before the table is.
+    const container = document.getElementById('game-container') as HTMLElement;
+
+    /**
+     * The box the game actually has, which is the viewport minus the chat rail.
+     *
+     * Measured off `#game-container` rather than computed from
+     * `window.innerWidth`: `ui.css` already insets that element by
+     * `--chat-rail-w`, so asking the element is the same question as asking the
+     * stylesheet, and it cannot drift from it. The pure layer never learns a
+     * rail exists — `computeLayout` is handed a smaller `w` and does what it
+     * always did.
+     */
+    function playArea(): { w: number; h: number } {
+        const box = container.getBoundingClientRect();
+        return { w: Math.round(box.width), h: Math.round(box.height) };
+    }
+
+    /**
+     * Whether the rail is painted rather than collapsed.
+     *
+     * Reads the value CSS resolved instead of re-testing the media query, so
+     * the breakpoint is defined once, in `ui.css`, and this cannot disagree
+     * with it.
+     */
+    function railVisible(): boolean {
+        const raw = getComputedStyle(document.documentElement).getPropertyValue('--chat-rail-w');
+        return Number.parseFloat(raw) > 0;
+    }
 
     // --- store and socket, mutually dependent
     let socket: ReturnType<typeof createSocket> | null = null;
@@ -187,7 +219,7 @@ function boot(): void {
             return drawn === null ? null : panelSafeTop(drawn.opponentsBottom, window.innerHeight);
         }
     });
-    const cardHint = createCardHint({ viewport: () => ({ w: window.innerWidth, h: window.innerHeight }) });
+    const cardHint = createCardHint({ viewport: playArea });
     const eliminationNotice = createEliminationNotice();
 
     /**
@@ -293,6 +325,12 @@ function boot(): void {
      */
     uiRoot.add(toasts);
     uiRoot.add(referenceDock);
+    uiRoot.add(
+        createChatRail({
+            onSend: text => store.sendChat(text),
+            railVisible
+        })
+    );
     uiRoot.add(cardHint);
     uiRoot.add(eliminationNotice);
     uiRoot.add(seatDossier);
@@ -330,7 +368,6 @@ function boot(): void {
     //    proxied are one object. Keeping both would announce every seat twice.
     //
     // Full reasoning: `docs/plans/2026-07-30-renderer-architecture-research.md`.
-    const container = document.getElementById('game-container') as HTMLElement;
 
     const table = createTable({
         onCardSelected: id => openSheetFor(id),
@@ -353,7 +390,7 @@ function boot(): void {
             const latest = won[won.length - 1];
             referenceDock.open('log', ...(latest === undefined ? [] : [{ round: latest.roundNumber }]));
         },
-        viewport: () => ({ w: window.innerWidth, h: window.innerHeight }),
+        viewport: playArea,
         timers
     });
     table.mount(container);
@@ -375,7 +412,7 @@ function boot(): void {
         // Read per beat, never cached: a player can change the system setting
         // mid-session and the next beat has to obey it (UIX §8.5).
         reducedMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        viewport: () => ({ w: window.innerWidth, h: window.innerHeight }),
+        viewport: playArea,
         tableRoot: () => container
     });
 
@@ -549,7 +586,7 @@ function boot(): void {
             cardInstanceId,
             targets,
             ...(reason === undefined ? {} : { unplayable: reason }),
-            available: { w: window.innerWidth, h: window.innerHeight },
+            available: playArea(),
             /**
              * Read off the table's own spec rather than recomputed here.
              *
