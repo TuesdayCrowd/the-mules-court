@@ -921,9 +921,16 @@ h2,
            between this panel and the narrow top sheet is made by this media
            query, so an inline `top` would mean repeating the 60rem breakpoint in
            TypeScript — and would still be sitting on the element after a resize
-           into the narrow form, pushing that sheet down the screen. */
+           into the narrow form, pushing that sheet down the screen.
+
+           `right` is the rail's width, not a bare `0`, for a reason this rule
+           used to get wrong: this selector wins over the base `.reference-modal`
+           rule above (same specificity, later in source), so a plain `0` here
+           painted the drawer flush to the true screen edge, over the rail, at
+           every desktop width the rail exists at — the 60rem breakpoint fires
+           well before the rail's own 1200px one. */
         top: var(--dock-safe-top, 0px);
-        right: 0;
+        right: var(--chat-rail-w, 0px);
         bottom: 0;
         left: auto;
         width: min(32rem, 45vw);
@@ -1447,20 +1454,36 @@ h2,
  * is under it, so a full-height panel on the right would cover the cards a
  * player is choosing between. The sheet and the hand own the bottom; chat and
  * the dock take the top.
+ *
+ * Scoped to the exact negation of the rail's own media query above, clause for
+ * clause, and not to a plain `max-width`. `[data-open='true']` carries two
+ * attribute selectors against the toggle's one, so unscoped it outranks the
+ * toggle regardless of viewport — open chat on a narrow window, then widen
+ * past the breakpoint without closing it, and `bottom: auto`, `width: min(100%,
+ * 22rem)` and this radius would all keep beating the wide rail's `bottom: 0`
+ * and `width: var(--chat-rail-w)` from the base rule, leaving a floating box
+ * 32px wider than the strip every other surface reserved. A single `max-width`
+ * would not be the correct opposite of the toggle either: the toggle also
+ * requires a height and an aspect ratio, so a wide-but-short window can fail
+ * the toggle and still fail a lone `max-width` negation, landing in neither
+ * form. `chatRail.ts` has no resize listener and does not need one — this is
+ * what keeps `data-open` from outliving the layout it was set in.
  */
-[data-role='chat-rail-host'][data-open='true'] .chat-rail {
-    display: flex;
-    top: 0;
-    bottom: auto;
-    width: min(100%, 22rem);
-    max-height: 55dvh;
-    border-radius: 0 0 0 var(--radius);
+@media not ((min-width: 1200px) and (min-height: 640px) and (min-aspect-ratio: 4/3)) {
+    [data-role='chat-rail-host'][data-open='true'] .chat-rail {
+        display: flex;
+        top: 0;
+        bottom: auto;
+        width: min(100%, 22rem);
+        max-height: 55dvh;
+        border-radius: 0 0 0 var(--radius);
+    }
 }
 
 /**
  * When the action sheet is up, the launcher crosses to the left.
  *
- * `#ui-root[data-sheet] .reference-tab` (ui.css:793) already does exactly this,
+ * `#ui-root[data-sheet] .reference-tab`, above, already does exactly this,
  * for exactly this reason — the sheet owns the bottom-right corner while it is
  * open. Without the matching rule the chat launcher stays behind and sits on
  * the sheet's own buttons, which is the collision that rule was written to
