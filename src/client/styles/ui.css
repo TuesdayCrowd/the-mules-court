@@ -1429,6 +1429,23 @@ h2,
     font: inherit;
 }
 
+/**
+ * Spends no hue.
+ *
+ * `--color-state-your-turn` is the one violet in this palette that means
+ * "you" (see the comment above `.toast[data-kind='table']`, which states the
+ * rule outright: every hue here is spoken for, and adding a meaning costs one
+ * of them its word). An unread count is not a "you" signal in that
+ * vocabulary — it says a message arrived, not that the game is waiting on
+ * this player — and this badge sits in the exact corner of the exact
+ * near-black table where that same violet already means "act now". A solid
+ * violet dot there would read as a turn signal a room away from any actual
+ * turn.
+ *
+ * So: contrast, not colour. A filled shape is already conspicuous against
+ * this table; `--color-text-primary` fill against `--color-bg` text gets that
+ * without borrowing a word the palette has already given away.
+ */
 .chat-badge {
     display: inline-grid;
     place-content: center;
@@ -1436,7 +1453,7 @@ h2,
     height: 1.25rem;
     padding: 0 4px;
     border-radius: 999px;
-    background: var(--color-state-your-turn);
+    background: var(--color-text-primary);
     color: var(--color-bg);
     font-size: 0.75rem;
 }
