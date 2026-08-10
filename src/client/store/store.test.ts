@@ -656,14 +656,44 @@ describe('chat', () => {
         expect(h.store.getState().chat).toHaveLength(1);
     });
 
-    it('bumps chatEpoch on CHAT_HISTORY and leaves it alone on CHAT_SAID', () => {
+    it('bumps chatEpoch on a CHAT_HISTORY that actually changes something, and leaves it alone on CHAT_SAID', () => {
         const h = harness();
         expect(h.store.getState().chatEpoch).toBe(0);
 
         h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'one') });
         expect(h.store.getState().chatEpoch).toBe(0);
 
+        // A real change, not the same one entry the client already holds —
+        // see the no-op tests below for that case.
+        h.store.apply({ type: 'CHAT_HISTORY', matchId: 'K7QX2', entries: [entry(1, 'one'), entry(2, 'two')] });
+        expect(h.store.getState().chatEpoch).toBe(1);
+    });
+
+    it('leaves state untouched — same object, not merely equal — when CHAT_HISTORY repeats what the client already holds', () => {
+        const h = harness();
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'one') });
+        const before = h.store.getState();
+
         h.store.apply({ type: 'CHAT_HISTORY', matchId: 'K7QX2', entries: [entry(1, 'one')] });
+
+        // toBe, not toEqual: a reconnect on a flaky connection sends this
+        // constantly, and a rebuilt-but-equal state would still move
+        // chatEpoch and yank a reader's scroll position to the bottom for no
+        // actual change.
+        expect(h.store.getState()).toBe(before);
+    });
+
+    it('still rebuilds when a note lands on a seq a previous life already used', () => {
+        const h = harness();
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'said seq 1') });
+
+        // Room.rebuild resets the seq counter, so a RESTARTED note after a
+        // server restart can collide with a seq a previous life already
+        // handed to a `said` entry. seq alone must not read this as a no-op.
+        const restarted: ChatEntry = { seq: 1, sentAt: 2_000, kind: 'note', code: 'RESTARTED' };
+        h.store.apply({ type: 'CHAT_HISTORY', matchId: 'K7QX2', entries: [restarted] });
+
+        expect(h.store.getState().chat).toEqual([restarted]);
         expect(h.store.getState().chatEpoch).toBe(1);
     });
 
