@@ -26,7 +26,7 @@ describe('validateChatText', () => {
         'a'.repeat(MAX_CHAT_LENGTH),
         'a'.repeat(MAX_CHAT_LENGTH + 1),
         'one\ntwo',
-        'del',
+        String.fromCharCode(127), // DEL — the exact boundary the "126 not 127" rule exists for
         'em — dash',
         'emoji \u{1F600}',
         '!@#$%^&*()_+-=[]{}|;:\'",.<>/?`~'
