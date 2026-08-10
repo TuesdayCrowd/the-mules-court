@@ -73,7 +73,8 @@ const BASE_STATE: ClientState = {
     pendingPlay: null,
     fatal: null,
     notices: [],
-    chat: []
+    chat: [],
+    chatEpoch: 0
 };
 
 function tableAt(overrides: Partial<TableSnapshot> = {}): TableSnapshot {

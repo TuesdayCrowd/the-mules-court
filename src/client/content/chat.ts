@@ -86,6 +86,9 @@ export function chatSenderLabel(entry: ChatEntry & { readonly kind: 'said' }): s
 export const CHAT_PANEL_TITLE = 'Table talk';
 export const CHAT_PLACEHOLDER = 'Say something';
 export const CHAT_EMPTY_STATE = 'Nothing said yet.';
+export const CHAT_SEND_LABEL = 'Send';
+/** The frame never left. Distinct from a `ChatProblem`: the text itself was fine. */
+export const CHAT_SEND_FAILED = 'Not connected — that did not go out.';
 
 /**
  * The launcher's accessible name, carrying the count in words.

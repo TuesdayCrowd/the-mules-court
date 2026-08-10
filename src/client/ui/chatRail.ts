@@ -13,8 +13,14 @@
  * left alone on open. A panel that grabs focus interrupts the game.
  *
  * The transcript **appends**. Only a `CHAT_HISTORY` replacement rebuilds it,
- * detected by the first entry's `seq` moving — which is exactly when the server
- * has replaced the slice rather than added to it.
+ * detected by `ClientState.chatEpoch` moving — bumped in `store.ts` on
+ * `CHAT_HISTORY` and nowhere else. A `seq`-based guess was tried first and
+ * fooled by a server restart: `Room.rebuild` re-mints a fresh room's `chatSeq`
+ * from zero, so the seeded RESTARTED note can land on the exact seq an
+ * already-drawn message held in the room's previous life, and a prefix-of-seqs
+ * comparison reads that collision as an ordinary append — silently keeping the
+ * stale line on screen and dropping the very note that exists to announce the
+ * wipe.
  *
  * Whether the rail is painted or collapsed to its launcher is decided entirely
  * by a media query in `ui.css`. Nothing here asks: `railVisible` is injected by
@@ -26,6 +32,8 @@ import {
     CHAT_EMPTY_STATE,
     CHAT_PANEL_TITLE,
     CHAT_PLACEHOLDER,
+    CHAT_SEND_FAILED,
+    CHAT_SEND_LABEL,
     MAX_CHAT_LENGTH,
     chatLauncherLabel,
     chatNoteMessage,
@@ -69,7 +77,9 @@ export function createChatRail(deps: ChatRailDeps): Surface {
     launcher.setAttribute('aria-expanded', 'false');
 
     const launcherText = document.createElement('span');
-    launcherText.textContent = 'Chat';
+    // `chatLauncherLabel(0)` already returns exactly this word; calling it
+    // rather than writing 'Chat' again keeps the two labels one source.
+    launcherText.textContent = chatLauncherLabel(0);
 
     const badge = document.createElement('span');
     badge.dataset.role = 'chat-badge';
@@ -126,7 +136,7 @@ export function createChatRail(deps: ChatRailDeps): Surface {
 
     const submit = document.createElement('button');
     submit.type = 'submit';
-    submit.textContent = 'Send';
+    submit.textContent = CHAT_SEND_LABEL;
 
     const problem = document.createElement('p');
     problem.dataset.role = 'chat-problem';
@@ -136,8 +146,15 @@ export function createChatRail(deps: ChatRailDeps): Surface {
     form.append(label, input, submit);
     panel.append(title, transcript, empty, form, problem);
 
-    /** The last entry drawn, so an ordinary push appends rather than rebuilds. */
-    let drawnSeqs: number[] = [];
+    /** How many entries are already on screen, so an ordinary push appends only the tail. */
+    let drawnCount = 0;
+    /**
+     * The last `chatEpoch` drawn. `-1` matches no real epoch — the store's
+     * starts at 0 — so the very first push always takes the rebuild path,
+     * which is harmless against an empty transcript and is what seeds
+     * `drawnCount` correctly.
+     */
+    let drawnEpoch = -1;
     let open = false;
     /** The newest seq the player has been shown. Everything after it is unread. */
     let seenSeq = 0;
@@ -169,10 +186,11 @@ export function createChatRail(deps: ChatRailDeps): Surface {
         return item;
     }
 
-    function drawTranscript(chat: readonly ChatEntry[]): void {
-        const seqs = chat.map(entry => entry.seq);
-        const isAppend =
-            seqs.length >= drawnSeqs.length && drawnSeqs.every((seq, index) => seqs[index] === seq);
+    function drawTranscript(chat: readonly ChatEntry[], epoch: number): void {
+        // `chatEpoch` is the wire's own answer to "was this appended or
+        // replaced" — see the module doc for why comparing `seq`s instead was
+        // wrong.
+        const isAppend = epoch === drawnEpoch;
 
         const anchor = anchorOf(transcript);
 
@@ -182,16 +200,21 @@ export function createChatRail(deps: ChatRailDeps): Surface {
             transcript.replaceChildren();
             for (const entry of chat) transcript.appendChild(lineFor(entry));
         } else {
-            for (const entry of chat.slice(drawnSeqs.length)) transcript.appendChild(lineFor(entry));
+            for (const entry of chat.slice(drawnCount)) transcript.appendChild(lineFor(entry));
         }
 
-        drawnSeqs = seqs;
+        drawnCount = chat.length;
+        drawnEpoch = epoch;
         empty.hidden = chat.length > 0;
         applyAnchor(transcript, isAppend ? anchor : FOLLOWING);
     }
 
     function drawBadge(chat: readonly ChatEntry[]): void {
-        const newest = chat.length === 0 ? 0 : chat[chat.length - 1].seq;
+        // Not `chat[chat.length - 1]`: `Room.appendChat` unshifts a TRIMMED
+        // note ahead of the message that triggered the eviction but mints its
+        // seq after it, so the highest seq can sit at index 0. The maximum
+        // across the whole array is the only reading that survives that.
+        const newest = chat.reduce((max, entry) => Math.max(max, entry.seq), 0);
 
         // Being able to see it IS having read it. `railVisible` and `open` are
         // the two ways that happens, and the second is the one a player chooses.
@@ -234,7 +257,7 @@ export function createChatRail(deps: ChatRailDeps): Surface {
         if (!deps.onSend(validated.value)) {
             // The frame did not leave. Keeping the text is the only honest
             // option: clearing it would lose a message the court never heard.
-            problem.textContent = 'Not connected — that did not go out.';
+            problem.textContent = CHAT_SEND_FAILED;
             return;
         }
 
@@ -265,7 +288,7 @@ export function createChatRail(deps: ChatRailDeps): Surface {
 
             if (!showing) return;
 
-            drawTranscript(state.chat);
+            drawTranscript(state.chat, state.chatEpoch);
             drawBadge(state.chat);
         },
 

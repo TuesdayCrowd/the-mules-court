@@ -63,11 +63,31 @@ describe('the transcript', () => {
 
     it('rebuilds when history replaces the slice', () => {
         const { root, rail } = mount();
-        rail.update(makeState({ screen: 'lobby', chat: [said(9, 'stale')] }));
-        rail.update(makeState({ screen: 'lobby', chat: [said(1, 'fresh')] }));
+        rail.update(makeState({ screen: 'lobby', chatEpoch: 0, chat: [said(9, 'stale')] }));
+        rail.update(makeState({ screen: 'lobby', chatEpoch: 1, chat: [said(1, 'fresh')] }));
 
         expect(lines(root)).toHaveLength(1);
         expect(lines(root)[0]).toContain('fresh');
+    });
+
+    it('rebuilds on a CHAT_HISTORY replacement even when its seq collides with what is already drawn', () => {
+        // The regression this guards: a server restart resets Room.chatSeq to
+        // zero, so the seeded RESTARTED note can be minted at the exact seq an
+        // already-drawn message held before the restart. A seq-based append
+        // check reads that collision as an ordinary append — chatEpoch does not.
+        const { root, rail } = mount();
+        rail.update(makeState({ screen: 'lobby', chatEpoch: 0, chat: [said(1, 'one')] }));
+
+        rail.update(
+            makeState({
+                screen: 'lobby',
+                chatEpoch: 1,
+                chat: [{ seq: 1, sentAt: 1, kind: 'note', code: 'RESTARTED' }]
+            })
+        );
+
+        expect(lines(root)).toHaveLength(1);
+        expect(lines(root)[0]).toContain('restarted');
     });
 
     it('writes text through textContent, so markup is never parsed', () => {
@@ -147,6 +167,23 @@ describe('the badge', () => {
     it('never counts while the rail is painted, because it is already being read', () => {
         const { root, rail } = mount(() => true, () => true);
         rail.update(makeState({ screen: 'table', chat: [said(1, 'one'), said(2, 'two')] }));
+
+        expect(badge(root).hidden).toBe(true);
+    });
+
+    it('takes the newest seq as the maximum across entries, not the last one', () => {
+        // Room.appendChat unshifts a TRIMMED note ahead of the message whose
+        // arrival triggered the eviction, but mints its seq after it — so the
+        // highest seq can sit at index 0. Reading `chat[chat.length - 1]` here
+        // undercounts what has been seen and reports unread while the rail is
+        // openly painted.
+        const { root, rail } = mount(() => true, () => true);
+        rail.update(
+            makeState({
+                screen: 'table',
+                chat: [{ seq: 10, sentAt: 10, kind: 'note', code: 'TRIMMED' }, said(3, 'three'), said(4, 'four')]
+            })
+        );
 
         expect(badge(root).hidden).toBe(true);
     });

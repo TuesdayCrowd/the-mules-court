@@ -90,7 +90,8 @@ function initialState(deps: StoreDeps): ClientState {
         pendingPlay: null,
         fatal: null,
         notices: [],
-        chat: []
+        chat: [],
+        chatEpoch: 0
     };
 }
 
@@ -244,8 +245,10 @@ export function createStore(deps: StoreDeps): Store {
             // Replaced whole, never merged. The server sends this on claim and
             // on every resume, and it is authoritative by construction — a
             // merge would have to invent a dedupe rule the wire never asked for.
+            // `chatEpoch` moves with it so a surface can tell this apart from
+            // CHAT_SAID without comparing seqs, which a restart can collide.
             case 'CHAT_HISTORY':
-                return { ...state, chat: msg.entries };
+                return { ...state, chat: msg.entries, chatEpoch: state.chatEpoch + 1 };
         }
     }
 

@@ -92,4 +92,17 @@ export interface ClientState {
      * this store derives no game rule.
      */
     readonly chat: readonly ChatEntry[];
+    /**
+     * How many times `chat` has been replaced wholesale rather than appended to.
+     *
+     * `store.ts` bumps it on `CHAT_HISTORY` and leaves it alone on `CHAT_SAID`.
+     * It exists because `seq` alone cannot tell a surface which of those
+     * happened: `Room.rebuild` re-mints a fresh room's `chatSeq` from zero, so a
+     * post-restart `CHAT_HISTORY` can carry the exact seq an already-drawn
+     * message held in the room's previous life. A surface comparing seqs reads
+     * that collision as an ordinary append and drops the very note that exists
+     * to announce the restart. Comparing this instead costs one integer and
+     * needs no guessing.
+     */
+    readonly chatEpoch: number;
 }

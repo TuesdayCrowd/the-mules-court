@@ -656,6 +656,17 @@ describe('chat', () => {
         expect(h.store.getState().chat).toHaveLength(1);
     });
 
+    it('bumps chatEpoch on CHAT_HISTORY and leaves it alone on CHAT_SAID', () => {
+        const h = harness();
+        expect(h.store.getState().chatEpoch).toBe(0);
+
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'one') });
+        expect(h.store.getState().chatEpoch).toBe(0);
+
+        h.store.apply({ type: 'CHAT_HISTORY', matchId: 'K7QX2', entries: [entry(1, 'one')] });
+        expect(h.store.getState().chatEpoch).toBe(1);
+    });
+
     it('replaces the array rather than mutating it', () => {
         const h = harness();
         const before = h.store.getState().chat;
