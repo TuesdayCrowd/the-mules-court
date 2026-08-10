@@ -1468,8 +1468,20 @@ h2,
  * the toggle and still fail a lone `max-width` negation, landing in neither
  * form. `chatRail.ts` has no resize listener and does not need one — this is
  * what keeps `data-open` from outliving the layout it was set in.
+ *
+ * `not all and (…) and (…) and (…)`, deliberately the older Level 3 negation
+ * rather than `not ((…) and (…) and (…))`. Both mean the same thing, but the
+ * Level 4 form needs the boolean-composition grammar a browser must support
+ * to parse `not` applied to a parenthesised compound — Safari below 16.4,
+ * iOS included, does not, and a media prelude that fails to parse drops the
+ * WHOLE rule, silently, rather than failing open or falling back. That is
+ * not a cosmetic loss here: it is the only rule that ever sets `display:
+ * flex` on `.chat-rail` below the breakpoint, so on an unsupported iPhone
+ * the panel would never open at all, with nothing in any console to say why.
+ * `not all and …` parses under both levels and stays exactly the same
+ * negation — do not "modernise" this back.
  */
-@media not ((min-width: 1200px) and (min-height: 640px) and (min-aspect-ratio: 4/3)) {
+@media not all and (min-width: 1200px) and (min-height: 640px) and (min-aspect-ratio: 4/3) {
     [data-role='chat-rail-host'][data-open='true'] .chat-rail {
         display: flex;
         top: 0;
