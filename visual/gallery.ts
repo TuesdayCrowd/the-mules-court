@@ -176,6 +176,27 @@ const SPECIMENS: readonly Specimen[] = [
                 ]
             });
         }
+    },
+    {
+        name: 'chat-unread',
+        about: 'the collapsed launcher with unread messages waiting — the badge must be visible, unclipped, and match the count its own aria-label speaks',
+        mount(root) {
+            // `railVisible: () => false`, and the launcher is never clicked: both
+            // are what "unread" means. `drawBadge` treats being able to see the
+            // rail as having read it, so a specimen built with either would sit
+            // at zero unread forever and never paint the badge it exists to prove.
+            const rail = createChatRail({ onSend: () => true, railVisible: () => false });
+            rail.mount(root);
+            rail.update({
+                ...BASE_STATE,
+                screen: 'table',
+                chat: [
+                    { seq: 1, sentAt: 1, kind: 'said', from: 'p2', nickname: 'Bayta', text: 'Anyone home?' },
+                    { seq: 2, sentAt: 2, kind: 'said', from: 'p3', nickname: 'Toran', text: 'Right here.' },
+                    { seq: 3, sentAt: 3, kind: 'said', from: 'p2', nickname: 'Bayta', text: 'Your move.' }
+                ]
+            });
+        }
     }
 ];
 
