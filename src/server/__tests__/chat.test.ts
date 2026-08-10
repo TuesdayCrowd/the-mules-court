@@ -152,9 +152,12 @@ describe('the byte cap', () => {
 
 describe('history delivery', () => {
     it('reaches a seat on its SECOND reconnect, not only its first', () => {
-        // The trap this exists for: `resumeSeat`'s nickname adoption right
-        // above the history send is gated one-time-only, and copying that guard
-        // would silently stop re-delivering the transcript.
+        // Both seats already hold nicknames before this test body runs, so a
+        // history send copying `resumeSeat`'s one-time-only nickname guard
+        // would already fail on the FIRST iteration — that case proves
+        // nothing about it. What the second iteration actually guards is a
+        // different bug shape: a one-shot delivery flag, or any state that
+        // makes history arrive once per seat rather than once per resume.
         const { room, conns, tokens } = makeConnectedLobby(2);
         room.sendChat(conns[0], 'said once');
 
