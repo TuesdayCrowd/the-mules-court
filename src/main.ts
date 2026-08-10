@@ -108,6 +108,28 @@ function topOfPile(seat: RedactedView['players'][number] | undefined): CardTypeI
     return pile.length === 0 ? null : pile[pile.length - 1].cardId;
 }
 
+/**
+ * How far `window.innerWidth - playArea().w` may drift from zero and still
+ * count as "no rail."
+ *
+ * Defends against one thing only: `playArea()` rounds a measured width, and
+ * `window.innerWidth` can itself be fractional at a non-integer browser zoom
+ * (e.g. 110%), so the two can disagree by a pixel with no rail present at
+ * all — an `innerWidth` of 1440 against a `getBoundingClientRect().width` of
+ * 1439.4, rounded to 1439. A bare `> 0` reads that pixel as the rail, and
+ * `railVisible` deciding a 320px object off a 1px measurement is a different
+ * mistake from the layout's own rounding — the table one pixel narrower is
+ * merely imprecise, but the rail read as present while absent is a chat
+ * badge that silently stops appearing: `drawTranscript`/`drawBadge` in
+ * `chatRail.ts` treat "the rail is visible" as "the player has read it".
+ *
+ * This is NOT a design minimum for a usable rail and must never be scaled
+ * with `--chat-rail-w` — the rail is either its one designed width (20rem)
+ * or gone, so any value comfortably below that width and comfortably above
+ * one rounding error separates the two cases without ambiguity.
+ */
+const RAIL_PRESENCE_SLOP_PX = 8;
+
 function boot(): void {
     const route = parseRoute(location.pathname);
     const matchId = route.kind === 'join' ? route.matchId : null;
@@ -154,9 +176,12 @@ function boot(): void {
      * width in resolved pixels, however the property happens to be written.
      * The breakpoint still lives in exactly one place — `ui.css` — this just
      * asks the boxes instead of the declaration.
+     *
+     * Compared against `RAIL_PRESENCE_SLOP_PX` rather than zero — see that
+     * constant for why a sign test is not safe here.
      */
     function railVisible(): boolean {
-        return window.innerWidth - playArea().w > 0;
+        return window.innerWidth - playArea().w > RAIL_PRESENCE_SLOP_PX;
     }
 
     // --- store and socket, mutually dependent

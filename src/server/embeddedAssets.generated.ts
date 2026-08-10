@@ -21,7 +21,7 @@ import a2 from '../../dist/assets/card-back/card_back_2.png' with { type: 'file'
 import a3 from '../../dist/assets/ebling-mis/portrait_0.png' with { type: 'file' };
 import a4 from '../../dist/assets/first-speaker/portrait_0.png' with { type: 'file' };
 import a5 from '../../dist/assets/han-pritcher/portrait_0.png' with { type: 'file' };
-import a6 from '../../dist/assets/index-B9t0L08m.js' with { type: 'file' };
+import a6 from '../../dist/assets/index-fRLcaNlc.js' with { type: 'file' };
 import a7 from '../../dist/assets/index-gKPMwxdk.css' with { type: 'file' };
 import a8 from '../../dist/assets/informant/portrait_0.png' with { type: 'file' };
 import a9 from '../../dist/assets/magnifico/portrait_0.png' with { type: 'file' };
@@ -62,7 +62,7 @@ export const EMBEDDED: ReadonlyMap<string, string> = new Map([
     ['/assets/ebling-mis/portrait_0.png', a3],
     ['/assets/first-speaker/portrait_0.png', a4],
     ['/assets/han-pritcher/portrait_0.png', a5],
-    ['/assets/index-B9t0L08m.js', a6],
+    ['/assets/index-fRLcaNlc.js', a6],
     ['/assets/index-gKPMwxdk.css', a7],
     ['/assets/informant/portrait_0.png', a8],
     ['/assets/magnifico/portrait_0.png', a9],
