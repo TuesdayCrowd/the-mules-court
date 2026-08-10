@@ -137,13 +137,26 @@ function boot(): void {
     /**
      * Whether the rail is painted rather than collapsed.
      *
-     * Reads the value CSS resolved instead of re-testing the media query, so
-     * the breakpoint is defined once, in `ui.css`, and this cannot disagree
-     * with it.
+     * Measured as the gap between the window and the play area, NOT by
+     * reading `--chat-rail-w` back out of `getComputedStyle`. That property is
+     * never declared with `@property` anywhere in `src/client/styles/`, and for
+     * an unregistered custom property `getPropertyValue` hands back the
+     * specified token stream, not a resolved length — the literal string
+     * `"20rem"`, never `"320px"`. `Number.parseFloat` on that string happens to
+     * strip the trailing letters and read `20`, which passes today only
+     * because every value `ui.css` currently writes for the property starts
+     * with a digit; a `calc(...)` or anything else starting with a letter
+     * parses as `NaN`, and the rail would silently report itself invisible
+     * while still on screen, with nothing anywhere to say so. Subtracting two
+     * boxes this file already measures has no token to misread:
+     * `#game-container` is inset by the rail and nothing else, so the
+     * difference between the window and `playArea()` is the rail's actual
+     * width in resolved pixels, however the property happens to be written.
+     * The breakpoint still lives in exactly one place — `ui.css` — this just
+     * asks the boxes instead of the declaration.
      */
     function railVisible(): boolean {
-        const raw = getComputedStyle(document.documentElement).getPropertyValue('--chat-rail-w');
-        return Number.parseFloat(raw) > 0;
+        return window.innerWidth - playArea().w > 0;
     }
 
     // --- store and socket, mutually dependent
@@ -703,6 +716,15 @@ function boot(): void {
          * PREVIOUS push's layout — an empty hand on the first deal, measured in
          * a browser. Real buttons cannot desynchronise from themselves, so the
          * ordering hazard is gone with the twin that created it.
+         *
+         * This call's `viewport` is `playArea`, which calls
+         * `getBoundingClientRect()` — a forced synchronous layout, run right
+         * after `uiRoot.update(state)` has just mutated sibling DOM, on the
+         * busiest path in this file (every store push). Deliberately not
+         * cached: a resize or the rail opening/closing has to be reflected on
+         * the very next push, and this game's cadence is turn-based socket
+         * events, not a render loop, so one reflow per push is not a cost
+         * worth engineering around.
          */
         table.update(state);
 
