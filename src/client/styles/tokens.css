@@ -52,6 +52,16 @@
     --space-5: 1.25rem;
     --space-6: 1.5rem;
     --space-8: 2rem;
+
+    /**
+     * How much of the right edge the chat rail is taking, if any.
+     *
+     * Zero by default and set in exactly ONE place — the media query in
+     * `ui.css`. Every viewport-anchored surface subtracts it, and `main.ts`
+     * reads its computed value rather than re-testing the query, so the
+     * breakpoint exists once in the whole codebase.
+     */
+    --chat-rail-w: 0px;
     --font-size-sm: 0.875rem;
     /* Not a palette colour and deliberately not mirrored in TS: the drift test
        matches `#rrggbb`, and an alpha boundary has no integer form to mirror. */
