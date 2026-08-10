@@ -159,6 +159,16 @@ export function createChatRail(deps: ChatRailDeps): Surface {
     /** The newest seq the player has been shown. Everything after it is unread. */
     let seenSeq = 0;
     let onScreen = false;
+    /**
+     * The transcript from the last `update()`, held so `setOpen` can redraw the
+     * badge on a bare click.
+     *
+     * `drawBadge` is what decides what the badge reads, and it needs the
+     * current chat to do that — but opening or closing the panel commits
+     * nothing to the store, so there is no fresh `state.chat` at that moment,
+     * only whatever the most recent push already told this surface.
+     */
+    let lastChat: readonly ChatEntry[] = [];
 
     function lineFor(entry: ChatEntry): HTMLElement {
         const item = document.createElement('li');
@@ -230,6 +240,12 @@ export function createChatRail(deps: ChatRailDeps): Surface {
         open = next;
         launcher.setAttribute('aria-expanded', String(next));
         container.dataset.open = String(next);
+        // Opening IS reading: without this, a badge left over from before the
+        // click stays wrong until some unrelated STATE_UPDATE happens to push
+        // again — which, in the lobby, can be never. Redrawn from `lastChat`
+        // rather than waiting on the next `update()`, because a click commits
+        // nothing to the store and there isn't going to be one.
+        drawBadge(lastChat);
         // Focus is deliberately left alone, exactly as the reference dock leaves
         // it: taking it on open makes a non-modal panel feel like an
         // interruption, and returning it on close yanks the player out of
@@ -273,6 +289,8 @@ export function createChatRail(deps: ChatRailDeps): Surface {
         },
 
         update(state) {
+            lastChat = state.chat;
+
             const showing = wanted(state.screen);
 
             if (showing !== onScreen) {

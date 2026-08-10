@@ -155,13 +155,30 @@ describe('the badge', () => {
     });
 
     it('clears when the player opens the panel, and stays clear', () => {
+        // No trailing update(): opening the panel commits nothing to the store,
+        // so nothing pushes a fresh state after the click. A production click
+        // never gets a free re-render to hide behind.
         const { root, rail } = mount();
         rail.update(makeState({ screen: 'table', chat: [said(1, 'one')] }));
         launcher(root).click();
-        rail.update(makeState({ screen: 'table', chat: [said(1, 'one')] }));
 
         expect(badge(root).hidden).toBe(true);
         expect(launcher(root).getAttribute('aria-label')).toBe('Chat');
+    });
+
+    it('stays clear once Escape closes the panel, since Escape also goes through setOpen', () => {
+        // Guards against the fix landing only in the click handler: Escape is
+        // bound on the panel itself and calls the same setOpen, so reading
+        // must not un-read on close.
+        const { root, rail } = mount();
+        rail.update(makeState({ screen: 'table', chat: [said(1, 'one'), said(2, 'two')] }));
+        launcher(root).click();
+
+        (root.querySelector('[data-role="chat-rail"]') as HTMLElement).dispatchEvent(
+            new KeyboardEvent('keydown', { key: 'Escape', bubbles: true })
+        );
+
+        expect(badge(root).hidden).toBe(true);
     });
 
     it('never counts while the rail is painted, because it is already being read', () => {
