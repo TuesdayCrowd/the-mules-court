@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import type { CardInstanceId, RedactedView } from '../engine';
+import type { CardInstanceId, PlayerId, PublicLogEntry, RedactedView } from '../engine';
 import { CARD_CATALOG, cardTypeOf, view } from '../engine';
 import { runArena } from './arena';
 import { findState, FOUR_SEATS, seeds, takeStates } from './__fixtures__/decisionStates';
@@ -67,7 +67,55 @@ describe('heuristicPolicy', () => {
         )!;
 
         const decision = heuristicPolicy.decide(seat, makeRng('peek'))!;
-        expect(decision.cardInstanceId).toBe(holding(seat, 1));
+        // A held value can repeat (two Informants), and chooseBest breaks a tie
+        // between equally-scored instances at random — only the VALUE played is
+        // guaranteed, not which of two identical cards was chosen.
+        expect(valueOf(decision.cardInstanceId)).toBe(1);
+        expect(decision.target).toBe(known.subjectId);
+        expect(decision.guess).toBe(CARD_CATALOG[known.cardTypeId].value);
+    });
+
+    test('guesses the card it gave away in a trade, against the player who took it', () => {
+        // The complaint's mirror image: a bot whose hand a King traded away has
+        // no memory of what it lost unless the trade itself records the peek —
+        // king.ts now does, the same way baron.ts already does for a compare.
+        // `tradePartners` finds every seat this one swapped hands with, so the
+        // live `revealed` record checked below can be tied to a trade rather
+        // than coincidentally matching some other peek's target.
+        const tradePartners = (seat: RedactedView): PlayerId[] =>
+            seat.publicLog
+                .filter(
+                    (entry): entry is Extract<PublicLogEntry, { kind: 'TRADED' }> =>
+                        entry.kind === 'TRADED' &&
+                        (entry.actorId === seat.own.playerId || entry.targetId === seat.own.playerId)
+                )
+                .map(entry => (entry.actorId === seat.own.playerId ? entry.targetId : entry.actorId));
+
+        const found = findState(seat => {
+            const informant = holding(seat, 1);
+            if (informant === undefined) return false;
+            const targets = seat.own.legalTargets[informant] ?? [];
+            const partners = tradePartners(seat);
+            return seat.revealed.some(
+                record =>
+                    partners.includes(record.subjectId) &&
+                    targets.includes(record.subjectId) &&
+                    CARD_CATALOG[record.cardTypeId].value !== 1
+            );
+        });
+        expect(found, 'no post-trade Informant position found').toBeDefined();
+
+        const seat = found!.seat;
+        const partners = tradePartners(seat);
+        const known = seat.revealed.find(
+            record =>
+                partners.includes(record.subjectId) &&
+                (seat.own.legalTargets[holding(seat, 1)!] ?? []).includes(record.subjectId) &&
+                CARD_CATALOG[record.cardTypeId].value !== 1
+        )!;
+
+        const decision = heuristicPolicy.decide(seat, makeRng('king-trade'))!;
+        expect(valueOf(decision.cardInstanceId)).toBe(1);
         expect(decision.target).toBe(known.subjectId);
         expect(decision.guess).toBe(CARD_CATALOG[known.cardTypeId].value);
     });
