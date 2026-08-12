@@ -743,6 +743,87 @@ describe('Room.resumeSeat — active phase', () => {
     });
 });
 
+/**
+ * A stale invite link against a room that ended before any match ever
+ * existed: the lobby TTL sweep (or endMatch's host-missing-lobby-grace path)
+ * calls transitionToEnded straight out of 'lobby', where `match` was always
+ * null. `missingSeats`/`paused` take no notice of phase, so a resume that
+ * clears the last seat still missing since the disconnect reads as
+ * "nowUnpaused" here exactly as it would in an active match — which is what
+ * drove `pushStateToConnectedSeats` into `buildStateUpdate`'s null-match
+ * throw before this file's fix.
+ */
+describe('Room.resumeSeat — into a room that ended without ever holding a match', () => {
+    function makeEndedLobbyWithAStaleInvitee(): { room: Room; staleToken: string; hostConn: RecordingConn } {
+        let t = 0;
+        // lobbyTtlMs far below the default lobbyDisconnectGraceMs (60_000), so
+        // the room ends on the TTL branch before the per-seat reopening loop
+        // ever gets to clear Bayta's token out from under this test.
+        const config = makeConfig({ dbPath: ':memory:', lobbyTtlMs: 1000 });
+        const store = new MatchStore(':memory:');
+        const { room, hostSeatToken } = Room.create(config, store, { now: () => t });
+
+        const hostConn = new RecordingConn();
+        room.resumeSeat(hostConn, hostSeatToken); // host stays connected throughout
+
+        const inviteeConn = new RecordingConn();
+        room.claimSeat(inviteeConn, 'Bayta');
+        const claimedMsg = inviteeConn.sent.find(m => m.type === 'SEAT_CLAIMED') as Extract<
+            ServerMessage,
+            { type: 'SEAT_CLAIMED' }
+        >;
+        const staleToken = claimedMsg.seatToken;
+
+        room.handleClose(inviteeConn); // Bayta's tab closes; her invite link is now the only way back in
+
+        t = 1500; // past lobbyTtlMs, nowhere near lobbyDisconnectGraceMs
+        expect(room.sweep()).toBe('keep'); // ends the room: phase 'ended', match still null
+
+        return { room, staleToken, hostConn };
+    }
+
+    it('does not throw when the stale link resumes and clears the last missing seat', () => {
+        const { room, staleToken } = makeEndedLobbyWithAStaleInvitee();
+        const conn = new RecordingConn();
+
+        expect(() => room.resumeSeat(conn, staleToken)).not.toThrow();
+    });
+
+    it('answers the stale-link resume with ERROR{MATCH_OVER} rather than leaving it to silence', () => {
+        const { room, staleToken } = makeEndedLobbyWithAStaleInvitee();
+        const conn = new RecordingConn();
+
+        room.resumeSeat(conn, staleToken);
+
+        // MATCH_OVER is already a DEAD_END_CODE on the client (store.ts):
+        // this is what moves a player off "Taking your seat…" and onto the
+        // full-screen explanation, the same answer claimSeat gives a fresh
+        // joiner arriving after the room is gone.
+        expect(last(conn.sent)).toEqual({ type: 'ERROR', code: 'MATCH_OVER' });
+    });
+
+    it('regression guard: a seat reconnecting to a match that ended NORMALLY still gets its STATE_UPDATE, not a wall', () => {
+        // The failure mode above is specific to a room that never had a
+        // match at all. A room that ended with a real `match` — the far more
+        // common case, an ordinary win or an abandoned active game — must
+        // keep landing a reconnecting seat on the match-over overlay.
+        const { room, conns, tokens } = makeConnectedLobby(2);
+        room.startMatch(conns[0]);
+        room.endMatch(conns[0]); // host ends it; phase 'ended', match !== null
+
+        room.handleClose(conns[1]); // p2 disconnects after the match is already over
+
+        const conn = new RecordingConn();
+        const result = room.resumeSeat(conn, tokens[1]);
+
+        expect(result).toEqual({ seat: 1, playerId: 'p2' });
+        const update = last(conn.sent) as Extract<ServerMessage, { type: 'STATE_UPDATE' }>;
+        expect(update.type).toBe('STATE_UPDATE');
+        expect(update.phase).toBe('ended');
+        expect(update.endReason).toBe('abandoned');
+    });
+});
+
 describe('Room — round-over commit (Design §6)', () => {
     it('arms the reveal timer before persisting, so the round_over push carries revealDeadline = serverTime + revealWindowMs', () => {
         const t = 1_700_000_000_000;
