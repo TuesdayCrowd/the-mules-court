@@ -1,5 +1,5 @@
 import { describe, expect, test } from 'vitest';
-import type { CardInstanceId, RedactedView } from '../engine';
+import type { CardInstanceId, PlayerId, PublicLogEntry, RedactedView } from '../engine';
 import { CARD_CATALOG, cardTypeOf, view } from '../engine';
 import { runArena } from './arena';
 import { findState, FOUR_SEATS, seeds, takeStates } from './__fixtures__/decisionStates';
@@ -67,9 +67,84 @@ describe('heuristicPolicy', () => {
         )!;
 
         const decision = heuristicPolicy.decide(seat, makeRng('peek'))!;
-        expect(decision.cardInstanceId).toBe(holding(seat, 1));
+        // A held value can repeat (two Informants), and chooseBest breaks a tie
+        // between equally-scored instances at random — only the VALUE played is
+        // guaranteed, not which of two identical cards was chosen.
+        expect(valueOf(decision.cardInstanceId)).toBe(1);
         expect(decision.target).toBe(known.subjectId);
         expect(decision.guess).toBe(CARD_CATALOG[known.cardTypeId].value);
+    });
+
+    test('guesses the card it gave away in a trade, against the player who took it', () => {
+        // The complaint's mirror image: a bot whose hand a King traded away has
+        // no memory of what it lost unless the trade itself records the peek —
+        // king.ts now does, the same way baron.ts already does for a compare.
+        // `tradePartners` finds every seat this one swapped hands with, so the
+        // live `revealed` record checked below can be tied to a trade rather
+        // than coincidentally matching some other peek's target.
+        const tradePartners = (seat: RedactedView): PlayerId[] =>
+            seat.publicLog
+                .filter(
+                    (entry): entry is Extract<PublicLogEntry, { kind: 'TRADED' }> =>
+                        entry.kind === 'TRADED' &&
+                        (entry.actorId === seat.own.playerId || entry.targetId === seat.own.playerId)
+                )
+                .map(entry => (entry.actorId === seat.own.playerId ? entry.targetId : entry.actorId));
+
+        const found = findState(seat => {
+            const informant = holding(seat, 1);
+            if (informant === undefined) return false;
+            const targets = seat.own.legalTargets[informant] ?? [];
+            const partners = tradePartners(seat);
+            return seat.revealed.some(
+                record =>
+                    partners.includes(record.subjectId) &&
+                    targets.includes(record.subjectId) &&
+                    CARD_CATALOG[record.cardTypeId].value !== 1
+            );
+        });
+        expect(found, 'no post-trade Informant position found').toBeDefined();
+
+        const seat = found!.seat;
+        const partners = tradePartners(seat);
+        const known = seat.revealed.find(
+            record =>
+                partners.includes(record.subjectId) &&
+                (seat.own.legalTargets[holding(seat, 1)!] ?? []).includes(record.subjectId) &&
+                CARD_CATALOG[record.cardTypeId].value !== 1
+        )!;
+
+        const decision = heuristicPolicy.decide(seat, makeRng('king-trade'))!;
+        expect(valueOf(decision.cardInstanceId)).toBe(1);
+        expect(decision.target).toBe(known.subjectId);
+        expect(decision.guess).toBe(CARD_CATALOG[known.cardTypeId].value);
+    });
+
+    test('does not trade an Informant away on a King when the target could name it back', () => {
+        // The worst case for a King: the kept card IS the Informant, so a trade
+        // hands the target a certain, nameable read the instant they can play
+        // their own Informant — keptValue === INFORMANT_VALUE is the case the
+        // scorer cannot distinguish from a safe trade without a leak term.
+        //
+        // Excludes a live peek and a one-opponent endgame: either lets the
+        // census collapse to certainty on its own (a known hand, or a single
+        // unseen card late in the deck), which makes an Informant guess the
+        // obvious top move for a reason that has nothing to do with the King's
+        // own leak — and would pass even against the unfixed scorer.
+        const found = findState(seat => {
+            const king = holding(seat, 6);
+            if (king === undefined || holding(seat, 1) === undefined) return false;
+            const targets = seat.own.legalTargets[king] ?? [];
+            if (targets.length === 0 || seat.revealed.length !== 0) return false;
+            const aliveOpponents = seat.players.filter(
+                player => player.alive && player.id !== seat.own.playerId
+            ).length;
+            return aliveOpponents >= 2;
+        }, 20_000);
+        expect(found, 'no King-beside-Informant position with a diffuse census found').toBeDefined();
+
+        const decision = heuristicPolicy.decide(found!.seat, makeRng('king-leak'))!;
+        expect(decision.cardInstanceId).not.toBe(holding(found!.seat, 6));
     });
 
     test('shields the Mule rather than carrying it unprotected', () => {

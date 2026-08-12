@@ -20,7 +20,7 @@ export function logFizzle(round: RoundDraft, actorId: PlayerId, cardId: CardType
  */
 export function recordPeek(
     round: RoundDraft,
-    kind: 'priest' | 'baron',
+    kind: 'priest' | 'baron' | 'king',
     viewerId: PlayerId,
     subjectId: PlayerId,
     cardInstanceId: CardInstanceId

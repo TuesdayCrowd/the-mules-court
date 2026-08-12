@@ -124,7 +124,7 @@ export interface RngState {
  */
 export interface PeekRecord {
     readonly id: string;
-    readonly kind: 'priest' | 'baron';
+    readonly kind: 'priest' | 'baron' | 'king';
     readonly viewerId: PlayerId;
     readonly subjectId: PlayerId;
     readonly cardInstanceId: CardInstanceId;

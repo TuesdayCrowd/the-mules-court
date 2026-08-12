@@ -9,6 +9,22 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ### Added
 
+- **A trade tells you what you gave away.** Mayor Indbur swaps two hands, and
+  until now neither player was told which card had left theirs — so being handed
+  an Informant by a computer opponent was useless, because you could not name the
+  card you had just put in their hand. Both sides of a trade now learn it, through
+  the same private line a look already uses: *"Only you see this — Magnifico holds
+  5 · Bayta Darell."* It is not new information in any real sense. You held that
+  card a moment ago; the game simply never said where it went.
+
+  The computer opponents read the same channel, so one whose hand is taken can now
+  guess it back — which was the other half of the same complaint.
+
+  This is deliberately the mechanism a look already uses rather than a second,
+  parallel one. A trade discloses exactly what a look discloses — one hand, to one
+  player, with certainty — so giving it its own vocabulary would have meant two
+  ways of saying the same thing, and two places for them to drift apart.
+
 - **The people at the table can talk to each other.** One public channel per
   match, live from the moment the host creates the lobby, and whoever joins next
   is handed everything already said — so arriving third does not mean arriving
@@ -26,6 +42,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   it is drawn. A seat whose player disconnects is reopened after a minute and
   handed to whoever arrives next, so the second reading would have put one
   person's words in another person's mouth an hour later.
+
+### Changed
+
+- **Computer opponents now weigh what a trade costs them, not only what it
+  gains.** Handing your card to someone tells them precisely what you are
+  holding, and they can name it back the moment they can play an Informant. The
+  opponents used to price a trade purely on which card was worth more, which made
+  them willing to hand over their own Informant to a player who could then use it
+  against them.
+
+  They now price the risk too, and it turns on two things a trade cannot escape:
+  whether the card being handed over is itself an Informant, and whether the card
+  coming back can legally be named at all — an Informant may never be guessed, so
+  receiving one costs nothing. The strongest opponents were retrained around it.
+
+  Tuning the old, single number was tried first and does not work: it can only
+  make every trade less attractive, so it punishes the safe ones alongside the
+  dangerous ones. The training run said as much by refusing to ship its own
+  result. Given a way to tell the two apart, the appetite for a good trade
+  actually rose.
 
 ### Fixed
 

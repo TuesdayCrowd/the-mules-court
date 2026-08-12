@@ -16,10 +16,29 @@ describe('resolveKing', () => {
         expect(draft.players.p1.hand).toEqual(['magnifico#0']);
     });
 
-    it('creates no peek records, since each trader simply holds a new card', () => {
+    it('tells each trader where the card they gave away landed, not the card they received', () => {
         const draft = round();
         resolveKing({ round: draft, actorId: 'p0', targetId: 'p1', playedCardId: 'mayor-indbur' });
-        expect(draft.privateKnowledge).toEqual([]);
+        // p0 gave away Magnifico, which p1 now holds; p1 gave away the
+        // Informant, which p0 now holds. Naming the RECEIVED card here would be
+        // hard to notice and useless — a player already sees their own hand.
+        expect(draft.privateKnowledge).toContainEqual(
+            expect.objectContaining({
+                kind: 'king',
+                viewerId: 'p0',
+                subjectId: 'p1',
+                cardTypeId: 'magnifico'
+            })
+        );
+        expect(draft.privateKnowledge).toContainEqual(
+            expect.objectContaining({
+                kind: 'king',
+                viewerId: 'p1',
+                subjectId: 'p0',
+                cardTypeId: 'informant'
+            })
+        );
+        expect(draft.privateKnowledge).toHaveLength(2);
     });
 
     it('logs the trade without naming either card', () => {
@@ -51,5 +70,7 @@ describe('resolveKing', () => {
             actorId: 'p0',
             cardId: 'mayor-indbur'
         });
+        // No trade happened, so nobody learns anything.
+        expect(draft.privateKnowledge).toEqual([]);
     });
 });

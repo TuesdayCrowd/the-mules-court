@@ -94,6 +94,20 @@ function expectedValue(beliefs: Beliefs, playerId: PlayerId): number {
     return beliefs.unseenMean;
 }
 
+/**
+ * P(the next unseen card drawn is an Informant) — the population estimate,
+ * deliberately blind to any seat's known hand.
+ *
+ * Only correct for a card nobody currently holds with certainty. `pHolds`'s
+ * known-hand branch answers "does THIS seat's CURRENT card equal this value"
+ * — the wrong question for what a King's target might draw AFTER the trade,
+ * since a King replaces the target's hand outright.
+ */
+function pInformantDrawn(beliefs: Beliefs): number {
+    if (beliefs.unseenTotal === 0) return 0;
+    return (beliefs.unseenByValue.get(INFORMANT_VALUE) ?? 0) / beliefs.unseenTotal;
+}
+
 const pBelow = (beliefs: Beliefs, playerId: PlayerId, mine: number): number =>
     VALUES.filter(value => value < mine).reduce(
         (sum, value) => sum + pHolds(beliefs, playerId, value),
@@ -232,12 +246,35 @@ export function scoreMoves(
                 for (const target of targets) {
                     // A trade hands over whatever is kept. Handing over the Mule
                     // gives away the round.
-                    add(
-                        keptValue === MULE_VALUE
-                            ? weights.selfDestruct
-                            : weights.kingGain * (expectedValue(beliefs, target) - keptValue),
-                        target
-                    );
+                    if (keptValue === MULE_VALUE) {
+                        add(weights.selfDestruct, target);
+                        continue;
+                    }
+
+                    const gain = weights.kingGain * (expectedValue(beliefs, target) - keptValue);
+
+                    // A trade is now a forced, MUTUAL disclosure: after the swap the
+                    // target holds exactly `keptValue`'s card, so they can name the
+                    // actor's new hand the moment they can play an Informant. Two
+                    // independent gates on whether that threat is real:
+                    //
+                    //  - targetGetsInformant: certain when the card handed over IS one
+                    //    — trading away your own Informant is the worst case — and
+                    //    otherwise the population odds they draw one before their turn.
+                    //  - handIsNameable: an Informant may never guess value 1, so if
+                    //    the card the ACTOR receives (the target's CURRENT, pre-swap
+                    //    card) is itself an Informant, it cannot be named at all.
+                    //    `pHolds` reads the pre-swap hand, which is exactly what that
+                    //    incoming card is.
+                    //
+                    // No discount for "they might already know" is possible: `revealed`
+                    // is filtered to the viewer, so a seat can never see who has peeked
+                    // into it. The cost is paid in full every time.
+                    const targetGetsInformant =
+                        keptValue === INFORMANT_VALUE ? 1 : pInformantDrawn(beliefs);
+                    const handIsNameable = 1 - pHolds(beliefs, target, INFORMANT_VALUE);
+
+                    add(gain + weights.kingLeak * (targetGetsInformant * handIsNameable), target);
                 }
                 break;
 

@@ -75,7 +75,9 @@ describe('createSearchPolicy', () => {
 
         const decision = searcher(400).decide(seat, makeRng('kill'))!;
 
-        expect(decision.cardInstanceId).toBe(holding(seat, 1));
+        // A held value can repeat (two Informants); only the VALUE played is
+        // guaranteed when two identical-scoring instances are tied.
+        expect(valueOf(decision.cardInstanceId)).toBe(1);
         expect(decision.target).toBe(known.subjectId);
         expect(decision.guess).toBe(CARD_CATALOG[known.cardTypeId].value);
     });
