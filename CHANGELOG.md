@@ -27,6 +27,23 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   handed to whoever arrives next, so the second reading would have put one
   person's words in another person's mouth an hour later.
 
+### Fixed
+
+- **A stale invite link into a room that had already closed left the tab stuck
+  on "Taking your seat…" forever.** A room can reach `ended` having never held
+  a match at all — the lobby timeout and the host-missing grace period both
+  close a table straight out of the lobby, before anyone started a game. A
+  reconnect into one of those rooms was read as "the last missing seat just
+  reconnected," the same signal a live match's reconnect produces, which sent
+  the resume looking for a match to describe and finding none — and the
+  server threw instead of answering. Silencing the throw alone would not have
+  fixed the tab: with nothing to send back, it would have sat on "Taking your
+  seat…" precisely as it already was, just without the error in the log. The
+  resume now answers with the same closed-room code a fresh joiner already
+  gets, which the client already treats as a dead end rather than a toast — a
+  reconnect into a match that ended normally, with real cards on the table,
+  is untouched and still lands on the match-over overlay.
+
 ## [1.2.5] - 2026-08-07
 
 Two pieces of gameplay feedback from a real match, the pre-existing bugs that
