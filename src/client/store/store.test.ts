@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import type { ClientMessage, ServerMessage } from '../../server/protocol';
+import type { ChatEntry, ClientMessage, ServerMessage } from '../../server/protocol';
 import { makeStateUpdate, makeView } from './__fixtures__/view';
 import type { SeatTokenStore, StoredSeat } from './seatTokenStore';
 import type { StoreDeps } from './store';
@@ -621,6 +621,103 @@ describe('the whole arc', () => {
         expect(h.store.getState().screen).toBe('table'); // UIX §9.2 overlays the table, never replaces it
         expect(h.store.getState().fatal).toBeNull();
         expect(h.store.getState().notices).toEqual([]);
+    });
+});
+
+describe('chat', () => {
+    const entry = (seq: number, text: string): ChatEntry => ({
+        seq,
+        sentAt: 1_000 + seq,
+        kind: 'said',
+        from: 'p2',
+        nickname: 'Ana',
+        text
+    });
+
+    it('starts empty', () => {
+        expect(harness().store.getState().chat).toEqual([]);
+    });
+
+    it('appends on CHAT_SAID', () => {
+        const h = harness();
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'one') });
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(2, 'two') });
+
+        expect(h.store.getState().chat.map(e => e.seq)).toEqual([1, 2]);
+    });
+
+    it('replaces wholesale on CHAT_HISTORY, so a reconnect never doubles a line', () => {
+        const h = harness();
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'one') });
+        // The reconnect case: a one-entry history over a client that already
+        // holds that entry.
+        h.store.apply({ type: 'CHAT_HISTORY', matchId: 'K7QX2', entries: [entry(1, 'one')] });
+
+        expect(h.store.getState().chat).toHaveLength(1);
+    });
+
+    it('bumps chatEpoch on a CHAT_HISTORY that actually changes something, and leaves it alone on CHAT_SAID', () => {
+        const h = harness();
+        expect(h.store.getState().chatEpoch).toBe(0);
+
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'one') });
+        expect(h.store.getState().chatEpoch).toBe(0);
+
+        // A real change, not the same one entry the client already holds —
+        // see the no-op tests below for that case.
+        h.store.apply({ type: 'CHAT_HISTORY', matchId: 'K7QX2', entries: [entry(1, 'one'), entry(2, 'two')] });
+        expect(h.store.getState().chatEpoch).toBe(1);
+    });
+
+    it('leaves state untouched — same object, not merely equal — when CHAT_HISTORY repeats what the client already holds', () => {
+        const h = harness();
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'one') });
+        const before = h.store.getState();
+
+        h.store.apply({ type: 'CHAT_HISTORY', matchId: 'K7QX2', entries: [entry(1, 'one')] });
+
+        // toBe, not toEqual: a reconnect on a flaky connection sends this
+        // constantly, and a rebuilt-but-equal state would still move
+        // chatEpoch and yank a reader's scroll position to the bottom for no
+        // actual change.
+        expect(h.store.getState()).toBe(before);
+    });
+
+    it('still rebuilds when a note lands on a seq a previous life already used', () => {
+        const h = harness();
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'said seq 1') });
+
+        // Room.rebuild resets the seq counter, so a RESTARTED note after a
+        // server restart can collide with a seq a previous life already
+        // handed to a `said` entry. seq alone must not read this as a no-op.
+        const restarted: ChatEntry = { seq: 1, sentAt: 2_000, kind: 'note', code: 'RESTARTED' };
+        h.store.apply({ type: 'CHAT_HISTORY', matchId: 'K7QX2', entries: [restarted] });
+
+        expect(h.store.getState().chat).toEqual([restarted]);
+        expect(h.store.getState().chatEpoch).toBe(1);
+    });
+
+    it('replaces the array rather than mutating it', () => {
+        const h = harness();
+        const before = h.store.getState().chat;
+        h.store.apply({ type: 'CHAT_SAID', matchId: 'K7QX2', entry: entry(1, 'one') });
+
+        expect(h.store.getState().chat).not.toBe(before);
+        expect(before).toEqual([]);
+    });
+
+    it('sends a valid message and reports that the frame left', () => {
+        const h = harness();
+        expect(h.store.sendChat('  hello  ')).toBe(true);
+        expect(h.sent).toContainEqual({ type: 'SEND_CHAT', matchId: 'K7QX2', text: 'hello' });
+    });
+
+    it('refuses to send what the server would refuse, without spending a frame', () => {
+        const h = harness();
+        expect(h.store.sendChat('   ')).toBe(false);
+        expect(h.store.sendChat('a'.repeat(256))).toBe(false);
+        expect(h.store.sendChat('nope \u{1F600}')).toBe(false);
+        expect(h.sent.filter(m => m.type === 'SEND_CHAT')).toHaveLength(0);
     });
 });
 

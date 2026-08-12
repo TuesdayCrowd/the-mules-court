@@ -100,6 +100,7 @@ export function startServer(config: TransportConfig, serveAsset: StaticHandler |
                 const data: ConnectionState = {
                     ip,
                     bucket: new TokenBucket(config.messageBurst, config.messageRefillPerSec),
+                    chatBucket: new TokenBucket(config.chatBurst, config.chatRefillPerSec),
                     seat: null,
                     matchId: null,
                     // Assigned in websocket.open(), which always precedes the first

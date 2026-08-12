@@ -47,9 +47,14 @@ h2,
     overflow: hidden;
 }
 
+/* Every viewport-anchored surface subtracts the rail. `position: fixed` cannot
+   be narrowed by an ancestor's box — its containing block comes from ancestor
+   properties, not geometry — so the width has to arrive as an inherited value
+   each rule reads for itself. */
 #game-container {
     position: absolute;
     inset: 0;
+    right: var(--chat-rail-w, 0px);
 }
 
 #game-container canvas {
@@ -68,6 +73,7 @@ h2,
 #ui-root {
     position: fixed;
     inset: 0;
+    right: var(--chat-rail-w, 0px);
     z-index: 1;
     pointer-events: none;
     /* viewport-fit=cover means content can reach under the notch and the home
@@ -121,6 +127,33 @@ h2,
 #ui-root > .connection-dot,
 #ui-root > .sound-toggle {
     z-index: 1;
+}
+
+/**
+ * When the rail is worth its width.
+ *
+ * The aspect clause is not decoration. Without it a tall window — 1200x1000 —
+ * passes any width-and-height floor, and the 880x1000 box left for the table is
+ * an aspect of 0.88, under `PORTRAIT_MAX_ASPECT`, so `classifyTopology` would
+ * hand a desktop window the phone composition. Capping `h <= 3w/4` makes the
+ * worst admitted case (1200x900) leave 880/900 = 0.978, and it only improves as
+ * the window widens. 4:3 is the ratio `topology.ts` already argues about by
+ * name; 1200 rather than 1024 is for margin, since 1024x768 leaves 0.917 — under
+ * two percent above the floor, and too thin to trust against browser chrome.
+ */
+@media (min-width: 1200px) and (min-height: 640px) and (min-aspect-ratio: 4/3) {
+    :root {
+        --chat-rail-w: 20rem;
+    }
+
+    /* Which one paints is decided here and nowhere else. No TypeScript asks. */
+    [data-role='chat-rail-host'] .chat-launcher {
+        display: none;
+    }
+
+    [data-role='chat-rail-host'] .chat-rail {
+        display: flex;
+    }
 }
 
 /**
@@ -481,6 +514,7 @@ h2,
 [data-role='fatal'] .fatal-dialog {
     position: fixed;
     inset: 0;
+    right: var(--chat-rail-w, 0px);
     z-index: 2;
     display: grid;
     place-content: center;
@@ -532,6 +566,7 @@ h2,
 
 .action-sheet[data-anchor='bottom'] {
     inset: auto 0 0 0;
+    right: var(--chat-rail-w, 0px);
     border-radius: var(--radius) var(--radius) 0 0;
     padding-bottom: max(var(--space-4), env(safe-area-inset-bottom));
 }
@@ -543,6 +578,7 @@ h2,
        opponent they are choosing between. The stylesheet cannot compute that
        line — it depends on seat count and viewport — so it must be inline. */
     inset: 0 0 0 auto;
+    right: var(--chat-rail-w, 0px);
     width: min(28rem, 40vw);
     border-radius: var(--radius) 0 0 var(--radius);
 }
@@ -732,6 +768,29 @@ h2,
 }
 
 /**
+ * The reusable version of the recipe above: clipped to a single pixel rather
+ * than removed, so a screen reader still finds it while nothing is painted.
+ *
+ * `chatRail.ts` puts this on the composer's `<label>` — the input already
+ * carries the same copy as its placeholder, and an unstyled label would sit
+ * beside it as duplicate visible text. `#a11y-twin` and `.toast[data-kind=
+ * 'narration']` inline this same recipe rather than reaching for this class;
+ * they predate it and are left alone rather than churned for its sake.
+ */
+.visually-hidden {
+    position: absolute;
+    width: 1px;
+    height: 1px;
+    margin: -1px;
+    padding: 0;
+    overflow: hidden;
+    clip: rect(0, 0, 0, 0);
+    clip-path: inset(50%);
+    white-space: nowrap;
+    border: 0;
+}
+
+/**
  * The card hint (hover, and long-press on touch).
  *
  * `pointer-events: none` is the load-bearing line: a tooltip that could be
@@ -768,7 +827,7 @@ h2,
  */
 .reference-tab {
     position: fixed;
-    right: var(--space-3);
+    right: calc(var(--space-3) + var(--chat-rail-w, 0px));
     bottom: var(--space-3);
     z-index: 4;
     min-height: var(--tap-min);
@@ -816,7 +875,7 @@ h2,
        vacuous assertion here is worse than none — this is the rule that keeps
        the dock off the action sheet's buttons. */
     top: 0;
-    right: 0;
+    right: var(--chat-rail-w, 0px);
     bottom: auto;
     left: 0;
     z-index: 5;
@@ -862,9 +921,16 @@ h2,
            between this panel and the narrow top sheet is made by this media
            query, so an inline `top` would mean repeating the 60rem breakpoint in
            TypeScript — and would still be sitting on the element after a resize
-           into the narrow form, pushing that sheet down the screen. */
+           into the narrow form, pushing that sheet down the screen.
+
+           `right` is the rail's width, not a bare `0`, for a reason this rule
+           used to get wrong: this selector wins over the base `.reference-modal`
+           rule above (same specificity, later in source), so a plain `0` here
+           painted the drawer flush to the true screen edge, over the rail, at
+           every desktop width the rail exists at — the 60rem breakpoint fires
+           well before the rail's own 1200px one. */
         top: var(--dock-safe-top, 0px);
-        right: 0;
+        right: var(--chat-rail-w, 0px);
         bottom: 0;
         left: auto;
         width: min(32rem, 45vw);
@@ -1024,6 +1090,7 @@ h2,
 .seat-dossier {
     position: fixed;
     inset: auto 0 0 0;
+    right: var(--chat-rail-w, 0px);
     z-index: 5;
     max-height: 80dvh;
     /* As with the dock: the panel holds still, the body scrolls. */
@@ -1083,6 +1150,7 @@ h2,
 .elimination-notice {
     position: fixed;
     inset: auto 0 auto 0;
+    right: var(--chat-rail-w, 0px);
     top: 50%;
     transform: translateY(-50%);
     z-index: 7;
@@ -1125,6 +1193,7 @@ h2,
 .overlay {
     position: fixed;
     inset: auto 0 auto 0;
+    right: var(--chat-rail-w, 0px);
     top: 50%;
     transform: translateY(-50%);
     z-index: 6;
@@ -1244,4 +1313,212 @@ h2,
 .screen-lobby [data-action='remove-bot']:focus-visible {
     border-color: var(--color-nebula-red);
     color: var(--color-nebula-red);
+}
+
+/**
+ * The rail. Hidden until the media query above says otherwise, at which point
+ * it takes the strip `--chat-rail-w` reserved for it.
+ */
+.chat-rail {
+    position: fixed;
+    top: 0;
+    right: 0;
+    bottom: 0;
+    width: var(--chat-rail-w);
+    z-index: 4;
+    display: none;
+    flex-direction: column;
+    gap: var(--space-2);
+    padding: var(--space-3);
+    padding-bottom: max(var(--space-3), env(safe-area-inset-bottom));
+    background: rgb(0 0 0 / 0.86);
+    border-left: 1px solid var(--color-border-subtle);
+    overflow: hidden;
+}
+
+.chat-rail h2 {
+    margin: 0;
+    font-size: 1rem;
+    color: var(--color-text-secondary);
+}
+
+/* The panel holds still; only the transcript scrolls. A composer that slid
+   under the fold as the conversation grew would be unreachable exactly when
+   somebody wanted to reply. */
+.chat-transcript {
+    flex: 1;
+    margin: 0;
+    padding: 0;
+    list-style: none;
+    overflow-y: auto;
+    display: flex;
+    flex-direction: column;
+    gap: var(--space-2);
+}
+
+[data-role='chat-line'] {
+    display: grid;
+    gap: 2px;
+    /* Long unbroken runs are possible at 255 characters of ASCII, and a line
+       that overflows its own column takes the scrollbar with it. */
+    overflow-wrap: anywhere;
+}
+
+[data-role='chat-line'][data-kind='note'] {
+    color: var(--color-text-secondary);
+    font-style: italic;
+}
+
+.chat-who {
+    color: var(--color-text-secondary);
+    font-size: 0.85rem;
+}
+
+.chat-what {
+    color: var(--color-text-primary);
+}
+
+.chat-form {
+    display: flex;
+    gap: var(--space-2);
+}
+
+.chat-form input {
+    flex: 1;
+    min-width: 0;
+    min-height: var(--tap-min);
+    padding: 0 var(--space-2);
+}
+
+.chat-form button {
+    min-height: var(--tap-min);
+    padding: 0 var(--space-3);
+}
+
+.chat-problem:empty {
+    display: none;
+}
+
+.chat-problem {
+    margin: 0;
+    color: var(--color-state-paused);
+    font-size: 0.85rem;
+}
+
+/**
+ * The collapsed state: a corner button beside the reference tab.
+ *
+ * It sits above the dock's own tab rather than beside it, because both want the
+ * bottom-right corner and one of them has to yield. Chat yields upward: the
+ * reference is reached mid-decision and chat is not.
+ */
+.chat-launcher {
+    position: fixed;
+    right: var(--space-3);
+    bottom: calc(var(--space-3) + var(--tap-min) + var(--space-2));
+    z-index: 4;
+    display: inline-flex;
+    align-items: center;
+    gap: var(--space-2);
+    min-height: var(--tap-min);
+    padding: 0 var(--space-4);
+    border-radius: var(--radius);
+    border: 1px solid var(--color-border-subtle);
+    background: rgb(0 0 0 / 0.86);
+    color: var(--color-text-primary);
+    font: inherit;
+}
+
+/**
+ * Spends no hue.
+ *
+ * `--color-state-your-turn` is the one violet in this palette that means
+ * "you" (see the comment above `.toast[data-kind='table']`, which states the
+ * rule outright: every hue here is spoken for, and adding a meaning costs one
+ * of them its word). An unread count is not a "you" signal in that
+ * vocabulary — it says a message arrived, not that the game is waiting on
+ * this player — and this badge sits in the exact corner of the exact
+ * near-black table where that same violet already means "act now". A solid
+ * violet dot there would read as a turn signal a room away from any actual
+ * turn.
+ *
+ * So: contrast, not colour. A filled shape is already conspicuous against
+ * this table; `--color-text-primary` fill against `--color-bg` text gets that
+ * without borrowing a word the palette has already given away.
+ */
+.chat-badge {
+    display: inline-grid;
+    place-content: center;
+    min-width: 1.25rem;
+    height: 1.25rem;
+    padding: 0 4px;
+    border-radius: 999px;
+    background: var(--color-text-primary);
+    color: var(--color-bg);
+    font-size: 0.75rem;
+}
+
+.chat-badge[hidden] {
+    display: none;
+}
+
+/**
+ * Below the breakpoint the panel is what the launcher opens — and it takes the
+ * TOP, never the bottom.
+ *
+ * The same split `.reference-modal` already argues for, and for the same
+ * reason: the action sheet anchors to the bottom on narrow layouts and the hand
+ * is under it, so a full-height panel on the right would cover the cards a
+ * player is choosing between. The sheet and the hand own the bottom; chat and
+ * the dock take the top.
+ *
+ * Scoped to the exact negation of the rail's own media query above, clause for
+ * clause, and not to a plain `max-width`. `[data-open='true']` carries two
+ * attribute selectors against the toggle's one, so unscoped it outranks the
+ * toggle regardless of viewport — open chat on a narrow window, then widen
+ * past the breakpoint without closing it, and `bottom: auto`, `width: min(100%,
+ * 22rem)` and this radius would all keep beating the wide rail's `bottom: 0`
+ * and `width: var(--chat-rail-w)` from the base rule, leaving a floating box
+ * 32px wider than the strip every other surface reserved. A single `max-width`
+ * would not be the correct opposite of the toggle either: the toggle also
+ * requires a height and an aspect ratio, so a wide-but-short window can fail
+ * the toggle and still fail a lone `max-width` negation, landing in neither
+ * form. `chatRail.ts` has no resize listener and does not need one — this is
+ * what keeps `data-open` from outliving the layout it was set in.
+ *
+ * `not all and (…) and (…) and (…)`, deliberately the older Level 3 negation
+ * rather than `not ((…) and (…) and (…))`. Both mean the same thing, but the
+ * Level 4 form needs the boolean-composition grammar a browser must support
+ * to parse `not` applied to a parenthesised compound — Safari below 16.4,
+ * iOS included, does not, and a media prelude that fails to parse drops the
+ * WHOLE rule, silently, rather than failing open or falling back. That is
+ * not a cosmetic loss here: it is the only rule that ever sets `display:
+ * flex` on `.chat-rail` below the breakpoint, so on an unsupported iPhone
+ * the panel would never open at all, with nothing in any console to say why.
+ * `not all and …` parses under both levels and stays exactly the same
+ * negation — do not "modernise" this back.
+ */
+@media not all and (min-width: 1200px) and (min-height: 640px) and (min-aspect-ratio: 4/3) {
+    [data-role='chat-rail-host'][data-open='true'] .chat-rail {
+        display: flex;
+        top: 0;
+        bottom: auto;
+        width: min(100%, 22rem);
+        max-height: 55dvh;
+        border-radius: 0 0 0 var(--radius);
+    }
+}
+
+/**
+ * When the action sheet is up, the launcher crosses to the left.
+ *
+ * `#ui-root[data-sheet] .reference-tab`, above, already does exactly this,
+ * for exactly this reason — the sheet owns the bottom-right corner while it is
+ * open. Without the matching rule the chat launcher stays behind and sits on
+ * the sheet's own buttons, which is the collision that rule was written to
+ * settle in the first place.
+ */
+#ui-root[data-sheet] .chat-launcher {
+    right: auto;
+    left: var(--space-3);
 }

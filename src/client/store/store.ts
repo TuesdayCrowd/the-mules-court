@@ -12,7 +12,8 @@
  */
 
 import type { CardInstanceId, GuessValue, PlayerId } from '../../game/engine';
-import type { ClientMessage, ErrorCode, ServerMessage } from '../../server/protocol';
+import type { ChatEntry, ClientMessage, ErrorCode, ServerMessage } from '../../server/protocol';
+import { validateChatText } from '../content/chat';
 import type { SeatTokenStore } from './seatTokenStore';
 import type { ClientState, ConnectionStatus, Notice, TableSnapshot } from './types';
 
@@ -53,6 +54,12 @@ export interface Store {
     claimSeat(nickname: string): boolean;
     /** True when a PLAY_CARD frame actually left. */
     playCard(intent: PlayIntent): boolean;
+    /**
+     * Send one line to the transcript. False when the text fails
+     * `validateChatText` — checked here so a message the server would refuse
+     * never spends a frame — or when there is no match to send it in.
+     */
+    sendChat(text: string): boolean;
     cancelPending(): void;
     /**
      * Leave a fatal wall and accept messages again.
@@ -82,7 +89,9 @@ function initialState(deps: StoreDeps): ClientState {
         ended: null,
         pendingPlay: null,
         fatal: null,
-        notices: []
+        notices: [],
+        chat: [],
+        chatEpoch: 0
     };
 }
 
@@ -144,6 +153,24 @@ export function createStore(deps: StoreDeps): Store {
             serverTime: msg.serverTime,
             receivedAt: deps.now()
         };
+    }
+
+    /**
+     * Whether a fresh CHAT_HISTORY is genuinely the transcript the client
+     * already holds, entry for entry.
+     *
+     * `seq` alone cannot be the key: `Room.rebuild` resets the counter on
+     * every restart, so a `RESTARTED` note can arrive at `seq: 1` — the exact
+     * seq a previous life's first message may also have held. Comparing on
+     * seq alone would call that a no-op and swallow the very note that exists
+     * to tell the reader the transcript did not survive. So the comparison is
+     * every field a JSON round-trip would reveal: `kind`, `sentAt` and the
+     * rest, not only `seq`. Whole-array `JSON.stringify` is the same
+     * technique `room.ts` already uses to size the transcript (`the byte
+     * cap`), so this is not a new idiom in the codebase.
+     */
+    function sameChatHistory(a: readonly ChatEntry[], b: readonly ChatEntry[]): boolean {
+        return a.length === b.length && JSON.stringify(a) === JSON.stringify(b);
     }
 
     /**
@@ -229,6 +256,25 @@ export function createStore(deps: StoreDeps): Store {
 
             case 'PONG':
                 return state;
+
+            case 'CHAT_SAID':
+                return { ...state, chat: [...state.chat, msg.entry] };
+
+            // Replaced whole, never merged. The server sends this on claim and
+            // on every resume, and it is authoritative by construction — a
+            // merge would have to invent a dedupe rule the wire never asked for.
+            // `chatEpoch` moves with it so a surface can tell this apart from
+            // CHAT_SAID without comparing seqs, which a restart can collide.
+            //
+            // A genuine no-op when the entries match what is already held: a
+            // resume on a flaky connection sends this constantly, and bumping
+            // the epoch every time would rebuild the transcript surface on
+            // every reconnect and drop a reader's scroll position back to the
+            // bottom mid-read, even though nothing actually changed.
+            case 'CHAT_HISTORY':
+                return sameChatHistory(msg.entries, state.chat)
+                    ? state
+                    : { ...state, chat: msg.entries, chatEpoch: state.chatEpoch + 1 };
         }
     }
 
@@ -281,6 +327,18 @@ export function createStore(deps: StoreDeps): Store {
 
             commit({ ...state, pendingPlay: { clientMsgId, cardInstanceId: intent.cardInstanceId } });
             return true;
+        },
+
+        sendChat(text) {
+            if (state.matchId === null) return false;
+
+            // Checked here so a message the server would refuse never costs a
+            // frame — and, more to the point, never costs the MALFORMED that
+            // would follow it.
+            const validated = validateChatText(text);
+            if (!validated.ok) return false;
+
+            return deps.send({ type: 'SEND_CHAT', matchId: state.matchId, text: validated.value });
         },
 
         cancelPending() {

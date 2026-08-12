@@ -21,6 +21,10 @@ export interface TransportConfig {
     readonly messageRefillPerSec: number;    // 5
     readonly ipConnectionsPerMinute: number; // 30 — new sockets + room lookups + room creates
     readonly maxNicknameLength: number;      // 24
+    readonly maxChatLength: number;          // 255
+    readonly chatBurst: number;              // 5 — chat's own bucket capacity
+    readonly chatRefillPerSec: number;       // 1
+    readonly chatLogMaxBytes: number;        // 1 MiB of serialized transcript
     /**
      * Directory of built client files to host, or null to serve none.
      *
@@ -55,6 +59,17 @@ export const DEFAULT_CONFIG: TransportConfig = {
     messageRefillPerSec: 5,
     ipConnectionsPerMinute: 30,
     maxNicknameLength: 24,
+    maxChatLength: 255,
+    // Chat spends from its own bucket rather than the shared one, so a player
+    // typing quickly can never rate-limit their own next PLAY_CARD. One a
+    // second sustained is faster than anyone types; five in hand covers a
+    // burst of short replies.
+    chatBurst: 5,
+    chatRefillPerSec: 1,
+    // Insurance, not a working constraint: at 255 characters a message this is
+    // several thousand of them. It exists because a `CHAT_HISTORY` frame is
+    // sent whole to every arriving seat, and `perMessageDeflate` is off.
+    chatLogMaxBytes: 1_048_576,
     staticRoot: null
 };
 

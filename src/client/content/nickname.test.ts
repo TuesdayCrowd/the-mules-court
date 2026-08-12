@@ -69,8 +69,10 @@ describe('agreement with the server', () => {
      * refuse, and never refuses one the server would take.
      */
     function serverAccepts(nickname: string): boolean {
-        return parseClientMessage(JSON.stringify({ type: 'CLAIM_SEAT', matchId: 'K7QX2', nickname }), MAX_NICKNAME_LENGTH)
-            .ok;
+        return parseClientMessage(JSON.stringify({ type: 'CLAIM_SEAT', matchId: 'K7QX2', nickname }), {
+            maxNickname: MAX_NICKNAME_LENGTH,
+            maxChat: 255
+        }).ok;
     }
 
     const CANDIDATES = [
@@ -103,7 +105,7 @@ describe('agreement with the server', () => {
 
         const parsed = parseClientMessage(
             JSON.stringify({ type: 'CLAIM_SEAT', matchId: 'K7QX2', nickname: '  Bayta  ' }),
-            MAX_NICKNAME_LENGTH
+            { maxNickname: MAX_NICKNAME_LENGTH, maxChat: 255 }
         );
         expect(parsed.ok && parsed.msg.type === 'CLAIM_SEAT' ? parsed.msg.nickname : null).toBe(
             result.ok ? result.value : null

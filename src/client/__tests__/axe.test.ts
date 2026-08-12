@@ -6,6 +6,7 @@ import { makeView } from '../store/__fixtures__/view';
 import type { ClientState, LobbySnapshot } from '../store/types';
 import { fakeTimers, loadRealStyles, makeState, makeTable, makeUiRootElement } from '../ui/__fixtures__/dom';
 import { createActionSheet } from '../ui/actionSheet';
+import { createChatRail } from '../ui/chatRail';
 import { createConnectionDot } from '../ui/connectionDot';
 import { createFatalScreen } from '../ui/fatalScreen';
 import { createJoinScreen } from '../ui/joinScreen';
@@ -415,6 +416,40 @@ const SURFACES: ReadonlyArray<readonly [string, Mount]> = [
             drive(dot, root, state);
             drive(toasts, root, state);
         }
+    ],
+    [
+        'chat rail — expanded, with a conversation',
+        root => {
+            const rail = createChatRail({ onSend: () => true, railVisible: () => true });
+            drive(
+                rail,
+                root,
+                makeState({
+                    screen: 'table',
+                    table: makeTable(),
+                    chat: [
+                        { seq: 1, sentAt: 1, kind: 'note', code: 'RESTARTED' },
+                        { seq: 2, sentAt: 2, kind: 'said', from: 'p1', nickname: 'Cornelius', text: 'Anyone seen the Mule?' },
+                        { seq: 3, sentAt: 3, kind: 'said', from: 'p2', nickname: null, text: 'Not saying.' }
+                    ]
+                })
+            );
+        }
+    ],
+    [
+        'chat rail — collapsed, with unread',
+        root => {
+            const rail = createChatRail({ onSend: () => true, railVisible: () => false });
+            drive(
+                rail,
+                root,
+                makeState({
+                    screen: 'table',
+                    table: makeTable(),
+                    chat: [{ seq: 1, sentAt: 1, kind: 'said', from: 'p2', nickname: 'Ana', text: 'your turn' }]
+                })
+            );
+        }
     ]
 ];
 
@@ -441,15 +476,18 @@ describe('the gate itself', () => {
         // A surface added to the DOM layer but not to this list would ship
         // unchecked, and nothing else in the suite would notice.
         //
-        // Twenty cases across seventeen surfaces: the reference dock appears
+        // Twenty-two cases across eighteen surfaces: the reference dock appears
         // twice, because its two tabs render entirely different markup and
         // checking only the one it happens to open on would leave the other
         // unchecked; the mute control appears twice because its name and its
-        // pressed state both change with it; and the lobby appears three times,
+        // pressed state both change with it; the lobby appears three times,
         // because the host-only controls it renders differ by seat status and
         // the computer-seated case is the one that puts three identically
-        // worded buttons on a single screen.
-        expect(SURFACES).toHaveLength(20);
+        // worded buttons on a single screen; and chat appears twice because the
+        // rail and the launcher are different markup and a media query in
+        // `ui.css` — never exercised here — decides which one a real browser
+        // ever paints, so both have to be checked directly.
+        expect(SURFACES).toHaveLength(22);
     });
 
     it('detects a violation rather than passing over it', async () => {

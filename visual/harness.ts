@@ -333,6 +333,125 @@ async function judgeSpecimen(page: Page, viewport: string, specimen: string): Pr
         return;
     }
 
+    if (specimen === 'chat') {
+        const rail = await page.evaluate(() => {
+            const panel = document.querySelector('[data-role="chat-rail"]') as HTMLElement | null;
+            if (panel === null) return null;
+            const lines = [...panel.querySelectorAll('[data-role="chat-line"]')].map(el => ({
+                kind: (el as HTMLElement).dataset.kind ?? '',
+                overflow: el.scrollWidth - el.clientWidth,
+                color: getComputedStyle(el).color
+            }));
+            const form = panel.querySelector('[data-role="chat-form"]') as HTMLElement | null;
+            return {
+                width: Math.round(panel.getBoundingClientRect().width),
+                lines,
+                // The composer must be inside the panel's box. If the transcript
+                // ever grows the panel instead of scrolling, this goes negative.
+                composerBottomGap:
+                    form === null
+                        ? -1
+                        : Math.round(panel.getBoundingClientRect().bottom - form.getBoundingClientRect().bottom)
+            };
+        });
+
+        if (rail === null) {
+            fail(viewport, 'gallery/chat: no rail mounted');
+            return;
+        }
+
+        if (rail.lines.length === 0) fail(viewport, 'gallery/chat: the transcript drew no lines');
+
+        // The bug this specimen exists to catch: 255 unbroken characters
+        // widening the column and taking the scrollbar with them.
+        for (const line of rail.lines) {
+            if (line.overflow > 1) {
+                fail(viewport, `gallery/chat: a ${line.kind} line clips its own text by ${line.overflow}px`);
+            }
+        }
+
+        // A note that resolves to the same colour as speech is a system message
+        // wearing a player's voice.
+        const note = rail.lines.find(line => line.kind === 'note');
+        const said = rail.lines.find(line => line.kind === 'said');
+        if (note !== undefined && said !== undefined && note.color === said.color) {
+            fail(viewport, `gallery/chat: a note and a message share a colour (${note.color}) — indistinguishable`);
+        }
+
+        if (rail.composerBottomGap < 0) {
+            fail(viewport, 'gallery/chat: the composer has been pushed outside the panel by the transcript');
+        }
+
+        console.log(`  ✓ chat: ${rail.lines.length} lines, width ${rail.width}px, composer inside the panel`);
+        return;
+    }
+
+    if (specimen === 'chat-unread') {
+        const badge = await page.evaluate(() => {
+            const launcher = document.querySelector('[data-action="chat"]') as HTMLElement | null;
+            const badgeEl = document.querySelector('[data-role="chat-badge"]') as HTMLElement | null;
+            if (launcher === null || badgeEl === null) return null;
+
+            if (getComputedStyle(launcher).display === 'none') {
+                // The wide breakpoint hides the launcher outright — the rail is
+                // always open there instead, so there is nothing this specimen
+                // can prove about a badge at this width.
+                return 'wide' as const;
+            }
+
+            const launcherRect = launcher.getBoundingClientRect();
+            const badgeRect = badgeEl.getBoundingClientRect();
+
+            return {
+                hidden: badgeEl.hidden,
+                text: badgeEl.textContent ?? '',
+                ariaLabel: launcher.getAttribute('aria-label') ?? '',
+                // Contained, not just "not clipped": a count that pokes even
+                // one pixel outside the button meant to hold it is exactly the
+                // kind of thing a bounding-rect check catches and jsdom cannot.
+                contained:
+                    badgeRect.left >= launcherRect.left - 1 &&
+                    badgeRect.right <= launcherRect.right + 1 &&
+                    badgeRect.top >= launcherRect.top - 1 &&
+                    badgeRect.bottom <= launcherRect.bottom + 1
+            };
+        });
+
+        if (badge === null) {
+            fail(viewport, 'gallery/chat-unread: no launcher or badge in the DOM');
+            return;
+        }
+
+        if (badge === 'wide') {
+            console.log('  · chat-unread: launcher not painted at this width (the rail is always open here) — nothing to judge');
+            return;
+        }
+
+        // Three `said` entries in the gallery specimen, none of them seen —
+        // see visual/gallery.ts for why the badge would read 0 with either
+        // `railVisible: () => true` or the launcher opened.
+        const EXPECTED_UNREAD = '3';
+
+        if (badge.hidden) {
+            fail(viewport, 'gallery/chat-unread: the badge is hidden despite unread messages — a phone player has no other signal');
+        } else if (badge.text !== EXPECTED_UNREAD) {
+            fail(viewport, `gallery/chat-unread: badge reads "${badge.text}", expected "${EXPECTED_UNREAD}"`);
+        }
+
+        if (!badge.contained) {
+            fail(viewport, 'gallery/chat-unread: the badge spills outside the launcher button that is supposed to hold it');
+        }
+
+        // `chatLauncherLabel` pairs the visible digit with a spoken sentence;
+        // the two drifting apart is silent to everyone but a screen reader.
+        if (!badge.ariaLabel.includes(EXPECTED_UNREAD)) {
+            fail(viewport, `gallery/chat-unread: launcher aria-label "${badge.ariaLabel}" does not speak the same count the badge shows`);
+        }
+
+        console.log(`  ✓ chat-unread: badge "${badge.text}", aria-label "${badge.ariaLabel}"`);
+        return;
+    }
+
     // A specimen the gallery publishes and this file has no opinion on. Said out
     // loud rather than passed over: an unjudged specimen is still photographed,
     // and someone should know the picture is all they are getting.

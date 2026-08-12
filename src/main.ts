@@ -42,6 +42,7 @@ import { sheetTargetsFor, unplayableReason } from './client/store/targets';
 import type { ClientState } from './client/store/types';
 import { createActionSheet } from './client/ui/actionSheet';
 import type { SheetRequest, SheetTarget } from './client/ui/actionSheet';
+import { createChatRail } from './client/ui/chatRail';
 import { createClipboard } from './client/ui/clipboard';
 import { createCardHint } from './client/ui/cardHint';
 import { createEliminationNotice } from './client/ui/eliminationNotice';
@@ -107,12 +108,81 @@ function topOfPile(seat: RedactedView['players'][number] | undefined): CardTypeI
     return pile.length === 0 ? null : pile[pile.length - 1].cardId;
 }
 
+/**
+ * How far `window.innerWidth - playArea().w` may drift from zero and still
+ * count as "no rail."
+ *
+ * Defends against one thing only: `playArea()` rounds a measured width, and
+ * `window.innerWidth` can itself be fractional at a non-integer browser zoom
+ * (e.g. 110%), so the two can disagree by a pixel with no rail present at
+ * all — an `innerWidth` of 1440 against a `getBoundingClientRect().width` of
+ * 1439.4, rounded to 1439. A bare `> 0` reads that pixel as the rail, and
+ * `railVisible` deciding a 320px object off a 1px measurement is a different
+ * mistake from the layout's own rounding — the table one pixel narrower is
+ * merely imprecise, but the rail read as present while absent is a chat
+ * badge that silently stops appearing: `drawTranscript`/`drawBadge` in
+ * `chatRail.ts` treat "the rail is visible" as "the player has read it".
+ *
+ * This is NOT a design minimum for a usable rail and must never be scaled
+ * with `--chat-rail-w` — the rail is either its one designed width (20rem)
+ * or gone, so any value comfortably below that width and comfortably above
+ * one rounding error separates the two cases without ambiguity.
+ */
+const RAIL_PRESENCE_SLOP_PX = 8;
+
 function boot(): void {
     const route = parseRoute(location.pathname);
     const matchId = route.kind === 'join' ? route.matchId : null;
 
     const tokens = createSeatTokenStore(window.localStorage);
     const timers = REAL_TIMERS;
+
+    // Looked up here rather than beside the table, because four surfaces
+    // measure it and three of them are constructed before the table is.
+    const container = document.getElementById('game-container') as HTMLElement;
+
+    /**
+     * The box the game actually has, which is the viewport minus the chat rail.
+     *
+     * Measured off `#game-container` rather than computed from
+     * `window.innerWidth`: `ui.css` already insets that element by
+     * `--chat-rail-w`, so asking the element is the same question as asking the
+     * stylesheet, and it cannot drift from it. The pure layer never learns a
+     * rail exists — `computeLayout` is handed a smaller `w` and does what it
+     * always did.
+     */
+    function playArea(): { w: number; h: number } {
+        const box = container.getBoundingClientRect();
+        return { w: Math.round(box.width), h: Math.round(box.height) };
+    }
+
+    /**
+     * Whether the rail is painted rather than collapsed.
+     *
+     * Measured as the gap between the window and the play area, NOT by
+     * reading `--chat-rail-w` back out of `getComputedStyle`. That property is
+     * never declared with `@property` anywhere in `src/client/styles/`, and for
+     * an unregistered custom property `getPropertyValue` hands back the
+     * specified token stream, not a resolved length — the literal string
+     * `"20rem"`, never `"320px"`. `Number.parseFloat` on that string happens to
+     * strip the trailing letters and read `20`, which passes today only
+     * because every value `ui.css` currently writes for the property starts
+     * with a digit; a `calc(...)` or anything else starting with a letter
+     * parses as `NaN`, and the rail would silently report itself invisible
+     * while still on screen, with nothing anywhere to say so. Subtracting two
+     * boxes this file already measures has no token to misread:
+     * `#game-container` is inset by the rail and nothing else, so the
+     * difference between the window and `playArea()` is the rail's actual
+     * width in resolved pixels, however the property happens to be written.
+     * The breakpoint still lives in exactly one place — `ui.css` — this just
+     * asks the boxes instead of the declaration.
+     *
+     * Compared against `RAIL_PRESENCE_SLOP_PX` rather than zero — see that
+     * constant for why a sign test is not safe here.
+     */
+    function railVisible(): boolean {
+        return window.innerWidth - playArea().w > RAIL_PRESENCE_SLOP_PX;
+    }
 
     // --- store and socket, mutually dependent
     let socket: ReturnType<typeof createSocket> | null = null;
@@ -187,7 +257,7 @@ function boot(): void {
             return drawn === null ? null : panelSafeTop(drawn.opponentsBottom, window.innerHeight);
         }
     });
-    const cardHint = createCardHint({ viewport: () => ({ w: window.innerWidth, h: window.innerHeight }) });
+    const cardHint = createCardHint({ viewport: playArea });
     const eliminationNotice = createEliminationNotice();
 
     /**
@@ -293,6 +363,12 @@ function boot(): void {
      */
     uiRoot.add(toasts);
     uiRoot.add(referenceDock);
+    uiRoot.add(
+        createChatRail({
+            onSend: text => store.sendChat(text),
+            railVisible
+        })
+    );
     uiRoot.add(cardHint);
     uiRoot.add(eliminationNotice);
     uiRoot.add(seatDossier);
@@ -330,7 +406,6 @@ function boot(): void {
     //    proxied are one object. Keeping both would announce every seat twice.
     //
     // Full reasoning: `docs/plans/2026-07-30-renderer-architecture-research.md`.
-    const container = document.getElementById('game-container') as HTMLElement;
 
     const table = createTable({
         onCardSelected: id => openSheetFor(id),
@@ -353,7 +428,7 @@ function boot(): void {
             const latest = won[won.length - 1];
             referenceDock.open('log', ...(latest === undefined ? [] : [{ round: latest.roundNumber }]));
         },
-        viewport: () => ({ w: window.innerWidth, h: window.innerHeight }),
+        viewport: playArea,
         timers
     });
     table.mount(container);
@@ -375,7 +450,7 @@ function boot(): void {
         // Read per beat, never cached: a player can change the system setting
         // mid-session and the next beat has to obey it (UIX §8.5).
         reducedMotion: () => window.matchMedia('(prefers-reduced-motion: reduce)').matches,
-        viewport: () => ({ w: window.innerWidth, h: window.innerHeight }),
+        viewport: playArea,
         tableRoot: () => container
     });
 
@@ -549,7 +624,7 @@ function boot(): void {
             cardInstanceId,
             targets,
             ...(reason === undefined ? {} : { unplayable: reason }),
-            available: { w: window.innerWidth, h: window.innerHeight },
+            available: playArea(),
             /**
              * Read off the table's own spec rather than recomputed here.
              *
@@ -666,6 +741,15 @@ function boot(): void {
          * PREVIOUS push's layout — an empty hand on the first deal, measured in
          * a browser. Real buttons cannot desynchronise from themselves, so the
          * ordering hazard is gone with the twin that created it.
+         *
+         * This call's `viewport` is `playArea`, which calls
+         * `getBoundingClientRect()` — a forced synchronous layout, run right
+         * after `uiRoot.update(state)` has just mutated sibling DOM, on the
+         * busiest path in this file (every store push). Deliberately not
+         * cached: a resize or the rail opening/closing has to be reflected on
+         * the very next push, and this game's cadence is turn-based socket
+         * events, not a render loop, so one reflow per push is not a cost
+         * worth engineering around.
          */
         table.update(state);
 

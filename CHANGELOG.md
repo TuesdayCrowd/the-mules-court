@@ -7,6 +7,26 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 
 ## [Unreleased]
 
+### Added
+
+- **The people at the table can talk to each other.** One public channel per
+  match, live from the moment the host creates the lobby, and whoever joins next
+  is handed everything already said — so arriving third does not mean arriving
+  into a conversation you cannot follow. On a wide screen it is a rail beside
+  the table; on anything smaller it is a button with a count on it, and the
+  count stays until you open it. Messages are 255 characters of plain ASCII,
+  which is also what keeps every one of them a single line.
+
+  Nothing is written down. The transcript lives in the room's memory and dies
+  with the room, so a finished match leaves nothing behind — and a server
+  restart takes it too, which is why a restarted court says so in the
+  transcript rather than quietly presenting an empty one.
+
+  The speaker's name travels with each message rather than being looked up when
+  it is drawn. A seat whose player disconnects is reopened after a minute and
+  handed to whoever arrives next, so the second reading would have put one
+  person's words in another person's mouth an hour later.
+
 ## [1.2.5] - 2026-08-07
 
 Two pieces of gameplay feedback from a real match, the pre-existing bugs that

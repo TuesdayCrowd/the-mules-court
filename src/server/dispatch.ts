@@ -65,7 +65,8 @@ function requiresBoundSeat(type: ClientMessage['type']): boolean {
         type === 'ADD_BOT' ||
         type === 'REMOVE_BOT' ||
         type === 'END_MATCH' ||
-        type === 'REQUEST_RESYNC'
+        type === 'REQUEST_RESYNC' ||
+        type === 'SEND_CHAT'
     );
 }
 
@@ -73,6 +74,15 @@ function requiresBoundSeat(type: ClientMessage['type']): boolean {
 export interface ConnectionState {
     readonly ip: string;
     readonly bucket: TokenBucket;
+    /**
+     * Chat's own allowance, spent INSTEAD of `bucket` rather than beside it.
+     *
+     * The shared bucket is spent before any branch on type, so chat drawing
+     * from it too would let a player typing quickly rate-limit their own next
+     * PLAY_CARD. This one is strictly tighter than the shared bucket, so
+     * routing around it loosens nothing.
+     */
+    readonly chatBucket: TokenBucket;
     /** Bound by a successful CLAIM_SEAT/RESUME_SEAT only; the only writer is `dispatchMessage`. */
     seat: PlayerId | null;
     matchId: string | null;
@@ -95,15 +105,18 @@ export async function dispatchMessage(
     raw: string
 ): Promise<void> {
     // Steps 2-3.
-    const parsed = parseClientMessage(raw, config.maxNicknameLength);
+    const parsed = parseClientMessage(raw, { maxNickname: config.maxNicknameLength, maxChat: config.maxChatLength });
     if (!parsed.ok) {
         sendError(state.conn, 'MALFORMED');
         return;
     }
     const msg = parsed.msg;
 
-    // Step 4 — every message type spends a token, PING included.
-    if (!state.bucket.take()) {
+    // Step 4 — every message type spends a token, PING included. Chat spends
+    // from its own bucket instead of the shared one, so a burst of typing can
+    // never leave the sender's next PLAY_CARD without an allowance.
+    const bucket = msg.type === 'SEND_CHAT' ? state.chatBucket : state.bucket;
+    if (!bucket.take()) {
         sendError(state.conn, 'RATE_LIMITED');
         return;
     }
@@ -189,6 +202,9 @@ export async function dispatchMessage(
                     break;
                 case 'REQUEST_RESYNC':
                     room.resync(state.conn);
+                    break;
+                case 'SEND_CHAT':
+                    room.sendChat(state.conn, msg.text);
                     break;
             }
         });

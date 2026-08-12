@@ -75,7 +75,9 @@ const BASE_STATE: ClientState = {
     ended: null,
     pendingPlay: null,
     fatal: null,
-    notices: []
+    notices: [],
+    chat: [],
+    chatEpoch: 0
 };
 
 export function makeState(overrides: Partial<ClientState> = {}): ClientState {
