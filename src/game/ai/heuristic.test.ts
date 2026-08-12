@@ -120,6 +120,33 @@ describe('heuristicPolicy', () => {
         expect(decision.guess).toBe(CARD_CATALOG[known.cardTypeId].value);
     });
 
+    test('does not trade an Informant away on a King when the target could name it back', () => {
+        // The worst case for a King: the kept card IS the Informant, so a trade
+        // hands the target a certain, nameable read the instant they can play
+        // their own Informant — keptValue === INFORMANT_VALUE is the case the
+        // scorer cannot distinguish from a safe trade without a leak term.
+        //
+        // Excludes a live peek and a one-opponent endgame: either lets the
+        // census collapse to certainty on its own (a known hand, or a single
+        // unseen card late in the deck), which makes an Informant guess the
+        // obvious top move for a reason that has nothing to do with the King's
+        // own leak — and would pass even against the unfixed scorer.
+        const found = findState(seat => {
+            const king = holding(seat, 6);
+            if (king === undefined || holding(seat, 1) === undefined) return false;
+            const targets = seat.own.legalTargets[king] ?? [];
+            if (targets.length === 0 || seat.revealed.length !== 0) return false;
+            const aliveOpponents = seat.players.filter(
+                player => player.alive && player.id !== seat.own.playerId
+            ).length;
+            return aliveOpponents >= 2;
+        }, 20_000);
+        expect(found, 'no King-beside-Informant position with a diffuse census found').toBeDefined();
+
+        const decision = heuristicPolicy.decide(found!.seat, makeRng('king-leak'))!;
+        expect(decision.cardInstanceId).not.toBe(holding(found!.seat, 6));
+    });
+
     test('shields the Mule rather than carrying it unprotected', () => {
         const found = findState(
             seat => holding(seat, 8) !== undefined && holding(seat, 4) !== undefined,

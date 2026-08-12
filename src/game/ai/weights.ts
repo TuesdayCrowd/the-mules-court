@@ -39,6 +39,8 @@ export interface Weights {
     readonly princeCycle: number;
     /** × (their expected value − mine). */
     readonly kingGain: number;
+    /** × P(the target can name the hand a trade just handed them). */
+    readonly kingLeak: number;
     /** A free discard that keeps the other card. */
     readonly countessBase: number;
     /** Discarding the Mule, or trading it away. Not a trade-off. */
@@ -66,6 +68,7 @@ export const DEFAULT_WEIGHTS: Weights = {
     princeDisrupt: 2,
     princeCycle: 3,
     kingGain: 6,
+    kingLeak: -90,
     countessBase: 4,
     selfDestruct: -1000,
     keepValue: 6
