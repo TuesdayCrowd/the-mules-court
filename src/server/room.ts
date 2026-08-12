@@ -566,6 +566,20 @@ export class Room {
             return { seat: seat.index, playerId: seat.playerId };
         }
 
+        // A room can reach 'ended' having never held a match at all — the
+        // lobby TTL sweep and endMatch's host-missing-lobby-grace path both
+        // call transitionToEnded straight out of 'lobby', where `match` was
+        // always null. `buildStateUpdate` below requires one and throws
+        // without it, so there is no STATE_UPDATE this resume could ever
+        // receive — and answering with nothing would leave this seat on its
+        // "taking your seat" screen forever, indistinguishable from a slow
+        // connection. Answered the same way claimSeat already answers a
+        // fresh joiner arriving after the room is gone.
+        if (this.phase === 'ended' && this.match === null) {
+            this.sendError(conn, 'MATCH_OVER');
+            return { seat: seat.index, playerId: seat.playerId };
+        }
+
         // Design §7's reconnection order: bind above, then — only when THIS
         // resume is what cleared the last missing seat — re-arm BEFORE
         // building any push, so this seat's own repaint already carries the
@@ -587,7 +601,16 @@ export class Room {
             this.send(conn, this.buildStateUpdate(seat));
         }
 
-        if (nowUnpaused) {
+        // `nowUnpaused` is computed from `paused` alone, which — like
+        // `missingSeats` underneath it — takes no notice of phase, so it says
+        // nothing about whether a match exists to describe. The 'ended'-with-
+        // no-match branch above already returns before this point, which is
+        // why this guard is currently unreachable-when-false — but it stays
+        // explicit, matching the STATE_UPDATE send just above it, rather than
+        // trusting a return two branches up: a phase added later without
+        // updating this line should fail closed, not throw into a socket
+        // handler the way this line once did.
+        if (nowUnpaused && this.match !== null) {
             this.pushStateToConnectedSeats(seat);
             // The bots stopped when the table paused; a resume is what restarts
             // them, and only after the state push so the reconnecting player
